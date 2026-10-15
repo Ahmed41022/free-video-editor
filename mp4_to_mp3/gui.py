@@ -92,6 +92,7 @@ class ConverterApp(ttk.Frame):
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=scrollbar.set)
         self.tree.bind("<Delete>", lambda _e: self._remove_selected())
+        self.master.bind("<Return>", lambda _e: None if self._busy() else self._start())
 
         options = ttk.LabelFrame(self, text="Options", padding=8)
         options.grid(row=2, column=0, sticky="ew", pady=8)
@@ -317,10 +318,27 @@ class ConverterApp(ttk.Frame):
         self.master.destroy()
 
 
-def main() -> None:
+def _set_window_icon(root: tk.Tk) -> None:
+    # Inside the .exe, bundled files live in sys._MEIPASS; otherwise next to the package.
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    icon = base / "assets" / "icon.ico"
+    if sys.platform == "win32" and icon.is_file():
+        try:
+            # Give the window its own taskbar entry and icon instead of Python's.
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("VideoConverter.MP4toMP3")
+            root.iconbitmap(default=str(icon))
+        except (OSError, tk.TclError, AttributeError):
+            pass
+
+
+def main(paths: Optional[list[str]] = None) -> None:
+    """Open the app. `paths` (e.g. videos dropped onto the .exe) are added to the list."""
     root = tk.Tk()
-    root.title(f"MP4 to MP3 Converter {__version__}")
+    root.title(f"Video Converter {__version__} - MP4 to MP3")
     root.minsize(640, 460)
+    _set_window_icon(root)
 
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
@@ -335,5 +353,7 @@ def main() -> None:
         root.destroy()
         return
 
-    ConverterApp(root, ffmpeg)
+    app = ConverterApp(root, ffmpeg)
+    if paths:
+        app._add_paths([Path(p) for p in paths if Path(p).is_file()])
     root.mainloop()

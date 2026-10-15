@@ -2,9 +2,11 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# PyInstaller (.exe) build output
 build/
 dist/
-*.egg-info/
+*.spec
 
 # Media files created while trying the app
 *.mp3

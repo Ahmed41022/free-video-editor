@@ -1,0 +1,16 @@
+The Windows executable of Video Converter includes an unmodified copy of FFmpeg
+(https://ffmpeg.org), which it runs as a separate program to convert files.
+
+That FFmpeg build is a static "essentials" build by gyan.dev, distributed through
+the imageio-ffmpeg package (https://github.com/imageio/imageio-ffmpeg). It is
+licensed under the GNU General Public License, version 3 (GPLv3):
+https://www.gnu.org/licenses/gpl-3.0.html
+
+Source code:
+  FFmpeg:              https://ffmpeg.org/download.html#get-sources
+  Build configuration: https://www.gyan.dev/ffmpeg/builds/
+
+FFmpeg is a trademark of Fabrice Bellard, originator of the FFmpeg project.
+
+Video Converter's own source code is licensed separately under the MIT License
+(see LICENSE).
