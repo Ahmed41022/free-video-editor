@@ -5,7 +5,7 @@ Everything runs locally on your computer; no files are uploaded anywhere.
 
 ## Download
 
-Grab **`Video Converter.exe`** from the [latest release](https://github.com/Ahmed41022/video-converter/releases/latest) and double-click it.
+Grab **`VideoConverter.exe`** from the [latest release](https://github.com/Ahmed41022/video-converter/releases/latest) and double-click it.
 Nothing else to install: ffmpeg is built into the exe.
 
 > Windows SmartScreen may warn about an unrecognized app the first time because the exe isn't code-signed.
