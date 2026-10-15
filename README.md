@@ -8,7 +8,7 @@ Everything runs locally on your computer with [ffmpeg](https://ffmpeg.org/); no 
 - Convert one file or a whole batch at once (add files or an entire folder)
 - Choose the quality: 128 / 192 / 256 / 320 kbps, or variable bitrate
 - Save next to each video or into a folder of your choice
-- Never overwrites existing files (`song.mp3` becomes `song (1).mp3`)
+- Never overwrites existing files (`file.mp3` becomes `file (1).mp3`)
 - Per-file and overall progress, with a Cancel button
 - Keeps metadata such as title and artist when the video has it
 - Also accepts MOV, MKV, AVI, WEBM, M4V and other common video formats
