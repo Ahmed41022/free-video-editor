@@ -1,4 +1,4 @@
-"""Conversion logic: locate ffmpeg, probe durations, and extract MP3 audio."""
+"""Shared ffmpeg plumbing: locate ffmpeg, probe files, run conversions, extract MP3 audio."""
 
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ QUALITY_PRESETS = {
 DEFAULT_QUALITY = "192 kbps"
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
+_VIDEO_STREAM_RE = re.compile(r"Stream #\d+:\d+.*?: Video: .*?(\d{2,5})x(\d{2,5})")
+_ROTATION_RE = re.compile(r"rotation of (-?\d+(?:\.\d+)?) degrees")
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
@@ -85,13 +87,58 @@ def unique_output_path(path: Path) -> Path:
         n += 1
 
 
-def output_path_for(source: Path, output_dir: Optional[Path] = None, overwrite: bool = False) -> Path:
-    target = (output_dir or source.parent) / f"{source.stem}.mp3"
+def output_path_for(
+    source: Path,
+    output_dir: Optional[Path] = None,
+    overwrite: bool = False,
+    suffix: str = ".mp3",
+    name_tag: str = "",
+) -> Path:
+    """Where to save the result for `source`. `name_tag` is appended to the file name,
+    e.g. " (edited)", so an exported MP4 never replaces the original video."""
+    target = (output_dir or source.parent) / f"{source.stem}{name_tag}{suffix}"
     return target if overwrite else unique_output_path(target)
 
 
-def probe_duration(ffmpeg: str, source: Path) -> Optional[float]:
-    """Return the media duration in seconds, or None if it can't be determined."""
+def parse_time(text: str) -> Optional[float]:
+    """Parse "90", "1:30", "01:02:03.5" into seconds. Empty text means no value."""
+    text = text.strip()
+    if not text:
+        return None
+    parts = text.split(":")
+    if len(parts) > 3:
+        raise ValueError(f"Invalid time: {text!r}")
+    try:
+        seconds = 0.0
+        for part in parts:
+            seconds = seconds * 60 + float(part)
+    except ValueError:
+        raise ValueError(f"Invalid time: {text!r} (use seconds, m:ss or h:mm:ss)") from None
+    if seconds < 0:
+        raise ValueError(f"Invalid time: {text!r}")
+    return seconds
+
+
+def format_time(seconds: float) -> str:
+    seconds = max(seconds, 0.0)
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{int(h)}:{int(m):02d}:{s:04.1f}" if h >= 1 else f"{int(m)}:{s:04.1f}"
+
+
+@dataclass
+class MediaInfo:
+    duration: Optional[float]
+    width: Optional[int] = None    # as displayed, i.e. after any rotation metadata
+    height: Optional[int] = None
+    has_audio: bool = False
+
+    @property
+    def has_video(self) -> bool:
+        return bool(self.width and self.height)
+
+
+def _ffmpeg_info_text(ffmpeg: str, source: Path) -> str:
     result = subprocess.run(
         [ffmpeg, "-hide_banner", "-i", str(source)],
         capture_output=True,
@@ -101,45 +148,69 @@ def probe_duration(ffmpeg: str, source: Path) -> Optional[float]:
         stdin=subprocess.DEVNULL,
         creationflags=_NO_WINDOW,
     )
-    match = _DURATION_RE.search(result.stderr)
-    if not match:
+    return result.stderr
+
+
+def parse_media_info(text: str) -> MediaInfo:
+    """Read duration, display size and audio presence from `ffmpeg -i` output."""
+    duration = None
+    match = _DURATION_RE.search(text)
+    if match:
+        hours, minutes, seconds = match.groups()
+        duration = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+    info = MediaInfo(duration, has_audio=bool(re.search(r"Stream #\d+:\d+.*?: Audio:", text)))
+    video = _VIDEO_STREAM_RE.search(text)
+    if video:
+        width, height = int(video.group(1)), int(video.group(2))
+        # ffmpeg applies rotation metadata automatically, so a phone video stored
+        # as 1920x1080 "rotated 90" is really 1080x1920.
+        rotation = _ROTATION_RE.search(text[video.start():])
+        if rotation and round(abs(float(rotation.group(1)))) % 180 == 90:
+            width, height = height, width
+        info.width, info.height = width, height
+    return info
+
+
+def probe_media(ffmpeg: str, source: Path) -> MediaInfo:
+    return parse_media_info(_ffmpeg_info_text(ffmpeg, source))
+
+
+def probe_duration(ffmpeg: str, source: Path) -> Optional[float]:
+    """Return the media duration in seconds, or None if it can't be determined."""
+    return probe_media(ffmpeg, source).duration
+
+
+def trim_args(start: Optional[float], end: Optional[float]) -> list[str]:
+    """Input options that keep only start..end of the source."""
+    args = []
+    if start:
+        args += ["-ss", f"{start:.3f}"]
+    if end is not None:
+        args += ["-to", f"{end:.3f}"]
+    return args
+
+
+def trimmed_duration(duration: Optional[float], start: Optional[float], end: Optional[float]) -> Optional[float]:
+    if duration is None and end is None:
         return None
-    hours, minutes, seconds = match.groups()
-    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    stop = min(end, duration) if (end is not None and duration) else (end or duration)
+    return max(stop - (start or 0.0), 0.0)
 
 
-@dataclass
-class ConversionJob:
-    source: Path
-    output: Path
-    quality: str = DEFAULT_QUALITY
-
-
-def convert(
-    ffmpeg: str,
-    job: ConversionJob,
+def run_ffmpeg(
+    cmd: list[str],
+    output: Path,
+    duration: Optional[float],
     on_progress: Optional[Callable[[float], None]] = None,
     cancel_event: Optional[threading.Event] = None,
 ) -> Path:
-    """Extract the first audio track of `job.source` into an MP3 at `job.output`.
+    """Run an ffmpeg command that ends with `-progress pipe:1 -nostats <output>`.
 
     `on_progress` receives a fraction between 0 and 1 (only when the duration
     is known). Setting `cancel_event` stops ffmpeg and removes the partial file.
     """
-    if not job.source.is_file():
-        raise ConversionError(f"File not found: {job.source}")
-
-    duration = probe_duration(ffmpeg, job.source)
-    job.output.parent.mkdir(parents=True, exist_ok=True)
-
-    cmd = [
-        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-        "-i", str(job.source),
-        "-map", "0:a:0", "-vn", "-map_metadata", "0",
-        "-c:a", "libmp3lame", *QUALITY_PRESETS[job.quality],
-        "-progress", "pipe:1", "-nostats",
-        str(job.output),
-    ]
+    output.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -173,10 +244,10 @@ def convert(
     proc.stderr.close()
 
     if cancelled:
-        job.output.unlink(missing_ok=True)
+        output.unlink(missing_ok=True)
         raise ConversionCancelled()
     if proc.returncode != 0:
-        job.output.unlink(missing_ok=True)
+        output.unlink(missing_ok=True)
         message = "".join(errors).strip() or f"ffmpeg exited with code {proc.returncode}"
         if "matches no streams" in message:
             message = "This file has no audio track."
@@ -184,4 +255,38 @@ def convert(
 
     if on_progress:
         on_progress(1.0)
-    return job.output
+    return output
+
+
+@dataclass
+class ConversionJob:
+    source: Path
+    output: Path
+    quality: str = DEFAULT_QUALITY
+    start: Optional[float] = None   # seconds; None = from the beginning
+    end: Optional[float] = None     # seconds; None = to the end
+
+
+def convert(
+    ffmpeg: str,
+    job: ConversionJob,
+    on_progress: Optional[Callable[[float], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
+) -> Path:
+    """Extract the first audio track of `job.source` into an MP3 at `job.output`."""
+    if not job.source.is_file():
+        raise ConversionError(f"File not found: {job.source}")
+    if job.start is not None and job.end is not None and job.end <= job.start:
+        raise ConversionError("The trim end time must be after the start time.")
+
+    duration = trimmed_duration(probe_duration(ffmpeg, job.source), job.start, job.end)
+    cmd = [
+        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+        *trim_args(job.start, job.end),
+        "-i", str(job.source),
+        "-map", "0:a:0", "-vn", "-map_metadata", "0",
+        "-c:a", "libmp3lame", *QUALITY_PRESETS[job.quality],
+        "-progress", "pipe:1", "-nostats",
+        str(job.output),
+    ]
+    return run_ffmpeg(cmd, job.output, duration, on_progress, cancel_event)
