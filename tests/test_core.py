@@ -4,7 +4,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from mp4_to_mp3.core import (
+from video_converter.core import (
     ConversionCancelled,
     ConversionError,
     ConversionJob,

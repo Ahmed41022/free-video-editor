@@ -1,8 +1,8 @@
 """Entry point.
 
-    python -m mp4_to_mp3                          # open the desktop app
-    python -m mp4_to_mp3 video.mp4 [...]          # convert to MP3 from the command line
-    python -m mp4_to_mp3 video.mp4 --video phone  # export an edited MP4 instead
+    python -m video_converter                          # open the desktop app
+    python -m video_converter video.mp4 [...]          # convert to MP3 from the command line
+    python -m video_converter video.mp4 --video phone  # export an edited MP4 instead
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def _time(text: str) -> float:
 
 
 def run_cli(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="mp4_to_mp3", description="Convert videos to MP3, or export edited MP4s.")
+    parser = argparse.ArgumentParser(prog="video_converter", description="Convert videos to MP3, or export edited MP4s.")
     parser.add_argument("files", nargs="+", type=Path, help="video files to convert")
     parser.add_argument("-o", "--output-dir", type=Path, help="folder for the results (default: next to each video)")
     parser.add_argument(
@@ -117,10 +117,9 @@ def run_cli(argv: list[str]) -> int:
 def main() -> int:
     if len(sys.argv) > 1:
         return run_cli(sys.argv[1:])
-    from .gui import main as gui_main
+    from .ui.app import main as gui_main
 
-    gui_main()
-    return 0
+    return gui_main()
 
 
 if __name__ == "__main__":

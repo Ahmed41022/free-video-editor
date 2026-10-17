@@ -1,6 +1,6 @@
 """Build a standalone Windows executable: dist/Video Converter.exe
 
-The exe bundles its own copy of ffmpeg, so it runs on PCs without ffmpeg installed.
+The exe bundles its own copy of ffmpeg and the Qt libraries, so it runs on PCs with nothing else installed.
 
     python -m venv .venv
     .venv\\Scripts\\pip install -r requirements-build.txt
@@ -17,7 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from mp4_to_mp3 import __version__
+from video_converter import __version__
 
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
@@ -86,8 +86,11 @@ def main() -> None:
             "--add-data", f"{ROOT / 'assets' / 'icon.ico'}{sep}assets",
             "--add-binary", f"{staging / 'ffmpeg' / 'ffmpeg.exe'}{sep}ffmpeg",
             "--add-data", f"{staging / 'ffmpeg' / 'NOTICE.txt'}{sep}ffmpeg",
+            "--add-data", f"{ROOT / 'licenses'}{sep}licenses",
+            "--add-data", f"{ROOT / 'LICENSE'}{sep}.",
             # ffmpeg is bundled directly; don't pull in imageio-ffmpeg's copy as well.
             "--exclude-module", "imageio_ffmpeg",
+            "--exclude-module", "tkinter",
             "--distpath", str(ROOT / "dist"),
             "--workpath", str(BUILD / "pyinstaller"),
             "--specpath", str(BUILD),

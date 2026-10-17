@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mp4_to_mp3.core import (
+from video_converter.core import (
     ConversionError,
     ConversionJob,
     convert,
@@ -14,7 +14,7 @@ from mp4_to_mp3.core import (
     parse_time,
     probe_media,
 )
-from mp4_to_mp3.video import VideoEdit, VideoJob, convert_video, plan_geometry, render_frame, render_source_frames
+from video_converter.video import VideoEdit, VideoJob, convert_video, plan_geometry, render_frame, render_source_frames
 
 FFMPEG = find_ffmpeg()
 ROOT = Path(__file__).resolve().parent.parent
@@ -162,7 +162,7 @@ class VideoExportTests(unittest.TestCase):
 
     def test_command_line_video_export(self):
         result = subprocess.run(
-            [sys.executable, "-m", "mp4_to_mp3", str(self.landscape), "--video", "square", "--fit", "bars",
+            [sys.executable, "-m", "video_converter", str(self.landscape), "--video", "square", "--fit", "bars",
              "--end", "2", "-o", str(self.tmp / "cli")],
             cwd=ROOT, capture_output=True, text=True,
         )

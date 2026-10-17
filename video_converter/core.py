@@ -132,6 +132,9 @@ class MediaInfo:
     width: Optional[int] = None    # as displayed, i.e. after any rotation metadata
     height: Optional[int] = None
     has_audio: bool = False
+    # Clockwise turn (0, 90, 180, 270) that rotation metadata asks players to apply to
+    # the stored frames. ffmpeg applies it automatically; a raw decoder may not.
+    display_rotation: int = 0
 
     @property
     def has_video(self) -> bool:
@@ -165,8 +168,16 @@ def parse_media_info(text: str) -> MediaInfo:
         width, height = int(video.group(1)), int(video.group(2))
         # ffmpeg applies rotation metadata automatically, so a phone video stored
         # as 1920x1080 "rotated 90" is really 1080x1920.
-        rotation = _ROTATION_RE.search(text[video.start():])
-        if rotation and round(abs(float(rotation.group(1)))) % 180 == 90:
+        # Only look at this stream's own lines; later streams (e.g. cover art) have their own.
+        section = text[video.start():]
+        next_stream = re.search(r"\n\s*Stream #", section[1:])
+        if next_stream:
+            section = section[:next_stream.start() + 1]
+        rotation = _ROTATION_RE.search(section)
+        if rotation:
+            # ffmpeg reports the display matrix angle counter-clockwise.
+            info.display_rotation = (-round(float(rotation.group(1)) / 90) * 90) % 360
+        if info.display_rotation in (90, 270):
             width, height = height, width
         info.width, info.height = width, height
     return info

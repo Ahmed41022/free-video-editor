@@ -1,0 +1,716 @@
+"""The main editor window."""
+
+from __future__ import annotations
+
+import json
+import shutil
+import tempfile
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+from PySide6.QtCore import QEvent, QObject, QSettings, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap, QUndoCommand, QUndoStack
+from PySide6.QtWidgets import (
+    QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter,
+    QToolBar, QToolButton, QVBoxLayout, QWidget,
+)
+
+from .. import __version__
+from ..core import VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_video_file, probe_media
+from ..jobs import Job, JobQueue
+from ..media import extract_thumbnails, extract_waveform
+from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
+from ..video import plan_geometry, render_frame
+from . import icons, theme
+from .inspector import Inspector
+from .player import Player, VideoView
+from .queue_panel import QueueBridge, QueuePanel
+from .timeline import Timeline
+
+FRAME_STEP = 1 / 30
+
+
+@dataclass(eq=False)
+class MediaItem:
+    path: Path
+    settings: ClipSettings = field(default_factory=ClipSettings)
+    info: Optional[MediaInfo] = None
+    thumbs: list[QPixmap] = field(default_factory=list)
+    waveform: list[float] = field(default_factory=list)
+    list_item: Optional[QListWidgetItem] = None
+    loading: bool = True
+    error: str = ""
+
+
+class SettingsCommand(QUndoCommand):
+    """One undoable settings change. Continuous edits (dragging the crop box or a
+    slider) merge into a single step."""
+
+    MERGE_ID = 1001
+
+    def __init__(self, window: "MainWindow", item: MediaItem, before: ClipSettings, after: ClipSettings,
+                 label: str, mergeable: bool):
+        super().__init__(label)
+        self.window, self.item = window, item
+        self.before, self.after = before.copy(), after.copy()
+        self.mergeable = mergeable
+
+    def id(self) -> int:
+        return self.MERGE_ID if self.mergeable else -1
+
+    def mergeWith(self, other: QUndoCommand) -> bool:
+        if (isinstance(other, SettingsCommand) and other.item is self.item and other.text() == self.text()
+                and self.window.merge_open):
+            self.after = other.after.copy()
+            return True
+        return False
+
+    def redo(self) -> None:
+        self.window.apply_settings(self.item, self.after)
+
+    def undo(self) -> None:
+        self.window.apply_settings(self.item, self.before)
+
+
+class Signals(QObject):
+    """Results from background threads, delivered on the UI thread."""
+    loaded = Signal(object, object, object, object)   # item, info, thumbnail paths, waveform
+    afterReady = Signal(int, object)                   # request token, QImage or error text
+
+
+class MainWindow(QMainWindow):
+    def __init__(self, ffmpeg: str, settings: Optional[QSettings] = None):
+        super().__init__()
+        self.ffmpeg = ffmpeg
+        self.store = settings or QSettings("VideoConverter", "Video Converter")
+        self.items: list[MediaItem] = []
+        self.current: Optional[MediaItem] = None
+        self.output_dir: Optional[Path] = None
+        self.user_presets: dict[str, dict] = {}
+        self.merge_open = False
+        self.theme_mode = "dark"
+        self.tmpdir = Path(tempfile.mkdtemp(prefix="videoconverter-"))
+        self.loader = ThreadPoolExecutor(max_workers=2, thread_name_prefix="media-loader")
+        self.signals = Signals()
+        self.signals.loaded.connect(self._on_loaded)
+        self.signals.afterReady.connect(self._on_after_ready)
+        self._after_token = 0
+        self._after_timer = QTimer(self, singleShot=True, interval=250, timeout=self._render_after)
+
+        self.undo_stack = QUndoStack(self)
+        self.bridge = QueueBridge()
+        self.queue = JobQueue(ffmpeg, on_update=self.bridge.jobUpdated.emit)
+        self.player = Player(self)
+
+        self.setWindowTitle(f"Video Converter {__version__}")
+        self.setAcceptDrops(True)
+        self.resize(1320, 840)
+        self._build()
+        self._load_preferences()
+        self._connect()
+        QApplication.instance().installEventFilter(self)
+        self.select(None)
+
+    # ----- layout -------------------------------------------------------------
+
+    def _build(self) -> None:
+        toolbar = QToolBar("Main")
+        toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(18, 18))
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.addToolBar(toolbar)
+
+        def action(text: str, icon: str, slot, shortcut=None, tip: str = "") -> QAction:
+            act = QAction(text, self)
+            act.setData(icon)
+            act.triggered.connect(slot)
+            if shortcut:
+                act.setShortcut(QKeySequence(shortcut))
+            act.setToolTip(f"{tip or text} ({QKeySequence(shortcut).toString()})" if shortcut else (tip or text))
+            toolbar.addAction(act)
+            return act
+
+        self.add_action = action("Add files", "add", self.choose_files, "Ctrl+O")
+        self.folder_action = action("Add folder", "folder", self.choose_folder)
+        self.remove_action = action("Remove", "trash", self.remove_selected, tip="Remove the selected file")
+        toolbar.addSeparator()
+        self.undo_action = self.undo_stack.createUndoAction(self, "Undo")
+        self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        self.undo_action.setData("undo")
+        self.redo_action = self.undo_stack.createRedoAction(self, "Redo")
+        self.redo_action.setShortcuts([QKeySequence.StandardKey.Redo, QKeySequence("Ctrl+Y")])
+        self.redo_action.setData("redo")
+        toolbar.addAction(self.undo_action)
+        toolbar.addAction(self.redo_action)
+        toolbar.addSeparator()
+        self.theme_action = action("Theme", "moon", self.toggle_theme, tip="Switch between dark and light")
+
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
+        self.export_all_button = QPushButton("Export all")
+        self.export_all_button.setToolTip("Export every file in the list (Ctrl+Shift+E)")
+        self.export_all_button.clicked.connect(self.export_all)
+        self.export_button = QPushButton("Export")
+        self.export_button.setObjectName("primary")
+        self.export_button.setToolTip("Export the selected file (Ctrl+E)")
+        self.export_button.clicked.connect(self.export_current)
+        toolbar.addWidget(self.export_all_button)
+        toolbar.addWidget(self.export_button)
+        for shortcut, slot in (("Ctrl+E", self.export_current), ("Ctrl+Shift+E", self.export_all)):
+            act = QAction(self)
+            act.setShortcut(QKeySequence(shortcut))
+            act.triggered.connect(slot)
+            self.addAction(act)
+
+        # media list
+        self.media_list = QListWidget()
+        self.media_list.setIconSize(QSize(96, 54))
+        self.media_list.setMinimumWidth(210)
+        self.media_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.media_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.media_list.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.media_list.setWordWrap(False)
+
+        # center: preview, transport, timeline
+        center = QWidget()
+        center_layout = QVBoxLayout(center)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(0)
+        self.view = VideoView()
+        center_layout.addWidget(self.view, 1)
+        transport = QWidget()
+        transport.setObjectName("panel")
+        row = QHBoxLayout(transport)
+        row.setContentsMargins(10, 4, 10, 4)
+
+        def tool(icon: str, tip: str, slot, checkable: bool = False) -> QToolButton:
+            button = QToolButton()
+            button.setProperty("iconName", icon)
+            button.setToolTip(tip)
+            button.setCheckable(checkable)
+            button.clicked.connect(slot)
+            row.addWidget(button)
+            return button
+
+        self.back_button = tool("back", "Back 5 seconds (J)", lambda: self.player.step(-5))
+        self.play_button = tool("play", "Play / pause (Space)", self.player.toggle)
+        self.forward_button = tool("forward", "Forward 5 seconds (L)", lambda: self.player.step(5))
+        self.time_label = QLabel("0:00.0 / 0:00.0")
+        row.addWidget(self.time_label)
+        row.addStretch(1)
+        self.in_button = tool("mark_in", "Start the trim here (I)", lambda: self.trim_at_playhead("start"))
+        self.out_button = tool("mark_out", "End the trim here (O)", lambda: self.trim_at_playhead("end"))
+        self.compare_button = tool("compare", "Show the result (B)", self._compare_toggled, checkable=True)
+        self.compare_button.setText("Before / after")
+        self.compare_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.mute_button = tool("volume", "Mute the preview", self._preview_mute_toggled, checkable=True)
+        center_layout.addWidget(transport)
+        self.timeline = Timeline()
+        center_layout.addWidget(self.timeline)
+
+        self.inspector = Inspector()
+
+        top = QSplitter(Qt.Orientation.Horizontal)
+        top.addWidget(self.media_list)
+        top.addWidget(center)
+        top.addWidget(self.inspector)
+        top.setStretchFactor(0, 0)
+        top.setStretchFactor(1, 1)
+        top.setStretchFactor(2, 0)
+        top.setSizes([230, 760, 330])
+        top.setChildrenCollapsible(False)
+
+        self.queue_panel = QueuePanel(self.queue, self.bridge)
+        self.queue_panel.setMinimumHeight(70)
+        self.main_split = QSplitter(Qt.Orientation.Vertical)
+        self.main_split.addWidget(top)
+        self.main_split.addWidget(self.queue_panel)
+        self.main_split.setStretchFactor(0, 1)
+        self.main_split.setSizes([700, 150])
+        self.top_split = top
+        self.setCentralWidget(self.main_split)
+        self.statusBar().showMessage("Add videos to get started: drop them here or press Ctrl+O.")
+        self.refresh_icons()
+
+    def _connect(self) -> None:
+        self.media_list.currentRowChanged.connect(
+            lambda row: self.select(self.items[row] if 0 <= row < len(self.items) else None))
+        self.media_list.customContextMenuRequested.connect(self._media_menu)
+        self.player.frameReady.connect(self.view.set_frame)
+        self.player.positionChanged.connect(self._on_position)
+        self.player.durationChanged.connect(self._on_duration)
+        self.player.playingChanged.connect(self._on_playing)
+        self.player.errorOccurred.connect(lambda message: self.statusBar().showMessage(f"Can't play this file: {message}"))
+        self.timeline.seekRequested.connect(self.player.seek)
+        self.timeline.trimChanged.connect(self._timeline_trim)
+        self.timeline.trimEditFinished.connect(self._edit_finished)
+        self.view.cropMoved.connect(self._crop_moved)
+        self.view.zoomChanged.connect(self._zoom_changed)
+        self.view.cropEditFinished.connect(self._edit_finished)
+        self.inspector.settingsEdited.connect(self._inspector_edited)
+        self.inspector.applyToAllRequested.connect(self.apply_to_all)
+        self.inspector.savePresetRequested.connect(self.save_preset)
+        self.inspector.playheadRequested.connect(self.trim_at_playhead)
+        self.inspector.outputFolderRequested.connect(self.choose_output_folder)
+        self.bridge.jobUpdated.connect(self._job_updated)
+
+    def refresh_icons(self) -> None:
+        for act in self.findChildren(QAction):
+            if act.data():
+                act.setIcon(icons.icon(act.data()))
+        for button in self.findChildren(QToolButton):
+            name = button.property("iconName")
+            if name:
+                if button is self.play_button:
+                    name = "pause" if self.player.playing else "play"
+                if button is self.mute_button:
+                    name = "mute" if button.isChecked() else "volume"
+                button.setIcon(icons.icon(name))
+        self.theme_action.setIcon(icons.icon("sun" if self.theme_mode == "dark" else "moon"))
+
+    # ----- preferences --------------------------------------------------------
+
+    def _load_preferences(self) -> None:
+        self.theme_mode = theme.apply_theme(QApplication.instance(), self.store.value("theme", "system"))
+        geometry = self.store.value("geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+        for key, splitter in (("splitTop", self.top_split), ("splitMain", self.main_split)):
+            state = self.store.value(key)
+            if state is not None:
+                splitter.restoreState(state)
+        folder = self.store.value("outputDir", "")
+        self.output_dir = Path(folder) if folder and Path(folder).is_dir() else None
+        try:
+            presets = json.loads(self.store.value("presets", "{}") or "{}")
+            self.user_presets = presets if isinstance(presets, dict) else {}
+        except (ValueError, TypeError):
+            self.user_presets = {}
+        self.inspector.set_presets(self.user_presets)
+        self._show_output_folder()
+        self.refresh_icons()
+
+    def _save_preferences(self) -> None:
+        self.store.setValue("geometry", self.saveGeometry())
+        self.store.setValue("splitTop", self.top_split.saveState())
+        self.store.setValue("splitMain", self.main_split.saveState())
+        self.store.setValue("outputDir", str(self.output_dir) if self.output_dir else "")
+        self.store.setValue("presets", json.dumps(self.user_presets))
+        self.store.setValue("theme", self.theme_mode)
+
+    def toggle_theme(self) -> None:
+        self.theme_mode = theme.apply_theme(QApplication.instance(), "light" if self.theme_mode == "dark" else "dark")
+        self.refresh_icons()
+        for widget in (self.view, self.timeline):
+            widget.update()
+
+    # ----- adding and removing files -----------------------------------------
+
+    def choose_files(self) -> None:
+        last = self.store.value("lastDir", "")
+        patterns = " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS)
+        names, _ = QFileDialog.getOpenFileNames(self, "Add videos", last, f"Videos ({patterns});;All files (*.*)")
+        if names:
+            self.store.setValue("lastDir", str(Path(names[0]).parent))
+            self.add_paths([Path(n) for n in names])
+
+    def choose_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Add a folder of videos", self.store.value("lastDir", ""))
+        if folder:
+            self.store.setValue("lastDir", folder)
+            self.add_paths([Path(folder)])
+
+    def add_paths(self, paths: list[Path]) -> int:
+        """Add files (and the videos inside any folders). Returns how many were new."""
+        files: list[Path] = []
+        for path in paths:
+            if path.is_dir():
+                files.extend(sorted(p for p in path.iterdir() if p.is_file() and is_video_file(p)))
+            elif path.is_file():
+                files.append(path)
+        known = {item.path.resolve() for item in self.items}
+        added = 0
+        for path in files:
+            if path.resolve() in known:
+                continue
+            known.add(path.resolve())
+            item = MediaItem(path)
+            item.list_item = QListWidgetItem(icons.icon("film", size=48), self._item_text(item))
+            item.list_item.setToolTip(str(path))
+            self.items.append(item)
+            self.media_list.addItem(item.list_item)
+            self.loader.submit(self._load_item, item)
+            added += 1
+        if added:
+            self.statusBar().showMessage(f"Added {added} file{'s' if added != 1 else ''}.", 4000)
+            if self.current is None:
+                self.media_list.setCurrentRow(len(self.items) - added)
+        elif paths:
+            self.statusBar().showMessage("No new video files there.", 4000)
+        return added
+
+    def remove_selected(self) -> None:
+        row = self.media_list.currentRow()
+        if not 0 <= row < len(self.items):
+            return
+        item = self.items.pop(row)
+        self.media_list.takeItem(row)
+        self.undo_stack.clear()   # undo steps may refer to the removed file
+        if item is self.current:
+            self.current = None
+            self.select(self.items[min(row, len(self.items) - 1)] if self.items else None)
+
+    def _media_menu(self, point) -> None:
+        if self.media_list.itemAt(point) is None:
+            return
+        menu = QMenu(self)
+        menu.addAction("Export", self.export_current)
+        menu.addAction("Remove from list", self.remove_selected)
+        menu.exec(self.media_list.mapToGlobal(point))
+
+    def _item_text(self, item: MediaItem) -> str:
+        if item.error:
+            meta = item.error
+        elif item.loading or item.info is None:
+            meta = "Loading…"
+        else:
+            info = item.info
+            size = f" · {info.width}×{info.height}" if info.has_video else " · audio only"
+            meta = f"{format_time(info.duration or 0)}{size}"
+        return f"{item.path.name}\n{meta}\n{describe(item.settings)}"
+
+    def _load_item(self, item: MediaItem) -> None:
+        """Background thread: read the file's details, thumbnails and waveform."""
+        try:
+            info = probe_media(self.ffmpeg, item.path)
+            thumbs, wave = [], []
+            if info.has_video and info.duration:
+                thumbs = extract_thumbnails(self.ffmpeg, item.path, self.tmpdir / f"{id(item)}", info.duration)
+            if info.has_audio:
+                wave = extract_waveform(self.ffmpeg, item.path, info.duration)
+        except (OSError, ConversionError, ValueError) as exc:
+            info, thumbs, wave = MediaInfo(duration=None), [], []
+            item.error = f"Can't read this file ({exc})"
+        self.signals.loaded.emit(item, info, thumbs, wave)
+
+    def _on_loaded(self, item: MediaItem, info: MediaInfo, thumbs: list[Path], wave: list[float]) -> None:
+        item.info, item.loading = info, False
+        if not item.error and not info.has_video and not info.has_audio:
+            item.error = "Not a video or audio file"
+        if not info.has_video and info.has_audio:
+            item.settings.output = OUTPUT_AUDIO
+        item.thumbs = [QPixmap(str(p)) for p in thumbs]
+        item.waveform = wave
+        if item.list_item is not None:
+            if item.thumbs:
+                item.list_item.setIcon(item.thumbs[len(item.thumbs) // 2])
+            item.list_item.setText(self._item_text(item))
+        if item is self.current:
+            self.select(item, reload=False)
+
+    # ----- selection ----------------------------------------------------------
+
+    def select(self, item: Optional[MediaItem], reload: bool = True) -> None:
+        changed = item is not self.current
+        self.current = item
+        has_file = item is not None
+        for widget in (self.export_button, self.back_button, self.play_button, self.forward_button,
+                       self.in_button, self.out_button, self.compare_button):
+            widget.setEnabled(has_file)
+        self.remove_action.setEnabled(has_file)
+        self.export_all_button.setEnabled(bool(self.items))
+        if item is None:
+            self.player.load(None)
+            self.view.clear("Drop videos here, or click Add files")
+            self.timeline.clear()
+            self.inspector.set_settings(None, None)
+            self.setWindowTitle(f"Video Converter {__version__}")
+            return
+        self.setWindowTitle(f"{item.path.name} · Video Converter {__version__}")
+        if changed or reload:
+            self.view.clear("Loading…")
+            self.compare_button.setChecked(False)
+            self.player.load(item.path)
+        info = item.info
+        self.timeline.setDuration(info.duration or 0.0 if info else 0.0)
+        self.time_label.setText(f"{format_time(self.player.position)} / {format_time(info.duration or 0 if info else 0)}")
+        self.timeline.setThumbnails(item.thumbs)
+        self.timeline.setWaveform(item.waveform)
+        if info is not None and not info.has_video:
+            self.view.clear(item.error or "Audio only: there's no picture to preview.")
+        self._show_settings(item)
+
+    def _show_settings(self, item: MediaItem) -> None:
+        settings, info = item.settings, item.info
+        self.inspector.set_settings(settings, info.duration if info else None)
+        edit = settings.edit
+        video_out = settings.output == OUTPUT_VIDEO
+        self.timeline.setTrim(edit.start, edit.end)
+        self.player.set_trim(edit.start, edit.end)
+        self.compare_button.setEnabled(video_out and bool(info and info.has_video))
+        if info is None or not info.has_video:
+            self.view.set_crop(None, 1.0)
+            return
+        self.view.set_orientation(info.display_rotation, edit.rotate if video_out else 0, edit.flip and video_out)
+        if video_out and edit.crops:
+            geometry = plan_geometry(info.width, info.height, edit)
+            self.view.set_crop((geometry.width, geometry.height, *geometry.crop), edit.zoom)
+        else:
+            self.view.set_crop(None, edit.zoom)
+        if self.compare_button.isChecked():
+            self._after_timer.start()
+
+    # ----- editing ------------------------------------------------------------
+
+    def apply_settings(self, item: MediaItem, settings: ClipSettings) -> None:
+        """Set a file's settings and refresh whatever shows them (used by undo/redo too)."""
+        item.settings = settings.copy()
+        if item.list_item is not None:
+            item.list_item.setText(self._item_text(item))
+        if item is self.current:
+            self._show_settings(item)
+
+    def push_settings(self, new: ClipSettings, label: str, final: bool = True) -> None:
+        item = self.current
+        if item is None or new == item.settings and final and not self.merge_open:
+            return
+        self.undo_stack.push(SettingsCommand(self, item, item.settings, new, label, mergeable=True))
+        self.merge_open = not final
+
+    def _edit_finished(self) -> None:
+        self.merge_open = False
+        if self.compare_button.isChecked():
+            self._after_timer.start()
+
+    def _inspector_edited(self, new: ClipSettings, label: str, final: bool) -> None:
+        self.push_settings(new, label, final)
+
+    def _crop_moved(self, pos_x: float, pos_y: float) -> None:
+        if self.current:
+            new = self.current.settings.copy()
+            new.edit.pos_x, new.edit.pos_y = pos_x, pos_y
+            self.push_settings(new, "Move crop", final=False)
+
+    def _zoom_changed(self, zoom: float) -> None:
+        if self.current:
+            new = self.current.settings.copy()
+            new.edit.zoom = zoom
+            self.push_settings(new, "Zoom", final=False)
+
+    def _timeline_trim(self, start: Optional[float], end: Optional[float]) -> None:
+        if self.current:
+            new = self.current.settings.copy()
+            new.edit.start, new.edit.end = start, end
+            self.push_settings(new, "Trim", final=False)
+
+    def trim_at_playhead(self, which: str) -> None:
+        item = self.current
+        if item is None or item.info is None or not item.info.duration:
+            return
+        t = self.player.position
+        new = item.settings.copy()
+        start, end = new.edit.start, new.edit.end
+        if which == "start":
+            if end is not None and t >= end:
+                self.statusBar().showMessage("The start has to be before the end of the trim.", 4000)
+                return
+            new.edit.start = t if t > 0.05 else None
+        else:
+            if t <= (start or 0.0):
+                self.statusBar().showMessage("The end has to be after the start of the trim.", 4000)
+                return
+            new.edit.end = t if t < item.info.duration - 0.05 else None
+        self.push_settings(new, "Trim")
+
+    def apply_to_all(self) -> None:
+        source = self.current
+        if source is None or len(self.items) < 2:
+            self.statusBar().showMessage("Add more files to copy these settings to them.", 4000)
+            return
+        self.undo_stack.beginMacro("Apply to all files")
+        for item in self.items:
+            if item is not source:
+                new = apply_to(item.settings, source.settings)
+                if item.info is not None and not item.info.has_video:
+                    new.output = OUTPUT_AUDIO
+                self.undo_stack.push(SettingsCommand(self, item, item.settings, new, "Apply to all", False))
+        self.undo_stack.endMacro()
+        self.statusBar().showMessage(f"Copied the settings to {len(self.items) - 1} other files.", 4000)
+
+    def save_preset(self) -> None:
+        if self.current is None:
+            return
+        name, ok = QInputDialog.getText(self, "Save preset", "Name for these settings:")
+        name = name.strip()
+        if ok and name:
+            self.user_presets[name] = self.current.settings.to_dict()
+            self.inspector.set_presets(self.user_presets)
+            self._save_preferences()
+            self.statusBar().showMessage(f"Saved the preset “{name}”.", 4000)
+
+    def choose_output_folder(self) -> None:
+        menu = QMenu(self)
+        menu.addAction("Choose a folder…", self._pick_output_folder)
+        reset = menu.addAction("Next to each original file", lambda: self._set_output_folder(None))
+        reset.setEnabled(self.output_dir is not None)
+        menu.exec(self.cursor().pos())
+
+    def _pick_output_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Save exports to", str(self.output_dir or ""))
+        if folder:
+            self._set_output_folder(Path(folder))
+
+    def _set_output_folder(self, folder: Optional[Path]) -> None:
+        self.output_dir = folder
+        self._show_output_folder()
+        self._save_preferences()
+
+    def _show_output_folder(self) -> None:
+        self.inspector.set_output_folder(str(self.output_dir) if self.output_dir else "Next to each original file")
+
+    # ----- playback -----------------------------------------------------------
+
+    def _on_position(self, seconds: float) -> None:
+        self.timeline.setPosition(seconds)
+        duration = self.current.info.duration if self.current and self.current.info else None
+        self.time_label.setText(f"{format_time(seconds)} / {format_time(duration or 0)}")
+        if self.compare_button.isChecked() and not self.player.playing:
+            self._after_timer.start()
+
+    def _on_duration(self, seconds: float) -> None:
+        if self.current and (self.current.info is None or not self.current.info.duration):
+            self.timeline.setDuration(seconds)
+
+    def _on_playing(self, playing: bool) -> None:
+        self.play_button.setIcon(icons.icon("pause" if playing else "play"))
+        if playing and self.compare_button.isChecked():
+            self.compare_button.setChecked(False)
+            self._compare_toggled(False)
+
+    def _preview_mute_toggled(self, muted: bool) -> None:
+        self.player.set_muted(muted)
+        self.mute_button.setIcon(icons.icon("mute" if muted else "volume"))
+
+    def _compare_toggled(self, on: bool) -> None:
+        if on:
+            self.player.pause()
+            self.view.set_after(None, True)
+            self._after_timer.start(0)
+        else:
+            self.view.set_after(None, False)
+
+    def _render_after(self) -> None:
+        item = self.current
+        if item is None or item.info is None or not item.info.has_video or not self.compare_button.isChecked():
+            return
+        self._after_token += 1
+        token, settings, at = self._after_token, item.settings.copy(), self.player.position
+        ratio = self.view.devicePixelRatioF()
+        size = (int(min(self.view.width() * ratio, 1600)), int(min(self.view.height() * ratio, 1600)))
+        target = self.tmpdir / f"after_{token}.png"
+
+        def work() -> None:
+            try:
+                render_frame(self.ffmpeg, item.path, target, at, size, settings.edit, item.info)
+                image = QImage(str(target))
+                target.unlink(missing_ok=True)
+                self.signals.afterReady.emit(token, image)
+            except (ConversionError, OSError) as exc:
+                self.signals.afterReady.emit(token, str(exc))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_after_ready(self, token: int, result) -> None:
+        if token != self._after_token or not self.compare_button.isChecked():
+            return
+        if isinstance(result, QImage) and not result.isNull():
+            self.view.set_after(result, True)
+        else:
+            self.statusBar().showMessage("Couldn't render the preview.", 4000)
+
+    # ----- exporting ----------------------------------------------------------
+
+    def _make_job(self, item: MediaItem) -> Optional[Job]:
+        if item.loading:
+            self.statusBar().showMessage(f"{item.path.name} is still loading; try again in a moment.", 4000)
+            return None
+        if item.error:
+            return None
+        return self.queue.add(Job(item.path, item.settings.copy(), self.output_dir, item.info))
+
+    def export_current(self) -> None:
+        if self.current is not None and self._make_job(self.current):
+            self.statusBar().showMessage(f"Exporting {self.current.path.name}…", 4000)
+
+    def export_all(self) -> None:
+        count = sum(1 for item in list(self.items) if self._make_job(item))
+        if count:
+            self.statusBar().showMessage(f"Added {count} export{'s' if count != 1 else ''} to the queue.", 4000)
+
+    def _job_updated(self, job: Job) -> None:
+        if job.state.finished and job.state.value == "Failed":
+            self.statusBar().showMessage(f"Export failed: {job.source.name}", 6000)
+
+    # ----- keyboard, drag and drop, closing ------------------------------------
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if event.type() != QEvent.Type.KeyPress or not self.isActiveWindow() or event.modifiers() & (
+                Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier):
+            return super().eventFilter(obj, event)
+        focus = QApplication.focusWidget()
+        if isinstance(focus, (QLineEdit, QAbstractSpinBox)) or (isinstance(focus, QComboBox) and focus.isEditable()):
+            return super().eventFilter(obj, event)
+        if self.current is None:
+            return super().eventFilter(obj, event)
+        key = event.key()
+        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        handlers = {
+            Qt.Key.Key_Space: self.player.toggle,
+            Qt.Key.Key_K: self.player.pause,
+            Qt.Key.Key_J: lambda: self.player.step(-5),
+            Qt.Key.Key_L: lambda: self.player.step(5),
+            Qt.Key.Key_Left: lambda: self.player.step(-1 if shift else -FRAME_STEP),
+            Qt.Key.Key_Right: lambda: self.player.step(1 if shift else FRAME_STEP),
+            Qt.Key.Key_I: lambda: self.trim_at_playhead("start"),
+            Qt.Key.Key_O: lambda: self.trim_at_playhead("end"),
+            Qt.Key.Key_B: self.compare_button.click,
+            Qt.Key.Key_Home: lambda: self.player.seek(self.current.settings.edit.start or 0.0),
+        }
+        if key == Qt.Key.Key_Delete and focus is self.media_list:
+            self.remove_selected()
+            return True
+        handler = handlers.get(key)
+        if handler is None:
+            return super().eventFilter(obj, event)
+        handler()
+        return True
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:
+        paths = [Path(url.toLocalFile()) for url in event.mimeData().urls() if url.isLocalFile()]
+        if paths:
+            self.add_paths(paths)
+            event.acceptProposedAction()
+
+    def closeEvent(self, event) -> None:
+        if self.queue.busy:
+            answer = QMessageBox.question(self, "Exports still running",
+                                          "Some exports haven't finished. Stop them and quit?")
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+        self._save_preferences()
+        QApplication.instance().removeEventFilter(self)
+        self.queue.shutdown()
+        self.player.load(None)
+        self.loader.shutdown(wait=False, cancel_futures=True)
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        event.accept()

@@ -1,0 +1,18 @@
+The Windows build of Video Converter includes unmodified libraries from Qt for Python
+(PySide6, https://www.qt.io/qt-for-python), which provides the user interface and video playback.
+
+Qt and PySide6 are used under the GNU Lesser General Public License, version 3 (LGPLv3):
+https://www.gnu.org/licenses/lgpl-3.0.html
+
+The Qt Multimedia module ships its own FFmpeg libraries (avcodec, avformat, avutil, swresample,
+swscale), which are also used under the LGPL.
+
+Source code:
+  Qt:       https://download.qt.io/official_releases/qt/
+  PySide6:  https://code.qt.io/cgit/pyside/pyside-setup.git/
+  FFmpeg:   https://ffmpeg.org/download.html#get-sources
+
+You may replace these libraries with your own builds: they are separate DLL files inside the
+application's folder (or inside the temporary folder the single-file exe unpacks to at startup).
+
+Video Converter's own source code is licensed separately under the MIT License (see LICENSE).

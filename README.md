@@ -1,7 +1,7 @@
 # Video Converter
 
-A small Windows app that turns videos into MP3 audio, or reshapes, crops and trims them into new MP4s,
-for example to fit a phone screen for Stories, Reels, TikTok or Shorts.
+A Windows video editor that reshapes, crops and trims videos into new MP4s, for example to fit a phone
+screen for Stories, Reels, TikTok or Shorts, and turns videos into MP3 audio.
 Everything runs locally on your computer; no files are uploaded anywhere.
 
 ![Video Converter editing a landscape video into a 9:16 phone video](docs/screenshot.png)
@@ -9,53 +9,64 @@ Everything runs locally on your computer; no files are uploaded anywhere.
 ## Download
 
 Grab **`VideoConverter.exe`** from the [latest release](https://github.com/Ahmed41022/video-converter/releases/latest) and double-click it.
-Nothing else to install: ffmpeg is built into the exe.
+Nothing else to install: everything it needs is built into the exe.
 
 > Windows SmartScreen may warn about an unrecognized app the first time because the exe isn't code-signed.
 > Click **More info → Run anyway**.
 
 ## Features
 
-**MP3 audio**
-- Choose the quality: 128 / 192 / 256 / 320 kbps, or variable bitrate
-- Keeps metadata such as title and artist when the video has it
+**Editor**
+- Video player with a timeline: thumbnails, audio waveform, and drag handles to trim
+- Crop box right on the video: drag it to choose what to keep, drag a corner (or scroll) to zoom
+- Before / after view that renders exactly what the export will look like
+- Undo and redo for every change, dark and light themes, and drag-and-drop of files and folders
+- Each file keeps its own settings; **Apply to all files** copies them to the rest (each keeps its own crop and trim)
+- Export queue that runs in the background with progress, time left, cancel and "show in folder"
 
-**Video editing (MP4)**
+**Video (MP4)**
 - Reshape for phones (9:16), square posts (1:1), portrait posts (4:5) or widescreen (16:9)
-- Crop to fill the frame: drag the box on the preview to pick what to keep, and zoom in (mouse wheel works too)
-- Or fit the whole video inside the new shape with a blurred background or black bars
-- Rotate 90° / 180°, mirror, remove the sound, and pick the size (1080p, 720p, 480p) and quality
-- Live preview of the original and the result
+- Crop to fill the frame, or fit the whole video with a blurred background or black bars
+- Rotate, mirror, remove the sound, and pick the size (1080p, 720p, 480p) and quality
+- One-click presets for TikTok / Reels / Shorts, Instagram, YouTube and WhatsApp status, plus your own saved presets
 - Phone recordings that are stored sideways are detected and shown the right way up
 
+**Audio (MP3)**
+- 128 / 192 / 256 / 320 kbps or variable bitrate, keeping title and artist metadata
+
 **Both**
-- Trim: keep only part of the video, e.g. from `0:15` to `1:02:30`
-- Convert one file or a whole batch at once (add files or an entire folder)
-- Drop videos onto `VideoConverter.exe` to open them straight into the list
-- Save next to each video or into a folder of your choice
-- Never overwrites anything: edited videos are saved as `name (phone).mp4`, `name (square).mp4`, …,
-  and existing files get a number (`file.mp3` becomes `file (1).mp3`)
-- Per-file and overall progress, with a Cancel button
+- Trim to any range, e.g. from `0:15` to `1:02:30`
+- Never overwrites anything: edits are saved as `name (phone).mp4`, `name (square).mp4`, …,
+  and existing names get a number (`file.mp3` becomes `file (1).mp3`)
 - Accepts MP4, MOV, MKV, AVI, WEBM, M4V and other common video formats
 
 ## How to use
 
-1. Click **Add files…** or **Add folder…** (or drop videos onto the exe)
-2. Pick the **MP3 audio** tab to extract sound, or the **Edit video (MP4)** tab to reshape and crop
-3. Optionally set a trim range and where to save
-4. Click **Convert to MP3** / **Export video** (or press Enter)
+1. Click **Add files** or **Add folder**, or drop videos onto the window (or onto the exe)
+2. Pick a file, then choose a preset or set the shape, crop and trim on the right
+3. Click **Export** (or **Export all**); exports run in the queue at the bottom while you keep working
 
-In the video tab, the crop position and zoom are remembered per file, so you can frame each video in a batch
-differently: select a file, drag its box, then select the next one. The other settings apply to every file.
+### Keyboard shortcuts
+
+| Key | Action |
+| --- | --- |
+| Space | Play / pause |
+| J / L | Back / forward 5 seconds |
+| ← / → | Previous / next frame (hold Shift for 1 second) |
+| I / O | Start / end the trim at the playhead |
+| B | Before / after view |
+| Ctrl+Z / Ctrl+Y | Undo / redo |
+| Ctrl+O | Add files |
+| Ctrl+E / Ctrl+Shift+E | Export the selected file / export all |
 
 ## Running from source
 
-Requires Python 3.9+ and ffmpeg (`winget install Gyan.FFmpeg`, `brew install ffmpeg`, `sudo apt install ffmpeg`,
-or `pip install imageio-ffmpeg`). The app looks for ffmpeg in the `FFMPEG_PATH` environment variable, then on your `PATH`,
+Requires Python 3.9+, the packages in `requirements.txt` (`pip install -r requirements.txt`), and ffmpeg
+(`winget install Gyan.FFmpeg`, `brew install ffmpeg`, `sudo apt install ffmpeg`, or `pip install imageio-ffmpeg`). The app looks for ffmpeg in the `FFMPEG_PATH` environment variable, then on your `PATH`,
 then in `imageio-ffmpeg`.
 
 ```bash
-python -m mp4_to_mp3
+python -m video_converter
 ```
 
 On Windows you can also double-click **`Video Converter.pyw`**.
@@ -65,8 +76,8 @@ On Windows you can also double-click **`Video Converter.pyw`**.
 Pass one or more files to convert them without opening the window:
 
 ```bash
-python -m mp4_to_mp3 "My video.mp4" another.mp4 -q 320 -o converted
-python -m mp4_to_mp3 "My video.mp4" --video phone --fit blur --start 0:10 --end 0:40
+python -m video_converter "My video.mp4" another.mp4 -q 320 -o converted
+python -m video_converter "My video.mp4" --video phone --fit blur --start 0:10 --end 0:40
 ```
 
 | Option | Description |
@@ -92,7 +103,7 @@ python -m venv .venv
 .venv\Scripts\python build_exe.py
 ```
 
-The result is `dist\Video Converter.exe`, a single file that includes its own copy of ffmpeg.
+The result is `dist\Video Converter.exe`, a single file that includes ffmpeg and the Qt libraries.
 
 ## Running the tests
 
@@ -100,9 +111,11 @@ The result is `dist\Video Converter.exe`, a single file that includes its own co
 python -m unittest discover -s tests -v
 ```
 
-The conversion tests generate short sample videos with ffmpeg and are skipped if ffmpeg isn't installed.
+The tests generate short sample videos with ffmpeg and skip what they can't run: the conversion tests need
+ffmpeg, and the editor tests (`tests/test_ui.py`) need PySide6, so run them from the build environment:
+`.venv\Scripts\python -m unittest discover -s tests`.
 
 ## License
 
 Video Converter is released under the [MIT License](LICENSE).
-The Windows exe bundles FFmpeg, which is licensed under the GPLv3; see [licenses/FFMPEG-NOTICE.txt](licenses/FFMPEG-NOTICE.txt).
+The Windows exe bundles FFmpeg (GPLv3) and Qt for Python (LGPLv3); see [licenses/](licenses/).
