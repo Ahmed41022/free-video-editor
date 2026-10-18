@@ -25,6 +25,7 @@ from .core import (
     parse_time,
     probe_media,
 )
+from .gpu import choose_encoder
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, cut_range
 from .video import (
     ADJUSTMENTS, DEFAULT_FPS, LOOKS, STABILIZE, VIDEO_QUALITY, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video,
@@ -147,6 +148,9 @@ def run_cli(argv: list[str]) -> int:
     video.add_argument("--size", type=int, choices=(1080, 720, 480), help="short side in pixels (default: as source)")
     video.add_argument("--video-quality", choices=CLI_VIDEO_QUALITY, default="balanced")
     video.add_argument("--mute", action="store_true", help="remove the sound")
+    video.add_argument("--gpu", choices=("auto", "off"), default="auto",
+                       help="auto = encode on the graphics card when there is a working one (and fall back to "
+                            "the CPU if it fails), off = always use the CPU (default: auto)")
 
     timing = parser.add_argument_group("cutting, speed, fades and joining (MP3 or MP4)")
     timing.add_argument("--cut", type=_range, action="append", default=[], metavar="START-END",
@@ -190,13 +194,17 @@ def run_cli(argv: list[str]) -> int:
         edit = VideoEdit(
             aspect=CLI_SHAPES[args.video], fit=args.fit, pos_x=args.position[0], pos_y=args.position[1],
             zoom=args.zoom, rotate=args.rotate, flip=args.mirror, resolution=args.size,
-            crf=VIDEO_QUALITY[CLI_VIDEO_QUALITY[args.video_quality]], mute=args.mute, **timing,
+            crf=VIDEO_QUALITY[CLI_VIDEO_QUALITY[args.video_quality]], use_gpu=args.gpu == "auto",
+            mute=args.mute, **timing,
             **picture_values,
         )
     quality = CLI_QUALITY[args.quality]
 
     def show(fraction: float, name: str) -> None:
         print(f"\r{name}: {fraction:6.1%}", end="", flush=True)
+
+    def note(text: str) -> None:
+        print(f"\r{text}.", file=sys.stderr)
 
     if args.join:
         first = args.files[0]
@@ -212,7 +220,8 @@ def run_cli(argv: list[str]) -> int:
             for part in parts:
                 _warn_reverse(part.source.name, part.edit, part.info, not args.video, parts[0].info.fps or DEFAULT_FPS)
             job = JoinJob(parts, target, audio_only=not args.video, quality=quality)
-            output = join_clips(ffmpeg, job, on_progress=lambda f: show(f, target.name))
+            output = join_clips(ffmpeg, job, on_progress=lambda f: show(f, target.name),
+                                encoder=choose_encoder(ffmpeg, edit.use_gpu), on_note=note)
         except ConversionError as exc:
             print(f"\r{target.name}: FAILED - {exc}", file=sys.stderr)
             return 1
@@ -236,7 +245,8 @@ def run_cli(argv: list[str]) -> int:
             else:
                 target = output_path_for(source, args.output_dir, args.overwrite, ".mp4", f" ({output_tag(edit)})")
                 output = convert_video(ffmpeg, VideoJob(source, target, file_edit),
-                                       on_progress=lambda f, n=source.name: show(f, n))
+                                       on_progress=lambda f, n=source.name: show(f, n),
+                                       encoder=choose_encoder(ffmpeg, edit.use_gpu), on_note=note)
             print(f"\r{source.name} -> {output}")
         except ConversionError as exc:
             failures += 1

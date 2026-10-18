@@ -3,6 +3,7 @@ adjust the picture, stabilize, join clips, and export MP4."""
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import tempfile
 import threading
@@ -14,6 +15,7 @@ from .core import (
     _NO_WINDOW,
     DEFAULT_QUALITY,
     QUALITY_PRESETS,
+    ConversionCancelled,
     ConversionError,
     MediaInfo,
     check_trim,
@@ -22,6 +24,7 @@ from .core import (
     run_ffmpeg,
     trim_args,
 )
+from .gpu import CPU_FALLBACK_NOTE, encoder_args
 from .timing import (
     Range,
     Segment,
@@ -37,6 +40,8 @@ from .timing import (
     snap_segments,
     source_to_output,
 )
+
+log = logging.getLogger(__name__)
 
 # Label -> (width, height) aspect ratio; None keeps the video's own shape.
 FORMATS = {
@@ -105,6 +110,7 @@ class VideoEdit:
     flip: bool = False        # mirror left-right
     resolution: Optional[int] = None
     crf: int = VIDEO_QUALITY[DEFAULT_VIDEO_QUALITY]
+    use_gpu: bool = True      # let the graphics card encode when there is a working one
     mute: bool = False
     start: Optional[float] = None
     end: Optional[float] = None
@@ -374,11 +380,20 @@ class VideoJob:
 
 _HEAD = ["-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
 _TAIL = ["-progress", "pipe:1", "-nostats"]
-_X264 = ["-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+_X264 = ["-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p"]
+_FASTSTART = ["-movflags", "+faststart"]
 _AAC = ["-c:a", "aac", "-b:a", "192k"]
 
 
-def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None) -> list[str]:
+def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[float] = None) -> list[str]:
+    """How to encode the picture at quality `crf`: with the hardware `encoder`, or on the CPU (x264).
+    `fps` is the frame rate of the result, when known."""
+    codec = encoder_args(encoder, crf, fps or DEFAULT_FPS) if encoder else [*_X264, "-crf", str(crf)]
+    return [*codec, *_FASTSTART]
+
+
+def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None,
+                  encoder: Optional[str] = None) -> list[str]:
     edit = job.edit
     segments = edit.segments(info.duration, info.fps)
     if not segments:
@@ -387,7 +402,7 @@ def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optio
     cmd = [ffmpeg, *_HEAD, *input_args(segments, job.source),
            "-filter_complex", ";".join(graph.filters), "-map", "[v]"]
     cmd += ["-map", "[a]", *_AAC] if graph.has_audio else ["-an"]
-    cmd += [*_X264, "-crf", str(edit.crf), "-map_metadata", "0", *_TAIL, str(job.output.resolve())]
+    cmd += [*video_codec_args(edit.crf, encoder, info.fps), "-map_metadata", "0", *_TAIL, str(job.output.resolve())]
     return cmd
 
 
@@ -405,17 +420,40 @@ def detect_command(ffmpeg: str, source: Path, edit: VideoEdit, segments: list[Se
 DETECT_SHARE = 0.2      # part of the progress bar for the stabilizer's detect passes, which take about a fifth
 
 
+def _encode(command: Callable[[Optional[str]], list[str]], encoder: Optional[str], output: Path,
+            duration: Optional[float], on_progress: Optional[Callable[[float], None]],
+            cancel_event: Optional[threading.Event], cwd: Optional[Path] = None,
+            on_note: Optional[Callable[[str], None]] = None) -> Path:
+    """Run the export command `command(encoder)`. When the hardware `encoder` fails, whatever the
+    reason (a driver that balks, a size it can't do), run the same job again on the CPU, once."""
+    if encoder is None:
+        return run_ffmpeg(command(None), output, duration, on_progress, cancel_event, cwd)
+    try:
+        return run_ffmpeg(command(encoder), output, duration, on_progress, cancel_event, cwd)
+    except ConversionError as exc:
+        # run_ffmpeg has already removed the partial file.
+        if cancel_event is not None and cancel_event.is_set():
+            raise ConversionCancelled() from None
+        log.warning("The graphics card encoder %s failed (%s); trying again on the CPU", encoder, exc)
+        if on_note:
+            on_note(CPU_FALLBACK_NOTE)
+    return run_ffmpeg(command(None), output, duration, on_progress, cancel_event, cwd)
+
+
 def _run_export(ffmpeg: str, clips: list[tuple[Path, VideoEdit, list[Segment], Optional[float]]],
-                command: Callable[[dict[int, str]], list[str]], output: Path, duration: Optional[float],
-                on_progress: Optional[Callable[[float], None]], cancel_event: Optional[threading.Event]) -> Path:
+                command: Callable[[dict[int, str], Optional[str]], list[str]], output: Path,
+                duration: Optional[float], on_progress: Optional[Callable[[float], None]],
+                cancel_event: Optional[threading.Event], encoder: Optional[str] = None,
+                on_note: Optional[Callable[[str], None]] = None) -> Path:
     """Run an export, first running the stabilizer's detect pass for every clip that asks for it.
 
-    Each clip is (source, edit, kept segments, frame rate). `command(transforms)` builds the export
-    command given {clip index: transforms file name}.
-    The transforms files live in a temporary folder that is ffmpeg's working folder."""
+    Each clip is (source, edit, kept segments, frame rate). `command(transforms, encoder)` builds the
+    export command given {clip index: transforms file name} and the hardware encoder to use (None =
+    the CPU). The transforms files live in a temporary folder that is ffmpeg's working folder."""
     shaky = [i for i, (_, edit, _, _) in enumerate(clips) if STABILIZE.get(edit.stabilize)]
     if not shaky:
-        return run_ffmpeg(command({}), output, duration, on_progress, cancel_event)
+        return _encode(lambda enc: command({}, enc), encoder, output, duration, on_progress, cancel_event,
+                       on_note=on_note)
     with tempfile.TemporaryDirectory(prefix="fve-stabilize-") as folder:
         folder = Path(folder)
         lengths = {i: segments_length(clips[i][2]) or 0.0 for i in shaky}
@@ -436,8 +474,8 @@ def _run_export(ffmpeg: str, clips: list[tuple[Path, VideoEdit, list[Segment], O
         def export_progress(fraction: float) -> None:
             on_progress(DETECT_SHARE + (1 - DETECT_SHARE) * fraction)
 
-        return run_ffmpeg(command(transforms), output, duration, export_progress if on_progress else None,
-                          cancel_event, cwd=folder)
+        return _encode(lambda enc: command(transforms, enc), encoder, output, duration,
+                       export_progress if on_progress else None, cancel_event, cwd=folder, on_note=on_note)
 
 
 def convert_video(
@@ -446,8 +484,13 @@ def convert_video(
     on_progress: Optional[Callable[[float], None]] = None,
     cancel_event: Optional[threading.Event] = None,
     info: Optional[MediaInfo] = None,
+    encoder: Optional[str] = None,
+    on_note: Optional[Callable[[str], None]] = None,
 ) -> Path:
-    """Export `job.source` as an edited MP4 at `job.output`."""
+    """Export `job.source` as an edited MP4 at `job.output`.
+
+    With a hardware `encoder` (see `gpu.choose_encoder`) the graphics card does the encoding; if that
+    fails the export is run again on the CPU and `on_note` hears about it."""
     if not job.source.is_file():
         raise ConversionError(f"File not found: {job.source}")
     check_trim(job.edit.start, job.edit.end)
@@ -460,8 +503,8 @@ def convert_video(
     segments = job.edit.segments(info.duration, info.fps)
     duration = output_duration(segments, job.edit.speed)
     return _run_export(ffmpeg, [(job.source, job.edit, segments, info.fps)],
-                       lambda transforms: video_command(ffmpeg, job, info, transforms.get(0)),
-                       job.output, duration, on_progress, cancel_event)
+                       lambda transforms, enc: video_command(ffmpeg, job, info, transforms.get(0), enc),
+                       job.output, duration, on_progress, cancel_event, encoder, on_note)
 
 
 # ----- joining clips ------------------------------------------------------------
@@ -484,7 +527,8 @@ class JoinJob:
     quality: str = DEFAULT_QUALITY     # MP3 quality
 
 
-def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]] = None) -> tuple[list[str], float]:
+def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]] = None,
+                 encoder: Optional[str] = None) -> tuple[list[str], float]:
     """The ffmpeg command that plays every part back to back, and the result's length.
 
     Each clip is cut, sped up, reframed and faded with its own settings, then fitted into
@@ -526,7 +570,7 @@ def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]]
     cmd = [ffmpeg, *_HEAD, *inputs, "-filter_complex", ";".join(filters)]
     if video:
         cmd += ["-map", "[v]", *(["-map", "[a]", *_AAC] if any_audio else ["-an"]),
-                *_X264, "-crf", str(first.edit.crf)]
+                *video_codec_args(first.edit.crf, encoder, fps)]
     else:
         cmd += ["-map", "[a]", "-vn", "-c:a", "libmp3lame", *QUALITY_PRESETS[job.quality]]
     cmd += ["-map_metadata", "0", *_TAIL, str(job.output.resolve())]
@@ -538,8 +582,11 @@ def join_clips(
     job: JoinJob,
     on_progress: Optional[Callable[[float], None]] = None,
     cancel_event: Optional[threading.Event] = None,
+    encoder: Optional[str] = None,
+    on_note: Optional[Callable[[str], None]] = None,
 ) -> Path:
-    """Export several clips, in order, as one MP4 (or one MP3 with `job.audio_only`)."""
+    """Export several clips, in order, as one MP4 (or one MP3 with `job.audio_only`).
+    `encoder` and `on_note` work as in `convert_video`."""
     if len(job.parts) < 2:
         raise ConversionError("Joining needs at least two clips.")
     for part in job.parts:
@@ -553,8 +600,8 @@ def join_clips(
     _, duration = join_command(ffmpeg, job)     # fail early on bad settings
     clips = [] if job.audio_only else [(p.source, p.edit, p.edit.segments(p.info.duration, p.info.fps), p.info.fps)
                                        for p in job.parts]
-    return _run_export(ffmpeg, clips, lambda transforms: join_command(ffmpeg, job, transforms)[0],
-                       job.output, duration, on_progress, cancel_event)
+    return _run_export(ffmpeg, clips, lambda transforms, enc: join_command(ffmpeg, job, transforms, enc)[0],
+                       job.output, duration, on_progress, cancel_event, None if job.audio_only else encoder, on_note)
 
 
 # ----- preview ------------------------------------------------------------------

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
@@ -11,8 +12,11 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .core import ConversionCancelled, ConversionError, ConversionJob, MediaInfo, convert
+from .gpu import choose_encoder
 from .project import OUTPUT_AUDIO, ClipSettings, describe, describe_join, output_file_for
 from .video import DEFAULT_FPS, JoinJob, JoinPart, VideoJob, convert_video, join_clips, reverse_memory
+
+log = logging.getLogger(__name__)
 
 
 class JobState(Enum):
@@ -49,6 +53,7 @@ class Job:
     progress: float = 0.0
     output: Optional[Path] = None
     error: str = ""
+    note: str = ""                         # something worth telling the user about how the export went
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -88,19 +93,29 @@ Runner = Callable[[str, Job, Callable[[float], None]], Path]
 
 def run_job(ffmpeg: str, job: Job, on_progress: Callable[[float], None]) -> Path:
     """Export one job with ffmpeg. The output name is chosen now, so queued jobs for
-    the same file never collide."""
+    the same file never collide. Video goes through the graphics card when the job's settings
+    allow it and there is one that works; if it fails, the job is done again on the CPU."""
+    def note(text: str) -> None:
+        job.note = text
+
     if job.clips:
         output = output_file_for(job.source, job.settings, job.output_dir, joined=True)
         parts = [JoinPart(clip.source, clip.settings.edit, clip.info) for clip in job.clips]
         join = JoinJob(parts, output, job.settings.output == OUTPUT_AUDIO, job.settings.audio_quality)
-        return join_clips(ffmpeg, join, on_progress, job.cancel_event)
+        encoder = None if join.audio_only else choose_encoder(ffmpeg, job.settings.edit.use_gpu)
+        return join_clips(ffmpeg, join, on_progress, job.cancel_event, encoder, note)
     output = output_file_for(job.source, job.settings, job.output_dir)
     edit = job.settings.edit
     if job.settings.output == OUTPUT_AUDIO:
         audio = ConversionJob(job.source, output, job.settings.audio_quality, edit.start, edit.end, edit.keep,
                               edit.speed, edit.reverse, edit.audio_fade_in, edit.audio_fade_out)
         return convert(ffmpeg, audio, on_progress, job.cancel_event)
-    return convert_video(ffmpeg, VideoJob(job.source, output, edit), on_progress, job.cancel_event, job.info)
+    return convert_video(ffmpeg, VideoJob(job.source, output, edit), on_progress, job.cancel_event, job.info,
+                         choose_encoder(ffmpeg, edit.use_gpu), note)
+
+
+def _describe_for_log(job: Job) -> str:
+    return f"{job.title} ({job.summary}); graphics card: {'allowed' if job.settings.edit.use_gpu else 'off'}"
 
 
 class JobQueue:
@@ -208,11 +223,23 @@ class JobQueue:
             job.started_at = time.monotonic()
             return job
 
+    @staticmethod
+    def _log_finish(job: Job, state: JobState) -> None:
+        seconds = time.monotonic() - job.started_at if job.started_at is not None else 0.0
+        if state is JobState.DONE:
+            log.info("Export %d finished in %.1f s: %s%s", job.id, seconds, job.output,
+                     f" ({job.note})" if job.note else "")
+        elif state is JobState.FAILED:
+            log.error("Export %d failed after %.1f s: %s", job.id, seconds, job.error)
+        else:
+            log.info("Export %d cancelled after %.1f s", job.id, seconds)
+
     def _work(self) -> None:
         while True:
             job = self._next_job()
             if job is None:
                 return
+            log.info("Export %d started: %s", job.id, _describe_for_log(job))
             self._notify(job)
 
             def progress(fraction: float, job: Job = job) -> None:
@@ -228,8 +255,10 @@ class JobQueue:
                 job.error = str(exc)
                 state = JobState.FAILED
             except Exception as exc:  # never let one bad job kill the queue
+                log.exception("Export %d crashed", job.id)
                 job.error = f"Unexpected error: {exc}"
                 state = JobState.FAILED
+            self._log_finish(job, state)
             with self._lock:
                 job.state = state
                 job.finished_at = time.monotonic()
