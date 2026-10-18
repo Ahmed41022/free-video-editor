@@ -168,7 +168,9 @@ def parse_media_info(text: str) -> MediaInfo:
         duration = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
     info = MediaInfo(duration, has_audio=bool(re.search(r"Stream #\d+:\d+.*?: Audio:", text)))
-    video = _VIDEO_STREAM_RE.search(text)
+    # Cover art in a music file is a "video" stream too, but not one to edit.
+    video = next((m for m in _VIDEO_STREAM_RE.finditer(text)
+                  if "(attached pic)" not in text[m.start():].split("\n", 1)[0]), None)
     if video:
         width, height = int(video.group(1)), int(video.group(2))
         # ffmpeg applies rotation metadata automatically, so a phone video stored

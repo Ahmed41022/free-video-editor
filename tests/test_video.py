@@ -84,6 +84,18 @@ class MediaInfoParsingTests(unittest.TestCase):
         info = parse_media_info("  Duration: 00:00:10.00\n  Stream #0:0: Audio: mp3, 44100 Hz\n")
         self.assertFalse(info.has_video)
 
+    def test_cover_art_is_not_a_video_track(self):
+        info = parse_media_info(
+            "  Duration: 00:00:08.05\n  Stream #0:0: Audio: mp3 (mp3float), 44100 Hz, mono\n"
+            "  Stream #0:1: Video: mjpeg (Baseline), yuvj420p, 300x300 [SAR 1:1 DAR 1:1], 90k tbr (attached pic)\n")
+        self.assertFalse(info.has_video)
+        self.assertTrue(info.has_audio)
+        # A real video stream after the cover art still counts.
+        info = parse_media_info(
+            "  Stream #0:0: Video: mjpeg, yuvj420p, 300x300, 90k tbr (attached pic)\n"
+            "  Stream #0:1: Video: h264 (High), yuv420p, 1280x720, 30 fps\n")
+        self.assertEqual((info.width, info.height, info.fps), (1280, 720, 30.0))
+
 
 class GeometryTests(unittest.TestCase):
     def test_landscape_to_phone_crops_center(self):
