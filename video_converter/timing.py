@@ -134,6 +134,8 @@ def kept_segments(keep: list[Range], start: Optional[float], end: Optional[float
     with splits joined back together."""
     low = start or 0.0
     high = end if end is not None else duration
+    if end is not None and duration:
+        high = min(end, duration)       # an end past the file's length would throw off the fade out and progress
     ranges: list[Segment] = list(keep) if keep else [(0.0, high)]
     segments: list[Segment] = []
     for a, b in ranges:

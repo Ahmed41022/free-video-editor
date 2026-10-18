@@ -227,6 +227,7 @@ class KeptSegmentsTests(unittest.TestCase):
     def test_trim_alone(self):
         self.assertEqual(kept_segments([], 2.0, 7.0, 10.0), [(2.0, 7.0)])
         self.assertEqual(kept_segments([], 2.0, None, 10.0), [(2.0, 10.0)])
+        self.assertEqual(kept_segments([], 2.0, 99.0, 10.0), [(2.0, 10.0)])      # an end past the file's end
 
     def test_splits_are_joined_back_together(self):
         keep = [(0.0, 3.0), (3.0, 6.0), (8.0, 10.0)]
