@@ -6,6 +6,7 @@ from pathlib import Path
 
 from video_converter.core import find_ffmpeg, probe_media
 from video_converter.media import (
+    THUMBNAILS_PER_RUN,
     extract_thumbnails,
     extract_waveform,
     peaks,
@@ -178,6 +179,25 @@ class FfmpegMediaTests(unittest.TestCase):
         paths = extract_thumbnails(FFMPEG, self.tone, self.tmp / "moments", 3.0, count=4)
         contents = {p.read_bytes() for p in paths}
         self.assertEqual(len(contents), 4)
+
+    def test_more_thumbnails_than_one_ffmpeg_run_takes(self):
+        count = THUMBNAILS_PER_RUN * 2 + 1
+        out = self.tmp / "many"
+        paths = extract_thumbnails(FFMPEG, self.tone, out, 3.0, count=count)
+        self.assertEqual(paths, [out / f"thumb_{i:03d}.jpg" for i in range(count)])
+        self.assertEqual(len({p.read_bytes() for p in paths}), count)
+
+    def test_seeks_past_the_end_are_left_out(self):
+        # A 3 s clip said to last 5 s: thumbnails at 0.6 and 1.9 s exist, 3.1 and 4.4 s don't.
+        out = self.tmp / "past-end"
+        out.mkdir()
+        for i in range(4):
+            (out / f"thumb_{i:03d}.jpg").write_bytes(b"left over from an earlier run")
+        paths = extract_thumbnails(FFMPEG, self.tone, out, 5.0, count=4)
+        self.assertEqual(paths, [out / "thumb_000.jpg", out / "thumb_001.jpg"])
+        for path in paths:
+            self.assertEqual(path.read_bytes()[:2], b"\xff\xd8")
+        self.assertFalse((out / "thumb_002.jpg").exists())
 
     def test_creates_the_output_folder(self):
         out = self.tmp / "a" / "b" / "thumbs"

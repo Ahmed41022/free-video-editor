@@ -18,6 +18,11 @@ def thumbnail_times(duration: float, count: int) -> list[float]:
     return [slot * (i + 0.5) for i in range(count)]
 
 
+# Seeks handled by one ffmpeg run. Starting ffmpeg costs about a third of a second on Windows, so
+# sharing a run saves most of the time; each input keeps a decoder in memory, so batches stay small.
+THUMBNAILS_PER_RUN = 6
+
+
 def extract_thumbnails(
     ffmpeg: str,
     source: Path,
@@ -28,21 +33,29 @@ def extract_thumbnails(
 ) -> list[Path]:
     """Save `count` JPEG thumbnails spread over the video; returns the files that worked.
 
-    Each thumbnail is a separate fast seek, so this stays quick on long videos.
+    Every thumbnail is its own fast seek (an `-ss` input), so this stays quick on long videos,
+    and a few of them share each ffmpeg run. A seek that finds no frame just leaves its file out.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    paths = []
-    for index, at in enumerate(thumbnail_times(duration, count)):
-        target = out_dir / f"thumb_{index:03d}.jpg"
-        result = subprocess.run(
-            [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-             "-ss", f"{at:.3f}", "-i", str(source), "-frames:v", "1",
-             "-vf", f"scale=-2:{height}", "-q:v", "4", "-update", "1", str(target)],
-            capture_output=True, stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, timeout=60,
-        )
-        if result.returncode == 0 and target.is_file():
-            paths.append(target)
-    return paths
+    jobs = [(at, out_dir / f"thumb_{index:03d}.jpg") for index, at in enumerate(thumbnail_times(duration, count))]
+    for start in range(0, len(jobs), THUMBNAILS_PER_RUN):
+        batch = jobs[start:start + THUMBNAILS_PER_RUN]
+        cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
+        for at, _ in batch:
+            # One decoding thread per input: several inputs already run side by side, and
+            # frame threading would hold many full-size frames per input for no gain.
+            cmd += ["-threads", "1", "-ss", f"{at:.3f}", "-i", str(source)]
+        for n, (_, target) in enumerate(batch):
+            target.unlink(missing_ok=True)      # what exists afterwards was written by this run
+            cmd += ["-map", f"{n}:v:0", "-frames:v", "1",
+                    "-vf", f"scale=-2:{height}", "-q:v", "4", "-update", "1", str(target)]
+        try:
+            # A failed seek makes ffmpeg exit with an error but the other files are still good.
+            subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL,
+                           creationflags=_NO_WINDOW, timeout=120)
+        except subprocess.TimeoutExpired:
+            pass
+    return [target for _, target in jobs if target.is_file() and target.stat().st_size > 0]
 
 
 def waveform_sample_rate(duration: Optional[float], buckets: int) -> int:
