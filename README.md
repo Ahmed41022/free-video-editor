@@ -49,7 +49,8 @@ Nothing else to install: everything it needs is built into the exe.
 - Fade in and out, with separate lengths for the picture and the sound
 - Never overwrites anything: edits are saved as `name (phone).mp4`, `name (square).mp4`, …,
   and existing names get a number (`file.mp3` becomes `file (1).mp3`)
-- Accepts MP4, MOV, MKV, AVI, WEBM, M4V and other common video formats
+- Accepts MP4, MOV, MKV, AVI, WEBM, M4V and other common video formats, and audio files (MP3, M4A, AAC, WAV,
+  FLAC, OGG, OPUS) to trim, cut or save as MP3
 
 ## How to use
 
@@ -109,15 +110,15 @@ python -m video_converter intro.mp4 main.mp4 --video widescreen --fade-in 1 --fa
 | `--overwrite` | Replace existing files instead of adding ` (1)` to the name |
 | `--video` | Export an MP4 instead: `phone`, `square`, `portrait`, `widescreen`, or `original` |
 | `--fit` | `crop` (default), `blur`, or `bars` |
-| `--position X Y` | Crop position from 0 to 1 (default `0.5 0.5`, the center) |
-| `--zoom` | Crop tighter, `1.0` to `3.0` |
+| `--position X Y` | Crop position from 0 to 1 (default `0.5 0.5`, the center; other values are refused) |
+| `--zoom` | Crop tighter, `1.0` to `3.0` (other values are refused) |
 | `--rotate` | `90`, `180`, or `270` degrees clockwise |
 | `--mirror`, `--mute` | Flip left-right; remove the sound |
-| `--size` | Short side in pixels: `1080`, `720`, or `480` (default: same as the source) |
+| `--size` | Short side in pixels: `1080`, `720`, or `480` (default: as large as the cropped picture, never enlarged; phone, portrait and square stop at `1080`) |
 | `--video-quality` | `high`, `balanced` (default), or `small` |
 | `--cut START-END` | Remove a section, e.g. `--cut 0:05-0:12`; repeat it to remove more |
 | `--speed` | `0.25` to `4`, e.g. `2` for twice as fast (default `1`) |
-| `--reverse` | Play backwards |
+| `--reverse` | Play backwards (holds every frame in memory, so a long clip prints a warning) |
 | `--fade-in`, `--fade-out` | Fade the picture and sound in from / out to black and silence, in seconds |
 | `--join` | Make one file of all the inputs, in the order given (an MP4 with `--video`, else an MP3) |
 | `--brightness`, `--contrast`, `--saturation`, `--gamma` | Adjust the picture, e.g. `--contrast 1.2` (`--help` lists the ranges) |
