@@ -1,5 +1,7 @@
 # Free Video Editor
 
+[![Tests](https://github.com/Ahmed41022/free-video-editor/actions/workflows/tests.yml/badge.svg)](https://github.com/Ahmed41022/free-video-editor/actions/workflows/tests.yml)
+
 A Windows video editor that reshapes, crops, cuts and joins videos into new MP4s, for example to fit a phone
 screen for Stories, Reels, TikTok or Shorts, changes their speed, adds fades, adjusts and steadies the picture,
 and turns videos into MP3 audio.
@@ -9,10 +11,17 @@ Everything runs locally on your computer; no files are uploaded anywhere.
 
 ## Download
 
-Grab **`FreeVideoEditor.exe`** from the [latest release](https://github.com/Ahmed41022/free-video-editor/releases/latest) and double-click it.
-Nothing else to install: everything it needs is built into the exe.
+Get either file from the [latest release](https://github.com/Ahmed41022/free-video-editor/releases/latest):
 
-> Windows SmartScreen may warn about an unrecognized app the first time because the exe isn't code-signed.
+- **`FreeVideoEditor-Setup-<version>.exe`**: the installer. It installs just for you (no administrator
+  rights needed, or choose all users), adds a Start menu entry, optionally a desktop shortcut, and an
+  "Open with Free Video Editor" entry for video and audio files. It doesn't change which app opens your files by
+  default. Remove it from Windows **Settings → Apps**.
+- **`FreeVideoEditor.exe`**: the portable version. Double-click it; nothing to install.
+
+Everything the app needs is built in either way.
+
+> Windows SmartScreen may warn about an unrecognized app the first time because the files aren't code-signed.
 > Click **More info → Run anyway**.
 
 ## Features
@@ -136,6 +145,11 @@ python -m venv .venv
 
 The result is `dist\Free Video Editor.exe`, a single file that includes ffmpeg and the Qt libraries.
 
+To also build the installer, install [Inno Setup 6](https://jrsoftware.org/isdl.php) and add `--installer`:
+`.venv\Scripts\python build_exe.py --installer` writes `dist\FreeVideoEditor-Setup-<version>.exe`
+(`ISCC.exe` is found on `PATH`, in its usual install folder, or through the `ISCC` environment variable).
+The installer script is `installer\FreeVideoEditor.iss`.
+
 ## Running the tests
 
 ```bash
@@ -145,6 +159,16 @@ python -m unittest discover -s tests -v
 The tests generate short sample videos with ffmpeg and skip what they can't run: the conversion tests need
 ffmpeg, and the editor tests (`tests/test_ui.py`) need PySide6, so run them from the build environment:
 `.venv\Scripts\python -m unittest discover -s tests`.
+GitHub runs the whole suite on every push and pull request (`.github/workflows/tests.yml`).
+
+## Releases
+
+Bump `__version__` in `video_converter/__init__.py`, then push a tag with the same number, e.g. `v2.3.2`.
+The **Release** workflow (`.github/workflows/release.yml`) refuses a tag that doesn't match `__version__`, runs
+the tests, builds the exe and the installer, and creates a **draft** release with both files and their
+SHA-256 checksums. Nothing is published until you publish the draft. If a release for the tag already exists,
+the files are uploaded to it instead. Running the workflow by hand from the Actions tab only builds the files
+and attaches them to the run.
 
 ## License
 
