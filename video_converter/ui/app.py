@@ -2,21 +2,67 @@
 
 from __future__ import annotations
 
+import faulthandler
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from .. import APP_NAME
+from .. import APP_NAME, diagnostics
 from ..core import find_ffmpeg
+
+CRASH_DIALOG_GAP = 10.0       # seconds; a burst of errors shows one box, not a hundred
 
 
 def _icon_path() -> Path:
     # Inside the .exe, bundled files live in sys._MEIPASS; otherwise next to the package.
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent.parent))
     return base / "assets" / "icon.ico"
+
+
+class CrashReporter(QObject):
+    """Tells the user, once, when something unexpected goes wrong. `report` can be called from any
+    thread; the box appears on the UI thread."""
+
+    crashed = Signal(str)
+
+    def __init__(self, parent: Optional[QObject] = None):
+        super().__init__(parent)
+        self.crashed.connect(self._show)
+        self._last_shown = float("-inf")
+        self.showing = False
+
+    def report(self, summary: str) -> None:
+        self.crashed.emit(summary)
+
+    def _show(self, summary: str) -> None:
+        now = time.monotonic()
+        if self.showing or now - self._last_shown < CRASH_DIALOG_GAP:
+            return
+        self.showing = True
+        try:
+            box = crash_box(summary)
+            box.exec()
+        finally:
+            self.showing = False
+            self._last_shown = time.monotonic()
+
+
+def crash_box(summary: str, parent=None) -> QMessageBox:
+    """The friendly box for an unexpected error (not shown yet)."""
+    box = QMessageBox(QMessageBox.Icon.Warning, APP_NAME, "Something unexpected went wrong.",
+                      QMessageBox.StandardButton.Close, parent)
+    box.setInformativeText(
+        "It has been written to the log, so it can be looked at. You can carry on, but if the app starts "
+        "behaving oddly, save your work and restart it.\n\n"
+        f"The log is here:\n{diagnostics.log_path()}\n\n"
+        "To tell the developer, use Help > Report a problem.")
+    box.setDetailedText(summary)
+    return box
 
 
 def main(paths: Optional[list[str]] = None) -> int:
@@ -34,7 +80,17 @@ def main(paths: Optional[list[str]] = None) -> int:
     if _icon_path().is_file():
         app.setWindowIcon(QIcon(str(_icon_path())))
 
+    try:
+        log_file = diagnostics.setup_logging()
+        # A crash in Qt's or ffmpeg's own code can't be caught; this at least notes where it happened.
+        faulthandler.enable(open(log_file.with_name("crashes.log"), "a", encoding="utf-8"))
+    except (OSError, ValueError, RuntimeError):
+        pass       # no log is better than no app
+    reporter = CrashReporter(app)
+    diagnostics.install_excepthooks(reporter.report)
+
     ffmpeg = find_ffmpeg()
+    diagnostics.log_startup(ffmpeg)
     if not ffmpeg:
         QMessageBox.critical(None, "ffmpeg not found",
                              "This app needs ffmpeg to work with videos.\n\n"

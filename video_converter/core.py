@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -14,6 +15,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .timing import Range, audio_filters, kept_segments, output_duration
+
+log = logging.getLogger(__name__)
 
 VIDEO_EXTENSIONS = (
     ".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm", ".flv", ".wmv", ".mpg", ".mpeg", ".3gp", ".ts",
@@ -34,6 +37,7 @@ DEFAULT_QUALITY = "192 kbps"
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 _VIDEO_STREAM_RE = re.compile(r"Stream #\d+:\d+.*?: Video: .*?(\d{2,5})x(\d{2,5})")
+_BITRATE_RE = re.compile(r"bitrate:\s*(\d+)\s*kb/s")
 _ROTATION_RE = re.compile(r"rotation of (-?\d+(?:\.\d+)?) degrees")
 _FPS_RE = re.compile(r"(\d+(?:\.\d+)?) fps")
 _TBR_RE = re.compile(r"(\d+(?:\.\d+)?)(k?) tbr")
@@ -147,6 +151,7 @@ class MediaInfo:
     # the stored frames. ffmpeg applies it automatically; a raw decoder may not.
     display_rotation: int = 0
     fps: Optional[float] = None    # frames per second of the first video stream
+    bitrate: Optional[int] = None  # whole file, in kilobits per second, when ffmpeg says
 
     @property
     def has_video(self) -> bool:
@@ -175,6 +180,9 @@ def parse_media_info(text: str) -> MediaInfo:
         duration = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
     info = MediaInfo(duration, has_audio=bool(re.search(r"Stream #\d+:\d+.*?: Audio:", text)))
+    rate = _BITRATE_RE.search(text)
+    if rate:
+        info.bitrate = int(rate.group(1))
     # Cover art in a music file is a "video" stream too, but not one to edit.
     video = next((m for m in _VIDEO_STREAM_RE.finditer(text)
                   if "(attached pic)" not in text[m.start():].split("\n", 1)[0]), None)
@@ -241,6 +249,7 @@ def run_ffmpeg(
     `cwd` is ffmpeg's working folder, for filters that read or write files by name.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
+    log.info("ffmpeg: %s", subprocess.list2cmdline(cmd))
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -276,10 +285,12 @@ def run_ffmpeg(
 
     if cancelled:
         output.unlink(missing_ok=True)
+        log.info("ffmpeg was stopped on request")
         raise ConversionCancelled()
     if proc.returncode != 0:
         output.unlink(missing_ok=True)
         message = "".join(errors).strip() or f"ffmpeg exited with code {proc.returncode}"
+        log.error("ffmpeg exited with code %s. Last lines of its output: %s", proc.returncode, message)
         if "matches no streams" in message:
             message = "This file has no audio track."
         elif "No such filter" in message and "vidstab" in message:
