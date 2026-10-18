@@ -463,6 +463,15 @@ def mono_samples(path):
     return samples
 
 
+def audio_end(path):
+    """When the last sound packet of `path` ends, by its timestamps (not by how much sound there is)."""
+    out = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-i", str(path), "-vn", "-c", "copy",
+                          "-f", "null", "-progress", "pipe:1", "-"], capture_output=True, text=True,
+                         check=True).stdout
+    times = [int(line.partition("=")[2]) for line in out.splitlines() if line.startswith("out_time_us=")]
+    return times[-1] / 1_000_000
+
+
 def peak(samples):
     return max((abs(s) for s in samples), default=0)
 
@@ -531,6 +540,14 @@ class TimingExportTests(unittest.TestCase):
         self.assertLess(difference(backward_frames[first], forward_frames[last]), 2)
         self.assertGreater(difference(backward_frames[first], forward_frames[first]), 4)
         self.assertLess(difference(backward_frames[last], forward_frames[first]), 2)
+
+    def test_reverse_with_cuts_keeps_all_the_sound(self):
+        # Reversing sound that was cut into parts used to leave under a second of it.
+        output, _ = self.export("cut-backward.mp4", VideoEdit(aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)],
+                                                              reverse=True))
+        self.assertAlmostEqual(audio_end(output), 3.0, delta=0.2)
+        job = ConversionJob(self.clip, self.tmp / "cut-backward.mp3", keep=[(0.0, 1.0), (2.0, 4.0)], reverse=True)
+        self.assertAlmostEqual(audio_end(convert(FFMPEG, job)), 3.0, delta=0.2)
 
     def test_picture_fade_in_starts_dark(self):
         output, _ = self.export("fade-in.mp4", VideoEdit(aspect=None, fade_in=1.0))

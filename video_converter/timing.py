@@ -250,7 +250,8 @@ def audio_filters(src: str, out: str, segments: list[Segment], speed: float = 1.
     rel = relative(segments)
     chain = [f"atempo={f:.6g}" for f in atempo_factors(speed)]
     if reverse:
-        chain.append("areverse")
+        # areverse replays the old timestamps in reverse order, which are uneven after cuts.
+        chain += ["areverse", "asetpts=N/SR/TB"]
     chain += fade_filters(fade_in, fade_out, output_duration(rel, speed), audio=True)
     if len(rel) <= 1 and not chain and not always:
         return ""

@@ -383,7 +383,7 @@ class FilterStringTests(unittest.TestCase):
 
     def test_audio_chain_order_is_speed_then_reverse_then_fades(self):
         graph = audio_filters("[0:a:0]", "[a]", [(0.0, 8.0)], speed=2.0, reverse=True, fade_in=0.5, fade_out=1.0)
-        self.assertTrue(graph.endswith("[asel]atempo=2,areverse,afade=t=in:st=0:d=0.5,afade=t=out:st=3:d=1[a]"), graph)
+        self.assertTrue(graph.endswith("[asel]atempo=2,areverse,asetpts=N/SR/TB,afade=t=in:st=0:d=0.5,afade=t=out:st=3:d=1[a]"), graph)
 
     def test_fade_out_starts_relative_to_the_length_after_speed(self):
         self.assertEqual(fade_filters(0.0, 1.0, 4.0, audio=False), ["fade=t=out:st=3:d=1"])
