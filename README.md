@@ -114,7 +114,7 @@ python -m video_converter intro.mp4 main.mp4 --video widescreen --fade-in 1 --fa
 | `--zoom` | Crop tighter, `1.0` to `3.0` (other values are refused) |
 | `--rotate` | `90`, `180`, or `270` degrees clockwise |
 | `--mirror`, `--mute` | Flip left-right; remove the sound |
-| `--size` | Short side in pixels: `1080`, `720`, or `480` (default: as large as the cropped picture, never enlarged; phone, portrait and square stop at `1080`) |
+| `--size` | Short side in pixels: `1080`, `720`, or `480` (default: the source's short side; phone, portrait and square stop at `1080`) |
 | `--video-quality` | `high`, `balanced` (default), or `small` |
 | `--cut START-END` | Remove a section, e.g. `--cut 0:05-0:12`; repeat it to remove more |
 | `--speed` | `0.25` to `4`, e.g. `2` for twice as fast (default `1`) |

@@ -105,8 +105,8 @@ class GeometryTests(unittest.TestCase):
         g = plan_geometry(1920, 1080, VideoEdit(aspect=(9, 16)))
         cw, ch, x, y = g.crop
         self.assertEqual(ch, 1080)
-        # "Same as source" keeps the crop's own sharpness: the 606x1080 crop is not blown up to 1080x1920.
-        self.assertEqual((g.out_width, g.out_height), (606, 1078))
+        # "Same as source" follows the source's short side: 1080p makes the standard 1080x1920.
+        self.assertEqual((g.out_width, g.out_height), (1080, 1920))
         self.assertAlmostEqual(cw / ch, 9 / 16, delta=0.01)
         self.assertAlmostEqual(x, (1920 - cw) / 2, delta=1)
         self.assertEqual(y, 0)
@@ -141,10 +141,10 @@ class OutputSizeTests(unittest.TestCase):
         g = plan_geometry(width, height, VideoEdit(**edit))
         return g.out_width, g.out_height
 
-    def test_a_crop_is_not_enlarged(self):
-        # 1080p cropped to 9:16 is a 606x1080 piece of picture; it used to be stretched to 1080x1920.
-        self.assertEqual(self.size(1920, 1080, aspect=(9, 16)), (606, 1078))
-        self.assertEqual(self.size(1920, 1080, aspect=(4, 5)), (864, 1080))
+    def test_same_as_source_follows_the_source_up_to_1080(self):
+        # The short side matches the source, so 1080p gives the 1080x1920 that phone apps expect.
+        self.assertEqual(self.size(1920, 1080, aspect=(9, 16)), (1080, 1920))
+        self.assertEqual(self.size(1920, 1080, aspect=(4, 5)), (1080, 1350))
         self.assertEqual(self.size(1920, 1080, aspect=(1, 1)), (1080, 1080))
         self.assertEqual(self.size(1920, 1080, aspect=(16, 9)), (1920, 1080))
 
@@ -155,17 +155,18 @@ class OutputSizeTests(unittest.TestCase):
         self.assertEqual(self.size(3840, 2160, aspect=(1, 1)), (1080, 1080))
         self.assertEqual(self.size(3840, 2160, aspect=(16, 9)), (3840, 2160))
 
-    def test_a_zoomed_crop_is_not_enlarged_either(self):
+    def test_a_zoomed_crop_keeps_the_output_size(self):
         g = plan_geometry(1920, 1080, VideoEdit(aspect=(1, 1), zoom=2.0))
         self.assertEqual(g.crop[:2], (540, 540))
-        self.assertEqual((g.out_width, g.out_height), (540, 540))
+        self.assertEqual((g.out_width, g.out_height), (1080, 1080))
 
     def test_a_fit_uses_the_sources_short_side_up_to_1080(self):
         for fit in ("blur", "bars"):
             self.assertEqual(self.size(1920, 1080, aspect=(9, 16), fit=fit), (1080, 1920))
             self.assertEqual(self.size(640, 360, aspect=(9, 16), fit=fit), (360, 640))
             self.assertEqual(self.size(3840, 2160, aspect=(9, 16), fit=fit), (1080, 1920))
-            self.assertEqual(self.size(3840, 2160, aspect=(16, 9), fit=fit), (1920, 1080))
+            # Widescreen isn't capped: a 4K widescreen video stays 4K.
+            self.assertEqual(self.size(3840, 2160, aspect=(16, 9), fit=fit), (3840, 2160))
 
     def test_the_original_shape_keeps_the_exact_source_size(self):
         for size in ((1920, 1080), (3840, 2160), (1280, 720), (1080, 1920), (1918, 1080), (854, 480)):
@@ -173,8 +174,9 @@ class OutputSizeTests(unittest.TestCase):
         self.assertEqual(self.size(1920, 1080, aspect=None, rotate=90), (1080, 1920))
         self.assertEqual(self.size(641, 359, aspect=None), (640, 358))      # odd sizes can't be kept
 
-    def test_zooming_the_original_shape_exports_the_crop_not_the_whole_size(self):
-        self.assertEqual(self.size(1920, 1080, aspect=None, zoom=2.0), (960, 540))
+    def test_zooming_the_original_shape_keeps_the_full_size(self):
+        # Zooming in keeps the full output size, as it did before 2.3.1.
+        self.assertEqual(self.size(1920, 1080, aspect=None, zoom=2.0), (1920, 1080))
 
     def test_a_chosen_size_is_always_used(self):
         self.assertEqual(self.size(640, 360, aspect=(9, 16), resolution=1080), (1080, 1920))
@@ -218,8 +220,8 @@ class ReverseMemoryTests(unittest.TestCase):
         full = reverse_memory(VideoEdit(aspect=None, reverse=True), self.HD)
         small = reverse_memory(VideoEdit(aspect=None, reverse=True, resolution=480), self.HD)
         self.assertAlmostEqual(small / full, (854 * 480) / (1920 * 1080), places=4)
-        phone = reverse_memory(VideoEdit(aspect=(9, 16), reverse=True), self.HD)     # 606x1078 crop
-        self.assertEqual(phone, 18000 * 606 * 1078 * 3 // 2)
+        phone = reverse_memory(VideoEdit(aspect=(9, 16), reverse=True), self.HD)     # exported at 1080x1920
+        self.assertEqual(phone, 18000 * 1080 * 1920 * 3 // 2)
 
     def test_only_the_kept_and_sped_up_length_counts(self):
         whole = reverse_memory(VideoEdit(aspect=None, reverse=True), self.HD)
@@ -395,8 +397,8 @@ class JoinCommandTests(unittest.TestCase):
         first = part("a.mp4", 640, 360, 15.0, True)
         first.edit.aspect = (9, 16)
         cmd, _ = self.build([first, part("b.mp4", 640, 360, 15.0, True)])
-        # 9:16 cropped out of 640x360 is 202x360, and "Same as source" does not enlarge it.
-        self.assertEqual(graph_of(cmd).count("pad=202:360:"), 2)
+        # 9:16 out of a 640x360 source exports at 360x640 (the source's short side).
+        self.assertEqual(graph_of(cmd).count("pad=360:640:"), 2)
 
     def test_the_first_clips_quality_is_used(self):
         first = part("a.mp4", 640, 360, 15.0, True, crf=28)
@@ -527,8 +529,8 @@ class VideoExportTests(unittest.TestCase):
         return probe_media(FFMPEG, convert_video(FFMPEG, VideoJob(source or self.landscape, self.tmp / name, edit)))
 
     def test_phone_export_in_every_fit_mode(self):
-        # A crop keeps its own size (202x360 out of the 640x360 source); a fit uses the source's short side.
-        for fit, size in (("crop", (202, 360)), ("blur", (360, 640)), ("bars", (360, 640))):
+        # Every fit uses the source's short side: 640x360 becomes 360x640.
+        for fit, size in (("crop", (360, 640)), ("blur", (360, 640)), ("bars", (360, 640))):
             with self.subTest(fit=fit):
                 info = self.export(f"phone-{fit}.mp4", VideoEdit(aspect=(9, 16), fit=fit))
                 self.assertEqual((info.width, info.height), size)

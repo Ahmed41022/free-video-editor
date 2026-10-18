@@ -690,7 +690,7 @@ class ReverseWarningInspectorTests(unittest.TestCase):
 
     def test_the_size_menu_explains_same_as_source(self):
         tip = self.inspector.size_box.toolTip()
-        self.assertIn("never enlarges", tip)
+        self.assertIn("capped at 1080", tip)
         self.assertIn("1080", tip)
 
 
@@ -1277,8 +1277,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual([p.name for p in out_dir.iterdir()], ["landscape (joined).mp4"])
         info = probe_media(FFMPEG, out_dir / "landscape (joined).mp4")
         self.assertAlmostEqual(info.duration, 6.0, delta=0.3)
-        # The first file's phone shape: 9:16 cut out of 320x180 is 100x178, not enlarged to 180x320.
-        self.assertEqual((info.width, info.height), (100, 178))
+        # The first file's phone shape: 9:16 from the 320x180 source exports at 180x320.
+        self.assertEqual((info.width, info.height), (180, 320))
         self.assertTrue(info.has_audio)
         self.assertEqual(job.title, "landscape.mp4 + 1 more")
 

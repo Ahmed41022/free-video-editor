@@ -158,10 +158,9 @@ def oriented_size(width: int, height: int, rotate: int) -> tuple[int, int]:
 def plan_geometry(width: int, height: int, edit: VideoEdit) -> Geometry:
     """Work out the output size and crop box for a `width` x `height` source.
 
-    The output's short side is `edit.resolution` when that is set. Otherwise it is the cropped
-    picture's own short side, so a crop is never enlarged, and phone, portrait and square videos
-    stop at SHORT_SIDE_CAP. A fit (blurred background or bars) has no crop, so it uses the
-    source's short side, again capped for every shape but the original one."""
+    The output's short side is `edit.resolution` when that is set. Otherwise it is the source's
+    short side, so a 1080p video makes a standard 1080x1920 phone video, and phone, portrait and
+    square videos stop at SHORT_SIDE_CAP, so a 4K source doesn't turn into a huge 2160x3840 file."""
     w, h = oriented_size(width, height, edit.rotate)
     aw, ah = edit.aspect or (w, h)
     ratio = aw / ah
@@ -179,11 +178,14 @@ def plan_geometry(width: int, height: int, edit: VideoEdit) -> Geometry:
         y = round((h - crop_h) * min(max(edit.pos_y, 0.0), 1.0))
         crop = (crop_w, crop_h, x, y)
 
+    if not edit.resolution and edit.aspect is None:
+        # The original shape at "same as source" is exactly the source size (made even).
+        return Geometry(w, h, _even_floor(w), _even_floor(h), crop)
     if edit.resolution:
         short = edit.resolution
     else:
-        short = min(crop[0], crop[1]) if crop else min(w, h)
-        if edit.aspect and (crop is None or ratio <= 1):
+        short = min(w, h)
+        if edit.aspect and ratio <= 1:
             short = min(short, SHORT_SIDE_CAP)
     short = _even(short)
     # The other side follows from the exact ratio (360 -> 640 for 9:16), not from an odd source size.

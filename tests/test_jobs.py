@@ -784,8 +784,8 @@ class EndToEndTests(unittest.TestCase):
         self.assertAlmostEqual(mp3_info.duration, 2.0, delta=0.3)
 
         info = probe_media(FFMPEG, mp4.output)
-        # 9:16 cut out of the 320x180 source is 100x178; "Same as source" does not enlarge it to 180x320.
-        self.assertEqual((info.width, info.height), (100, 178))
+        # 9:16 from the 320x180 source exports at 180x320 (the source's short side).
+        self.assertEqual((info.width, info.height), (180, 320))
         self.assertTrue(info.has_audio)
         self.assertAlmostEqual(info.duration, 2.0, delta=0.3)
         self.assertTrue(self.source.is_file())

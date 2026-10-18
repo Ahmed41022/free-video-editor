@@ -383,8 +383,9 @@ class Inspector(QScrollArea):
         for label, value in RESOLUTIONS.items():
             self.size_box.addItem(label, value)
         self.size_box.setToolTip(
-            "Same as source keeps the picture as sharp as it is and never enlarges a crop. Phone, portrait and "
-            "square videos are capped at 1080 pixels on the short side. 1080p, 720p and 480p set the short side.")
+            "Same as source matches the source's short side, so 1080p makes a 1080x1920 phone video. Phone, "
+            "portrait and square videos are capped at 1080 pixels on the short side, so 4K doesn't make huge "
+            "files. 1080p, 720p and 480p set the short side.")
         self.size_box.currentIndexChanged.connect(
             lambda: self._edit(lambda s: setattr(s.edit, "resolution", self.size_box.currentData()), "Size"))
         self.quality_section.row("Size", self.size_box, 0)
