@@ -13,7 +13,12 @@ from PySide6.QtWidgets import (
 from ..core import QUALITY_PRESETS, format_time, parse_time
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, PRESETS, ClipSettings
 from ..timing import FADE_MAX, SPEED_MAX, SPEED_MIN, output_duration, removed_parts
-from ..video import FIT_MODES, RESOLUTIONS, VIDEO_QUALITY
+from ..video import ADJUSTMENTS, FIT_MODES, LOOKS, RESOLUTIONS, STABILIZE, VIDEO_QUALITY
+
+ADJUST_LABELS = {"brightness": "Brightness", "contrast": "Contrast", "saturation": "Saturation",
+                 "gamma": "Gamma", "sharpen": "Sharpen", "denoise": "Denoise"}
+STABILIZE_LABELS = {"off": "Off", "light": "Light", "strong": "Strong"}
+LOOK_CHIPS = {"bw": "B&W", "contrast": "Contrast"}      # short names that fit the panel
 
 SHAPES = [("Original", None), ("9:16", (9, 16)), ("1:1", (1, 1)), ("4:5", (4, 5)), ("16:9", (16, 9))]
 SHAPE_HINTS = {None: "Keep the video's own shape", (9, 16): "Phone: Stories, Reels, TikTok, Shorts",
@@ -185,6 +190,66 @@ class Inspector(QScrollArea):
         center.clicked.connect(lambda: self._edit(self._center, "Center crop"))
         self.frame_section.grid.addWidget(center, 5, 1)
 
+        # Adjust
+        self.adjust_section = Section("Adjust")
+        self.adjust_sliders: dict[str, tuple[QSlider, QLabel]] = {}
+        for row, name in enumerate(ADJUSTMENTS):
+            low, high, _ = ADJUSTMENTS[name]
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(round(low * 100), round(high * 100))
+            value_label = QLabel()
+            value_label.setMinimumWidth(36)
+            slider.valueChanged.connect(
+                lambda v, name=name, slider=slider: self._edit(
+                    lambda s: setattr(s.edit, name, v / 100), ADJUST_LABELS[name], final=not slider.isSliderDown()))
+            slider.sliderReleased.connect(
+                lambda name=name, slider=slider: self._edit(
+                    lambda s: setattr(s.edit, name, slider.value() / 100), ADJUST_LABELS[name]))
+            line = QHBoxLayout()
+            line.setContentsMargins(0, 0, 0, 0)
+            line.addWidget(slider)
+            line.addWidget(value_label)
+            holder = QWidget()
+            holder.setLayout(line)
+            self.adjust_section.row(ADJUST_LABELS[name], holder, row)
+            self.adjust_sliders[name] = (slider, value_label)
+        looks = QGridLayout()
+        looks.setSpacing(4)
+        self.look_group = QButtonGroup(self)
+        for i, (key, (label, _)) in enumerate(LOOKS.items()):
+            button = QPushButton(LOOK_CHIPS.get(key, label).replace("&", "&&"))
+            button.setObjectName("chip")
+            button.setMinimumWidth(0)
+            button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            button.setCheckable(True)
+            button.setToolTip(label)
+            button.setProperty("look", key)
+            self.look_group.addButton(button, i)
+            looks.addWidget(button, i // 3, i % 3)
+        self.look_group.idClicked.connect(
+            lambda i: self._edit(lambda s: setattr(s.edit, "look", self.look_group.button(i).property("look")),
+                                 "Look"))
+        looks_holder = QWidget()
+        looks_holder.setLayout(looks)
+        looks.setContentsMargins(0, 0, 0, 0)
+        row = len(ADJUSTMENTS)
+        self.adjust_section.row("Look", looks_holder, row)
+        reset = QPushButton("Reset the picture")
+        reset.setToolTip("Put every adjustment and the look back to normal")
+        reset.clicked.connect(lambda: self._edit(self._reset_picture, "Reset picture"))
+        self.adjust_section.grid.addWidget(reset, row + 1, 1)
+        self.stabilize_box = QComboBox()
+        for key, label in STABILIZE_LABELS.items():
+            self.stabilize_box.addItem(label, key)
+        self.stabilize_box.currentIndexChanged.connect(
+            lambda: self._edit(lambda s: setattr(s.edit, "stabilize", self.stabilize_box.currentData()), "Stabilize"))
+        self.adjust_section.row("Stabilize", self.stabilize_box, row + 2)
+        stabilize_hint = QLabel("Steadies shaky footage when exporting, which takes longer. "
+                                "The preview doesn't show it.")
+        stabilize_hint.setObjectName("muted")
+        stabilize_hint.setWordWrap(True)
+        self.adjust_section.grid.addWidget(stabilize_hint, row + 3, 1)
+
         # Trim and cut
         self.trim_section = Section("Trim and cut")
         self.start_edit = QLineEdit()
@@ -336,7 +401,8 @@ class Inspector(QScrollArea):
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             combo.setMinimumContentsLength(8)
 
-        self.sections = [self.preset_section, self.output_section, self.frame_section, self.trim_section,
+        self.sections = [self.preset_section, self.output_section, self.frame_section, self.adjust_section,
+                         self.trim_section,
                          self.speed_section, self.fade_section, self.audio_section, self.quality_section]
         for section in self.sections + [self.export_section]:
             layout.addWidget(section)
@@ -378,6 +444,7 @@ class Inspector(QScrollArea):
             video = settings.output == OUTPUT_VIDEO
             self.output_group.button(0 if video else 1).setChecked(True)
             self.frame_section.setVisible(video)
+            self.adjust_section.setVisible(video)
             self.quality_section.setVisible(video)
             self.mute_box.setVisible(video)
             self.mp3_label.setVisible(not video)
@@ -394,6 +461,14 @@ class Inspector(QScrollArea):
             self.zoom_slider.setEnabled(edit.crops)
             self.zoom_label.setText(f"{edit.zoom:.1f}×")
             self.mirror_box.setChecked(edit.flip)
+            for name, (slider, value_label) in self.adjust_sliders.items():
+                value = getattr(edit, name)
+                if not slider.isSliderDown():
+                    slider.setValue(round(value * 100))
+                value_label.setText(f"{value:+.2f}" if name == "brightness" else f"{value:.2f}")
+            look_index = list(LOOKS).index(edit.look) if edit.look in LOOKS else 0
+            self.look_group.button(look_index).setChecked(True)
+            self.stabilize_box.setCurrentIndex(max(self.stabilize_box.findData(edit.stabilize), 0))
             self._show_trim()
             self.speed_box.setValue(edit.speed)
             self.reverse_box.setChecked(edit.reverse)
@@ -426,6 +501,12 @@ class Inspector(QScrollArea):
     @staticmethod
     def _center(s: ClipSettings) -> None:
         s.edit.pos_x = s.edit.pos_y = 0.5
+
+    @staticmethod
+    def _reset_picture(s: ClipSettings) -> None:
+        for name, (_, _, neutral) in ADJUSTMENTS.items():
+            setattr(s.edit, name, neutral)
+        s.edit.look = "none"
 
     @staticmethod
     def _clear_trim(s: ClipSettings) -> None:

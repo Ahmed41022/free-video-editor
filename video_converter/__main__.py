@@ -26,7 +26,10 @@ from .core import (
     probe_media,
 )
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, cut_range
-from .video import VIDEO_QUALITY, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, output_tag
+from .video import (
+    ADJUSTMENTS, LOOKS, STABILIZE, VIDEO_QUALITY, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video,
+    join_clips, output_tag,
+)
 
 # Short command-line names for the quality presets.
 CLI_QUALITY = {
@@ -80,6 +83,20 @@ def _seconds(text: str) -> float:
     return value
 
 
+def _adjustment(name: str):
+    low, high, _ = ADJUSTMENTS[name]
+
+    def parse(text: str) -> float:
+        try:
+            value = float(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+        if not low <= value <= high:
+            raise argparse.ArgumentTypeError(f"{name} must be between {low:g} and {high:g}")
+        return value
+    return parse
+
+
 def _with_cuts(edit: VideoEdit, cuts: list[tuple[float, float]], duration: float | None) -> VideoEdit:
     """A copy of `edit` with `cuts` removed from a source `duration` seconds long."""
     edit = copy.deepcopy(edit)
@@ -128,12 +145,25 @@ def run_cli(argv: list[str]) -> int:
     timing.add_argument("--fade-out", type=_seconds, default=0.0, metavar="SECONDS",
                         help="fade out to black and silence")
     timing.add_argument("--join", action="store_true", help="make one file of all the inputs, in order")
+
+    picture = parser.add_argument_group("picture (with --video)")
+    hints = {"brightness": "0 = unchanged", "contrast": "1 = unchanged", "saturation": "1 = unchanged, 0 = grey",
+             "gamma": "1 = unchanged", "sharpen": "0 = off", "denoise": "0 = off"}
+    for name, (low, high, neutral) in ADJUSTMENTS.items():
+        picture.add_argument(f"--{name}", type=_adjustment(name), default=neutral, metavar="N",
+                             help=f"{low:g} to {high:g}; {hints[name]}")
+    picture.add_argument("--look", choices=LOOKS, default="none",
+                         help="color look; bw = black and white, contrast = high contrast")
+    picture.add_argument("--stabilize", choices=STABILIZE, default="off", help="steady shaky footage (slower)")
     args = parser.parse_args(argv)
 
     if args.start is not None and args.end is not None and args.end <= args.start:
         parser.error("--end must be after --start")
     if args.join and len(args.files) < 2:
         parser.error("--join needs at least two files")
+    picture_values = {name: getattr(args, name) for name in (*ADJUSTMENTS, "look", "stabilize")}
+    if not args.video and picture_values != {name: getattr(VideoEdit(), name) for name in picture_values}:
+        parser.error("the picture options need --video")
 
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
@@ -148,6 +178,7 @@ def run_cli(argv: list[str]) -> int:
             aspect=CLI_SHAPES[args.video], fit=args.fit, pos_x=args.position[0], pos_y=args.position[1],
             zoom=args.zoom, rotate=args.rotate, flip=args.mirror, resolution=args.size,
             crf=VIDEO_QUALITY[CLI_VIDEO_QUALITY[args.video_quality]], mute=args.mute, **timing,
+            **picture_values,
         )
     quality = CLI_QUALITY[args.quality]
 

@@ -10,7 +10,9 @@ from typing import Any, Optional
 
 from .core import DEFAULT_QUALITY, QUALITY_PRESETS, output_path_for
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, normalize_keep, removed_parts
-from .video import FIT_MODES, RESOLUTIONS, VIDEO_QUALITY, VideoEdit, output_tag
+from .video import (
+    ADJUSTMENTS, FIT_MODES, LOOKS, RESOLUTIONS, STABILIZE, VIDEO_QUALITY, VideoEdit, output_tag,
+)
 
 OUTPUT_VIDEO = "video"
 OUTPUT_AUDIO = "audio"
@@ -77,6 +79,14 @@ class ClipSettings:
                 continue
             if name in FADE_FIELDS and not (_time_value(value) and value <= FADE_MAX):
                 continue
+            if name in ADJUSTMENTS:
+                low, high, _ = ADJUSTMENTS[name]
+                if not (_number(value) and low <= value <= high):
+                    continue
+            if name == "look" and not (_is_str(value) and value in LOOKS):
+                continue
+            if name == "stabilize" and not (_is_str(value) and value in STABILIZE):
+                continue
             default = getattr(defaults, name)
             if _compatible(default, value):
                 setattr(settings.edit, name, float(value) if isinstance(default, float) else value)
@@ -89,6 +99,11 @@ MAX_KEPT_RANGES = 1000
 
 def _is_str(value: Any) -> bool:
     return isinstance(value, str)
+
+
+def _number(value: Any) -> bool:
+    """A finite number (not a bool)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _time_value(value: Any) -> bool:
@@ -197,6 +212,12 @@ def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
             parts.append(f"rotated {edit.rotate}°")
         if edit.mute:
             parts.append("no sound")
+        if edit.look != "none":
+            parts.append(LOOKS[edit.look][0].lower())
+        if any(getattr(edit, name) != neutral for name, (_, _, neutral) in ADJUSTMENTS.items()):
+            parts.append("adjusted")
+        if STABILIZE.get(edit.stabilize):
+            parts.append("stabilized")
     edit = settings.edit
     if edit.start is not None or edit.end is not None:
         start = format_time(edit.start or 0)

@@ -1,7 +1,8 @@
 # Free Video Editor
 
 A Windows video editor that reshapes, crops, cuts and joins videos into new MP4s, for example to fit a phone
-screen for Stories, Reels, TikTok or Shorts, changes their speed, adds fades, and turns videos into MP3 audio.
+screen for Stories, Reels, TikTok or Shorts, changes their speed, adds fades, adjusts and steadies the picture,
+and turns videos into MP3 audio.
 Everything runs locally on your computer; no files are uploaded anywhere.
 
 ![Free Video Editor editing a landscape video into a 9:16 phone video](docs/screenshot.png)
@@ -22,7 +23,7 @@ Nothing else to install: everything it needs is built into the exe.
   of a cut on the timeline to adjust it (right-click the timeline for more). Playback skips the cut parts
 - Join several files into one video, in list order: drag files in the list to reorder them
 - Crop box right on the video: drag it to choose what to keep, drag a corner (or scroll) to zoom
-- Before / after view that renders exactly what the export will look like
+- Before / after view that renders exactly what the export will look like, adjustments and looks included
 - Undo and redo for every change, dark and light themes, and drag-and-drop of files and folders
 - Each file keeps its own settings; **Apply to all files** copies them to the rest (each keeps its own crop,
   trim and cuts)
@@ -32,6 +33,10 @@ Nothing else to install: everything it needs is built into the exe.
 - Reshape for phones (9:16), square posts (1:1), portrait posts (4:5) or widescreen (16:9)
 - Crop to fill the frame, or fit the whole video with a blurred background or black bars
 - Rotate, mirror, remove the sound, and pick the size (1080p, 720p, 480p) and quality
+- Adjust brightness, contrast, saturation and gamma, sharpen, and reduce noise
+- One-click color looks: black and white, warm, cool, vintage and high contrast, on top of the adjustments
+- Stabilize shaky phone footage (light or strong). It runs when exporting, in two passes, so it takes longer
+  and the preview doesn't show it
 - One-click presets for TikTok / Reels / Shorts, Instagram, YouTube and WhatsApp status, plus your own saved presets
 - Phone recordings that are stored sideways are detected and shown the right way up
 
@@ -49,7 +54,7 @@ Nothing else to install: everything it needs is built into the exe.
 ## How to use
 
 1. Click **Add files** or **Add folder**, or drop videos onto the window (or onto the exe)
-2. Pick a file, then choose a preset or set the shape, crop, trim, cuts, speed and fades on the right
+2. Pick a file, then choose a preset or set the shape, crop, picture, trim, cuts, speed and fades on the right
 3. Click **Export** (or **Export all**); exports run in the queue at the bottom while you keep working
 
 To make one video from several files, put them in the order you want (drag them in the list), select the
@@ -115,6 +120,10 @@ python -m video_converter intro.mp4 main.mp4 --video widescreen --fade-in 1 --fa
 | `--reverse` | Play backwards |
 | `--fade-in`, `--fade-out` | Fade the picture and sound in from / out to black and silence, in seconds |
 | `--join` | Make one file of all the inputs, in the order given (an MP4 with `--video`, else an MP3) |
+| `--brightness`, `--contrast`, `--saturation`, `--gamma` | Adjust the picture, e.g. `--contrast 1.2` (`--help` lists the ranges) |
+| `--sharpen`, `--denoise` | Sharpen (`0` to `1.5`) or reduce noise (`0` to `10`) |
+| `--look` | `bw`, `warm`, `cool`, `vintage`, or `contrast` |
+| `--stabilize` | `light` or `strong` |
 
 ## Building the exe
 

@@ -223,11 +223,13 @@ def run_ffmpeg(
     duration: Optional[float],
     on_progress: Optional[Callable[[float], None]] = None,
     cancel_event: Optional[threading.Event] = None,
+    cwd: Optional[Path] = None,
 ) -> Path:
     """Run an ffmpeg command that ends with `-progress pipe:1 -nostats <output>`.
 
     `on_progress` receives a fraction between 0 and 1 (only when the duration
     is known). Setting `cancel_event` stops ffmpeg and removes the partial file.
+    `cwd` is ffmpeg's working folder, for filters that read or write files by name.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
@@ -239,6 +241,7 @@ def run_ffmpeg(
         errors="replace",
         stdin=subprocess.DEVNULL,
         creationflags=_NO_WINDOW,
+        cwd=cwd,
     )
 
     # Drain stderr on a separate thread so a chatty ffmpeg can't block on a full pipe.
@@ -270,6 +273,8 @@ def run_ffmpeg(
         message = "".join(errors).strip() or f"ffmpeg exited with code {proc.returncode}"
         if "matches no streams" in message:
             message = "This file has no audio track."
+        elif "No such filter" in message and "vidstab" in message:
+            message = "This copy of ffmpeg can't stabilize video (it was built without libvidstab)."
         raise ConversionError(message)
 
     if on_progress:

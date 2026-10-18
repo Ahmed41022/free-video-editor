@@ -662,6 +662,78 @@ class InspectorTests(unittest.TestCase):
         self.assertTrue(text.endswith("and 3 more"), text)
 
 
+
+class AdjustSectionTests(unittest.TestCase):
+    def setUp(self):
+        from video_converter.ui.inspector import Inspector
+        self.inspector = Inspector()
+        self.inspector.set_settings(ClipSettings(), 10.0)
+        self.edits = []
+        self.inspector.settingsEdited.connect(lambda s, label, final: self.edits.append((s, label, final)))
+
+    def tearDown(self):
+        self.inspector.close()
+
+    def test_a_slider_drag_reports_one_final_edit(self):
+        slider, value_label = self.inspector.adjust_sliders["contrast"]
+        slider.setSliderDown(True)
+        slider.setValue(120)
+        slider.setValue(150)
+        slider.setSliderDown(False)
+        slider.sliderReleased.emit()
+        self.assertEqual([final for _, _, final in self.edits][-1], True)
+        self.assertNotIn(True, [final for _, _, final in self.edits][:-1])
+        self.assertAlmostEqual(self.edits[-1][0].edit.contrast, 1.5)
+        self.inspector.set_settings(self.edits[-1][0], 10.0)
+        self.assertEqual(value_label.text(), "1.50")
+
+    def test_every_slider_sets_its_own_field(self):
+        from video_converter.video import ADJUSTMENTS
+        for name, (low, high, neutral) in ADJUSTMENTS.items():
+            with self.subTest(field=name):
+                self.inspector.set_settings(ClipSettings(), 10.0)
+                slider, _ = self.inspector.adjust_sliders[name]
+                self.assertEqual((slider.minimum(), slider.maximum()), (round(low * 100), round(high * 100)))
+                self.assertEqual(slider.value(), round(neutral * 100))
+                slider.setValue(slider.maximum())
+                edit = self.edits[-1][0].edit
+                self.assertAlmostEqual(getattr(edit, name), high)
+                others = {n: getattr(edit, n) for n in ADJUSTMENTS if n != name}
+                self.assertEqual(others, {n: v[2] for n, v in ADJUSTMENTS.items() if n != name})
+
+    def test_look_chips(self):
+        from video_converter.video import LOOKS
+        keys = list(LOOKS)
+        self.inspector.look_group.button(keys.index("bw")).click()
+        self.assertEqual(self.edits[-1][0].edit.look, "bw")
+        self.assertEqual(self.inspector.look_group.button(keys.index("bw")).toolTip(), "Black and white")
+        settings = ClipSettings()
+        settings.edit.look = "vintage"
+        self.inspector.set_settings(settings, 10.0)
+        self.assertTrue(self.inspector.look_group.button(keys.index("vintage")).isChecked())
+
+    def test_reset_puts_the_picture_back_but_keeps_stabilizing(self):
+        settings = ClipSettings()
+        settings.edit.look, settings.edit.gamma, settings.edit.denoise = "warm", 1.5, 3.0
+        settings.edit.stabilize = "strong"
+        self.inspector.set_settings(settings, 10.0)
+        reset = next(b for b in self.inspector.adjust_section.findChildren(QPushButton)
+                     if b.text() == "Reset the picture")
+        reset.click()
+        edit = self.edits[-1][0].edit
+        self.assertEqual((edit.look, edit.gamma, edit.denoise, edit.stabilize), ("none", 1.0, 0.0, "strong"))
+
+    def test_stabilize_choice(self):
+        box = self.inspector.stabilize_box
+        box.setCurrentIndex(box.findData("light"))
+        self.assertEqual(self.edits[-1][0].edit.stabilize, "light")
+
+    def test_the_section_is_hidden_for_mp3(self):
+        self.assertFalse(self.inspector.adjust_section.isHidden())
+        self.inspector.set_settings(ClipSettings(output=OUTPUT_AUDIO), 10.0)
+        self.assertTrue(self.inspector.adjust_section.isHidden())
+
+
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class MainWindowTests(unittest.TestCase):
     @classmethod
@@ -726,6 +798,25 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(self.window.inspector.shape_group.button(1).isChecked())  # the panel follows
         self.window.undo_stack.redo()
         self.assertEqual(item.settings.edit.aspect, (1, 1))
+
+    def test_an_adjustment_drag_is_one_undo_step_and_reaches_the_preview(self):
+        self.load(self.landscape)
+        item = self.window.current
+        slider, _ = self.window.inspector.adjust_sliders["brightness"]
+        slider.setSliderDown(True)
+        for value in (10, 20, 30):
+            slider.setValue(value)
+        slider.setSliderDown(False)
+        slider.sliderReleased.emit()
+        self.assertAlmostEqual(item.settings.edit.brightness, 0.3)
+        self.assertEqual(self.window.undo_stack.count(), 1)
+        self.assertIn("adjusted", item.list_item.text())
+        self.window.compare_button.click()                     # the "after" view renders the adjustment
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.view.after_image is not None), "no preview")
+        self.window.compare_button.click()
+        self.window.undo_stack.undo()
+        self.assertEqual(item.settings.edit.brightness, 0.0)
+        self.assertEqual(slider.value(), 0)
 
     def test_a_crop_drag_is_one_undo_step(self):
         self.load(self.landscape)

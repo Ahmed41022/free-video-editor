@@ -1,9 +1,10 @@
 """Video editing: reframe for phones and other shapes, crop, rotate, cut, change speed, fade,
-join clips, and export MP4."""
+adjust the picture, stabilize, join clips, and export MP4."""
 
 from __future__ import annotations
 
 import subprocess
+import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,7 @@ from .timing import (
     kept_segments,
     output_duration,
     relative,
+    segments_length,
     select_filters,
     source_to_output,
 )
@@ -62,6 +64,29 @@ RESOLUTIONS = {"Same as source": None, "1080p": 1080, "720p": 720, "480p": 480}
 VIDEO_QUALITY = {"High": 18, "Balanced": 23, "Smaller file": 28}
 DEFAULT_VIDEO_QUALITY = "Balanced"
 
+# Picture adjustments: field -> (lowest, highest, neutral value).
+ADJUSTMENTS = {
+    "brightness": (-0.5, 0.5, 0.0),     # eq brightness
+    "contrast": (0.5, 2.0, 1.0),        # eq contrast
+    "saturation": (0.0, 3.0, 1.0),      # eq saturation; 0 = grey
+    "gamma": (0.5, 2.0, 1.0),           # eq gamma
+    "sharpen": (0.0, 1.5, 0.0),         # unsharp luma amount
+    "denoise": (0.0, 10.0, 0.0),        # hqdn3d strength
+}
+
+# Color looks: key -> (label, ffmpeg filters).
+LOOKS = {
+    "none": ("None", []),
+    "bw": ("Black and white", ["hue=s=0"]),
+    "warm": ("Warm", ["colorbalance=rs=0.08:gs=0.02:bs=-0.08:rm=0.06:bm=-0.06"]),
+    "cool": ("Cool", ["colorbalance=rs=-0.08:bs=0.08:rm=-0.06:bm=0.06"]),
+    "vintage": ("Vintage", ["curves=preset=vintage", "eq=saturation=0.85"]),
+    "contrast": ("High contrast", ["curves=preset=strong_contrast"]),
+}
+
+# Stabilization strength -> (vidstabdetect shakiness, vidstabtransform smoothing), or None for off.
+STABILIZE = {"off": None, "light": (5, 10), "strong": (8, 30)}
+
 
 @dataclass
 class VideoEdit:
@@ -84,6 +109,14 @@ class VideoEdit:
     fade_out: float = 0.0
     audio_fade_in: float = 0.0
     audio_fade_out: float = 0.0
+    brightness: float = 0.0   # picture adjustments, see ADJUSTMENTS
+    contrast: float = 1.0
+    saturation: float = 1.0
+    gamma: float = 1.0
+    sharpen: float = 0.0
+    denoise: float = 0.0
+    look: str = "none"        # a LOOKS key
+    stabilize: str = "off"    # a STABILIZE key; applied when exporting only
 
     @property
     def crops(self) -> bool:
@@ -147,6 +180,29 @@ def orientation_filters(edit: VideoEdit) -> list[str]:
     return filters + (["hflip"] if edit.flip else [])
 
 
+def _num(value: float) -> str:
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
+def picture_filters(edit: VideoEdit) -> list[str]:
+    """Denoise, brightness/contrast/saturation/gamma, the color look, then sharpening."""
+    def value(name: str) -> float:
+        low, high, _ = ADJUSTMENTS[name]
+        return min(max(getattr(edit, name), low), high)
+
+    filters = []
+    if value("denoise") > 0:
+        filters.append(f"hqdn3d={_num(value('denoise'))}")
+    eq = [f"{name}={_num(value(name))}" for name in ("brightness", "contrast", "saturation", "gamma")
+          if abs(value(name) - ADJUSTMENTS[name][2]) > 1e-6]
+    if eq:
+        filters.append("eq=" + ":".join(eq))
+    filters += LOOKS.get(edit.look, LOOKS["none"])[1]
+    if value("sharpen") > 0:
+        filters.append(f"unsharp=5:5:{_num(value('sharpen'))}:5:5:0")
+    return filters
+
+
 def build_filter_graph(geometry: Geometry, edit: VideoEdit, src: str = "[0:v]", out: str = "[v]",
                        tag: str = "") -> str:
     """An ffmpeg -filter_complex graph that reframes `src` (rotate, crop or fit, scale) into `out`.
@@ -184,12 +240,15 @@ class ClipGraph:
 
 def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segment], *,
                video: bool = True, audio: bool = True, frame: Optional[tuple[int, int]] = None,
-               fps: Optional[float] = None, v_out: str = "[v]", a_out: str = "[a]") -> ClipGraph:
-    """Filters that take input `index` through cuts, speed, reframing, reverse and fades.
+               fps: Optional[float] = None, v_out: str = "[v]", a_out: str = "[a]",
+               transforms: Optional[str] = None) -> ClipGraph:
+    """Filters that take input `index` through cuts, stabilization, speed, reframing, picture
+    adjustments, reverse and fades.
 
     The input must start at the first segment (see `input_args`). `frame` and `fps` force the
     output size and frame rate, for joining clips: a clip whose shape differs is fitted inside
-    that frame with black bars."""
+    that frame with black bars. `transforms` names the file from the stabilizer's detect pass,
+    relative to ffmpeg's working folder."""
     tag = str(index)
     rel = relative(segments)
     speed = clamp_speed(edit.speed)
@@ -198,7 +257,13 @@ def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segm
     if video:
         timed = f"[t{tag}]"
         filters += select_filters(f"[{index}:v:0]", timed, rel, audio=False, tag=tag)
-        tempo = [f"setpts=PTS/{speed:.6g}"] if speed != 1.0 else []
+        tempo = []
+        strength = STABILIZE.get(edit.stabilize)
+        if transforms and strength:
+            # Right after the cuts, so the frames match the ones the detect pass saw.
+            tempo.append(f"vidstabtransform=input={transforms}:smoothing={strength[1]}:optzoom=1:interpol=bicubic")
+        if speed != 1.0:
+            tempo.append(f"setpts=PTS/{speed:.6g}")
         # A faster clip would otherwise have more frames per second than its source.
         rate = fps or (info.fps if speed != 1.0 else None)
         if rate:
@@ -209,7 +274,8 @@ def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segm
         framed = f"[f{tag}]"
         filters.append(build_filter_graph(plan_geometry(info.width, info.height, edit), edit, timed, framed, tag))
         # Reverse after scaling: it holds every frame in memory, so smaller frames help.
-        post = ["reverse"] if edit.reverse else []
+        post = picture_filters(edit)
+        post += ["reverse"] if edit.reverse else []
         post += fade_filters(edit.fade_in, edit.fade_out, duration, audio=False)
         if frame:
             w, h = frame
@@ -245,17 +311,63 @@ _X264 = ["-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p", "-movfla
 _AAC = ["-c:a", "aac", "-b:a", "192k"]
 
 
-def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo) -> list[str]:
+def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None) -> list[str]:
     edit = job.edit
     segments = edit.segments(info.duration)
     if not segments:
         raise no_segments_error()
-    graph = clip_graph(0, edit, info, segments)
+    graph = clip_graph(0, edit, info, segments, transforms=transforms)
     cmd = [ffmpeg, *_HEAD, *input_args(segments, job.source),
            "-filter_complex", ";".join(graph.filters), "-map", "[v]"]
     cmd += ["-map", "[a]", *_AAC] if graph.has_audio else ["-an"]
-    cmd += [*_X264, "-crf", str(edit.crf), "-map_metadata", "0", *_TAIL, str(job.output)]
+    cmd += [*_X264, "-crf", str(edit.crf), "-map_metadata", "0", *_TAIL, str(job.output.resolve())]
     return cmd
+
+
+def detect_command(ffmpeg: str, source: Path, edit: VideoEdit, segments: list[Segment], transforms: str) -> list[str]:
+    """The stabilizer's first pass: measure the shake of the kept frames into `transforms`."""
+    shakiness = STABILIZE[edit.stabilize][0]
+    graph = select_filters("[0:v:0]", "[t]", relative(segments), audio=False)
+    graph.append(f"[t]vidstabdetect=shakiness={shakiness}:accuracy=15:result={transforms}[d]")
+    return [ffmpeg, *_HEAD, *input_args(segments, source), "-filter_complex", ";".join(graph),
+            "-map", "[d]", "-f", "null", *_TAIL, "-"]
+
+
+DETECT_SHARE = 0.4      # part of the progress bar for the stabilizer's detect passes
+
+
+def _run_export(ffmpeg: str, clips: list[tuple[Path, VideoEdit, list[Segment]]],
+                command: Callable[[dict[int, str]], list[str]], output: Path, duration: Optional[float],
+                on_progress: Optional[Callable[[float], None]], cancel_event: Optional[threading.Event]) -> Path:
+    """Run an export, first running the stabilizer's detect pass for every clip that asks for it.
+
+    `command(transforms)` builds the export command given {clip index: transforms file name}.
+    The transforms files live in a temporary folder that is ffmpeg's working folder."""
+    shaky = [i for i, (_, edit, _) in enumerate(clips) if STABILIZE.get(edit.stabilize)]
+    if not shaky:
+        return run_ffmpeg(command({}), output, duration, on_progress, cancel_event)
+    with tempfile.TemporaryDirectory(prefix="fve-stabilize-") as folder:
+        folder = Path(folder)
+        lengths = {i: segments_length(clips[i][2]) or 0.0 for i in shaky}
+        total = sum(lengths.values()) or 1.0
+        done, transforms = 0.0, {}
+        for i in shaky:
+            source, edit, segments = clips[i]
+            name = f"shake{i}.trf"
+
+            def detect_progress(fraction: float, done: float = done, length: float = lengths[i]) -> None:
+                on_progress(DETECT_SHARE * min((done + fraction * length) / total, 1.0))
+
+            run_ffmpeg(detect_command(ffmpeg, source, edit, segments, name), folder / name, lengths[i] or None,
+                       detect_progress if on_progress else None, cancel_event, cwd=folder)
+            done += lengths[i]
+            transforms[i] = name
+
+        def export_progress(fraction: float) -> None:
+            on_progress(DETECT_SHARE + (1 - DETECT_SHARE) * fraction)
+
+        return run_ffmpeg(command(transforms), output, duration, export_progress if on_progress else None,
+                          cancel_event, cwd=folder)
 
 
 def convert_video(
@@ -273,9 +385,13 @@ def convert_video(
     if not info.has_video:
         raise ConversionError("This file has no video track.")
 
-    cmd = video_command(ffmpeg, job, info)
-    duration = output_duration(job.edit.segments(info.duration), job.edit.speed)
-    return run_ffmpeg(cmd, job.output, duration, on_progress, cancel_event)
+    job = VideoJob(job.source.resolve(), job.output, job.edit)   # ffmpeg may run in another folder
+    video_command(ffmpeg, job, info)                               # fail early on bad settings
+    segments = job.edit.segments(info.duration)
+    duration = output_duration(segments, job.edit.speed)
+    return _run_export(ffmpeg, [(job.source, job.edit, segments)],
+                       lambda transforms: video_command(ffmpeg, job, info, transforms.get(0)),
+                       job.output, duration, on_progress, cancel_event)
 
 
 # ----- joining clips ------------------------------------------------------------
@@ -298,7 +414,7 @@ class JoinJob:
     quality: str = DEFAULT_QUALITY     # MP3 quality
 
 
-def join_command(ffmpeg: str, job: JoinJob) -> tuple[list[str], float]:
+def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]] = None) -> tuple[list[str], float]:
     """The ffmpeg command that plays every part back to back, and the result's length.
 
     Each clip is cut, sped up, reframed and faded with its own settings, then fitted into
@@ -320,7 +436,7 @@ def join_command(ffmpeg: str, job: JoinJob) -> tuple[list[str], float]:
         if not segments:
             raise ConversionError(f"Nothing is left of {part.source.name}: the trim and cuts remove all of it.")
         graph = clip_graph(i, part.edit, part.info, segments, video=video, audio=any_audio, frame=frame,
-                           fps=fps, v_out=f"[v{i}]", a_out=f"[sound{i}]")
+                           fps=fps, v_out=f"[v{i}]", a_out=f"[sound{i}]", transforms=(transforms or {}).get(i))
         if graph.duration is None:
             raise ConversionError(f"Couldn't read the length of {part.source.name}.")
         inputs += input_args(segments, part.source)
@@ -343,7 +459,7 @@ def join_command(ffmpeg: str, job: JoinJob) -> tuple[list[str], float]:
                 *_X264, "-crf", str(first.edit.crf)]
     else:
         cmd += ["-map", "[a]", "-vn", "-c:a", "libmp3lame", *QUALITY_PRESETS[job.quality]]
-    cmd += ["-map_metadata", "0", *_TAIL, str(job.output)]
+    cmd += ["-map_metadata", "0", *_TAIL, str(job.output.resolve())]
     return cmd, total
 
 
@@ -363,8 +479,11 @@ def join_clips(
         part.info = part.info or probe_media(ffmpeg, part.source)
         if not job.audio_only and not part.info.has_video:
             raise ConversionError(f"{part.source.name} has no video track.")
-    cmd, duration = join_command(ffmpeg, job)
-    return run_ffmpeg(cmd, job.output, duration, on_progress, cancel_event)
+        part.source = part.source.resolve()     # ffmpeg may run in another folder
+    _, duration = join_command(ffmpeg, job)     # fail early on bad settings
+    clips = [] if job.audio_only else [(p.source, p.edit, p.edit.segments(p.info.duration)) for p in job.parts]
+    return _run_export(ffmpeg, clips, lambda transforms: join_command(ffmpeg, job, transforms)[0],
+                       job.output, duration, on_progress, cancel_event)
 
 
 # ----- preview ------------------------------------------------------------------
@@ -400,12 +519,13 @@ def render_frame(
 ) -> Path:
     """Save the edited frame at source time `at` as a PNG no larger than `max_size`.
 
-    The frame is reframed like the export, then stamped with the time it will have in the
-    export and run through the export's own fade filters, so fades look the same too."""
+    The frame is reframed and adjusted like the export, then stamped with the time it will have
+    in the export and run through the export's own fade filters, so fades look the same too.
+    Stabilization is left out: it needs the whole clip."""
     graph = build_filter_graph(plan_geometry(info.width, info.height, edit), edit, out="[framed]")
     segments = edit.segments(info.duration)
     when = source_to_output(at, segments, edit.speed, edit.reverse)
-    chain = []
+    chain = picture_filters(edit)
     if when is not None:
         chain.append(f"setpts={when:.3f}/TB")
         chain += fade_filters(edit.fade_in, edit.fade_out, output_duration(segments, edit.speed), audio=False)

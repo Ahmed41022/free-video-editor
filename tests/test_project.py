@@ -29,7 +29,8 @@ def custom_settings() -> ClipSettings:
         edit=VideoEdit(aspect=(4, 5), fit="bars", pos_x=0.25, pos_y=0.75, zoom=1.75, rotate=270, flip=True,
                        resolution=720, crf=18, mute=True, start=1.5, end=9.25,
                        keep=[(1.0, 3.0), (5.0, 8.0)], speed=1.5, reverse=True, fade_in=0.5, fade_out=1.0,
-                       audio_fade_in=0.25, audio_fade_out=2.0),
+                       audio_fade_in=0.25, audio_fade_out=2.0, brightness=0.2, contrast=1.3, saturation=0.5,
+                       gamma=1.4, sharpen=0.6, denoise=4.0, look="vintage", stabilize="strong"),
         audio_quality="320 kbps",
     )
 
@@ -116,7 +117,7 @@ class DefensiveLoadingTests(unittest.TestCase):
     def test_unknown_keys_are_ignored(self):
         data = custom_settings().to_dict()
         data["future_option"] = 1
-        data["edit"]["sharpen"] = 0.5
+        data["edit"]["vignette"] = 0.5
         self.assertEqual(ClipSettings.from_dict(data), custom_settings())
 
     def test_wrong_types_keep_the_default(self):
@@ -663,6 +664,65 @@ class DescribeTests(unittest.TestCase):
             with self.subTest(preset=name):
                 self.assertTrue(describe(apply_preset(ClipSettings(), values)))
 
+
+
+class PictureSettingsTests(unittest.TestCase):
+    def load(self, **edit):
+        return ClipSettings.from_dict({"edit": edit}).edit
+
+    def test_adjustments_look_and_stabilize_round_trip(self):
+        settings = ClipSettings(edit=VideoEdit(brightness=-0.25, contrast=2.0, saturation=0.0, gamma=0.5,
+                                               sharpen=1.5, denoise=10, look="bw", stabilize="light"))
+        self.assertEqual(ClipSettings.from_dict(json.loads(json.dumps(settings.to_dict()))), settings)
+
+    def test_out_of_range_or_wrong_type_adjustments_keep_the_default(self):
+        defaults = VideoEdit()
+        bad = {
+            "brightness": [-0.6, 0.51, "0.1", True, None, float("nan")],
+            "contrast": [0.4, 2.1, [1], False],
+            "saturation": [-0.1, 3.5, "grey"],
+            "gamma": [0.0, 2.5, float("inf")],
+            "sharpen": [-0.5, 2.0],
+            "denoise": [-1, 11, {}],
+            "look": ["sepia", "", None, 1, ["bw"], "BW"],
+            "stabilize": ["medium", True, None, 2, ["light"]],
+        }
+        for name, values in bad.items():
+            for value in values:
+                with self.subTest(field=name, value=value):
+                    self.assertEqual(getattr(self.load(**{name: value}), name), getattr(defaults, name))
+
+    def test_edge_values_and_ints_are_accepted(self):
+        edit = self.load(brightness=-0.5, contrast=2, saturation=0, gamma=0.5, sharpen=0, denoise=10)
+        self.assertEqual((edit.brightness, edit.contrast, edit.saturation, edit.gamma, edit.denoise),
+                         (-0.5, 2.0, 0.0, 0.5, 10.0))
+        self.assertIsInstance(edit.contrast, float)
+
+    def test_apply_to_all_copies_the_picture_settings(self):
+        source = ClipSettings(edit=VideoEdit(look="warm", contrast=1.4, stabilize="strong"))
+        result = apply_to(ClipSettings(), source)
+        self.assertEqual((result.edit.look, result.edit.contrast, result.edit.stabilize), ("warm", 1.4, "strong"))
+
+    def test_presets_leave_the_picture_alone(self):
+        base = ClipSettings(edit=VideoEdit(look="cool", gamma=1.5, stabilize="light"))
+        for name, values in PRESETS.items():
+            with self.subTest(preset=name):
+                edit = apply_preset(base, values).edit
+                self.assertEqual((edit.look, edit.gamma, edit.stabilize), ("cool", 1.5, "light"))
+
+    def test_describe_mentions_the_look_adjustments_and_stabilizing(self):
+        text = describe(ClipSettings(edit=VideoEdit(look="contrast", sharpen=0.5, stabilize="strong")))
+        self.assertIn("high contrast", text)
+        self.assertIn("adjusted", text)
+        self.assertIn("stabilized", text)
+        plain = describe(ClipSettings())
+        for word in ("adjusted", "stabilized", "black and white"):
+            self.assertNotIn(word, plain)
+
+    def test_describe_ignores_the_picture_for_mp3(self):
+        text = describe(ClipSettings(output=OUTPUT_AUDIO, edit=VideoEdit(look="bw", stabilize="light")))
+        self.assertNotIn("black and white", text)
+        self.assertNotIn("stabilized", text)
 
 if __name__ == "__main__":
     unittest.main()
