@@ -12,7 +12,7 @@ from typing import Callable, Optional
 
 from .core import ConversionCancelled, ConversionError, ConversionJob, MediaInfo, convert
 from .project import OUTPUT_AUDIO, ClipSettings, describe, describe_join, output_file_for
-from .video import JoinJob, JoinPart, VideoJob, convert_video, join_clips
+from .video import DEFAULT_FPS, JoinJob, JoinPart, VideoJob, convert_video, join_clips, reverse_memory
 
 
 class JobState(Enum):
@@ -63,6 +63,17 @@ class Job:
     @property
     def summary(self) -> str:
         return describe_join(self.settings, len(self.clips)) if self.clips else describe(self.settings, self.info.duration if self.info else None)
+
+    @property
+    def reverse_memory(self) -> int:
+        """About how many bytes ffmpeg needs to play this export backwards (0 if nothing is reversed).
+        In a join each clip is reversed on its own, so this is the biggest clip's."""
+        sound_only = self.settings.output == OUTPUT_AUDIO
+        if self.clips:
+            fps = (self.clips[0].info.fps if self.clips[0].info else None) or DEFAULT_FPS
+            return max((reverse_memory(c.settings.edit, c.info, fps, sound_only) for c in self.clips if c.info),
+                       default=0)
+        return reverse_memory(self.settings.edit, self.info, sound_only=sound_only) if self.info else 0
 
     def remaining_seconds(self, now: Optional[float] = None) -> Optional[float]:
         """Estimated time left, once there's enough progress to guess."""

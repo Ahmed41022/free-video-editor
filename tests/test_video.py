@@ -25,9 +25,12 @@ from video_converter.video import (
     convert_video,
     join_clips,
     join_command,
+    format_memory,
     plan_geometry,
     render_frame,
     render_source_frames,
+    reverse_memory,
+    reverse_warning,
     video_command,
 )
 
@@ -100,9 +103,10 @@ class MediaInfoParsingTests(unittest.TestCase):
 class GeometryTests(unittest.TestCase):
     def test_landscape_to_phone_crops_center(self):
         g = plan_geometry(1920, 1080, VideoEdit(aspect=(9, 16)))
-        self.assertEqual((g.out_width, g.out_height), (1080, 1920))
         cw, ch, x, y = g.crop
         self.assertEqual(ch, 1080)
+        # "Same as source" keeps the crop's own sharpness: the 606x1080 crop is not blown up to 1080x1920.
+        self.assertEqual((g.out_width, g.out_height), (606, 1078))
         self.assertAlmostEqual(cw / ch, 9 / 16, delta=0.01)
         self.assertAlmostEqual(x, (1920 - cw) / 2, delta=1)
         self.assertEqual(y, 0)
@@ -130,6 +134,131 @@ class GeometryTests(unittest.TestCase):
         self.assertTrue(all(v % 2 == 0 for v in (g.out_width, g.out_height, g.crop[0], g.crop[1])))
 
 
+class OutputSizeTests(unittest.TestCase):
+    """"Same as source" never enlarges what is exported, and the shape stays exact."""
+
+    def size(self, width, height, **edit):
+        g = plan_geometry(width, height, VideoEdit(**edit))
+        return g.out_width, g.out_height
+
+    def test_a_crop_is_not_enlarged(self):
+        # 1080p cropped to 9:16 is a 606x1080 piece of picture; it used to be stretched to 1080x1920.
+        self.assertEqual(self.size(1920, 1080, aspect=(9, 16)), (606, 1078))
+        self.assertEqual(self.size(1920, 1080, aspect=(4, 5)), (864, 1080))
+        self.assertEqual(self.size(1920, 1080, aspect=(1, 1)), (1080, 1080))
+        self.assertEqual(self.size(1920, 1080, aspect=(16, 9)), (1920, 1080))
+
+    def test_phone_portrait_and_square_stop_at_1080_but_widescreen_does_not(self):
+        # 4K cropped to 9:16 used to come out 2160x3840.
+        self.assertEqual(self.size(3840, 2160, aspect=(9, 16)), (1080, 1920))
+        self.assertEqual(self.size(3840, 2160, aspect=(4, 5)), (1080, 1350))
+        self.assertEqual(self.size(3840, 2160, aspect=(1, 1)), (1080, 1080))
+        self.assertEqual(self.size(3840, 2160, aspect=(16, 9)), (3840, 2160))
+
+    def test_a_zoomed_crop_is_not_enlarged_either(self):
+        g = plan_geometry(1920, 1080, VideoEdit(aspect=(1, 1), zoom=2.0))
+        self.assertEqual(g.crop[:2], (540, 540))
+        self.assertEqual((g.out_width, g.out_height), (540, 540))
+
+    def test_a_fit_uses_the_sources_short_side_up_to_1080(self):
+        for fit in ("blur", "bars"):
+            self.assertEqual(self.size(1920, 1080, aspect=(9, 16), fit=fit), (1080, 1920))
+            self.assertEqual(self.size(640, 360, aspect=(9, 16), fit=fit), (360, 640))
+            self.assertEqual(self.size(3840, 2160, aspect=(9, 16), fit=fit), (1080, 1920))
+            self.assertEqual(self.size(3840, 2160, aspect=(16, 9), fit=fit), (1920, 1080))
+
+    def test_the_original_shape_keeps_the_exact_source_size(self):
+        for size in ((1920, 1080), (3840, 2160), (1280, 720), (1080, 1920), (1918, 1080), (854, 480)):
+            self.assertEqual(self.size(*size, aspect=None), size)
+        self.assertEqual(self.size(1920, 1080, aspect=None, rotate=90), (1080, 1920))
+        self.assertEqual(self.size(641, 359, aspect=None), (640, 358))      # odd sizes can't be kept
+
+    def test_zooming_the_original_shape_exports_the_crop_not_the_whole_size(self):
+        self.assertEqual(self.size(1920, 1080, aspect=None, zoom=2.0), (960, 540))
+
+    def test_a_chosen_size_is_always_used(self):
+        self.assertEqual(self.size(640, 360, aspect=(9, 16), resolution=1080), (1080, 1920))
+        self.assertEqual(self.size(3840, 2160, aspect=(9, 16), resolution=720), (720, 1280))
+        self.assertEqual(self.size(1920, 1080, aspect=None, resolution=480), (854, 480))
+
+    def test_odd_source_sizes_keep_the_exact_shape(self):
+        # 641x359 as 9:16 used to give 360x638 (the odd 359 was rounded after the ratio was applied).
+        self.assertEqual(self.size(641, 359, aspect=(9, 16), fit="blur"), (360, 640))
+        self.assertEqual(self.size(641, 359, aspect=(9, 16), fit="bars"), (360, 640))
+        self.assertEqual(self.size(359, 641, aspect=(16, 9), fit="blur"), (640, 360))
+        self.assertEqual(self.size(641, 359, aspect=(4, 5), fit="blur"), (360, 450))
+
+    def test_the_shape_is_as_exact_as_even_sizes_allow(self):
+        for size in ((1920, 1080), (641, 359), (1279, 719), (3840, 2160), (1080, 1920), (721, 1281)):
+            for aspect in ((9, 16), (1, 1), (4, 5), (16, 9)):
+                for fit in ("crop", "blur"):
+                    for zoom in (1.0, 1.7):
+                        with self.subTest(size=size, aspect=aspect, fit=fit, zoom=zoom):
+                            out_w, out_h = self.size(*size, aspect=aspect, fit=fit, zoom=zoom)
+                            self.assertEqual((out_w % 2, out_h % 2), (0, 0))
+                            # Off by less than one pixel on the long side, the best even sizes can do.
+                            long_side = max(out_w, out_h)
+                            exact = long_side * min(aspect) / max(aspect)
+                            self.assertLessEqual(abs(min(out_w, out_h) - exact), 1.0, (out_w, out_h))
+
+
+class ReverseMemoryTests(unittest.TestCase):
+    HD = MediaInfo(duration=600.0, width=1920, height=1080, has_audio=True, fps=30.0)
+    GB = 1024 ** 3
+
+    def test_nothing_is_needed_unless_the_clip_is_reversed(self):
+        self.assertEqual(reverse_memory(VideoEdit(aspect=None), self.HD), 0)
+
+    def test_every_frame_is_held_at_the_exported_size(self):
+        # 10 s at 30 fps of 1920x1080 yuv420p (1.5 bytes a pixel).
+        edit = VideoEdit(aspect=None, reverse=True, start=0.0, end=10.0)
+        self.assertEqual(reverse_memory(edit, self.HD), 300 * 1920 * 1080 * 3 // 2)
+
+    def test_the_output_size_counts_not_the_source_size(self):
+        full = reverse_memory(VideoEdit(aspect=None, reverse=True), self.HD)
+        small = reverse_memory(VideoEdit(aspect=None, reverse=True, resolution=480), self.HD)
+        self.assertAlmostEqual(small / full, (854 * 480) / (1920 * 1080), places=4)
+        phone = reverse_memory(VideoEdit(aspect=(9, 16), reverse=True), self.HD)     # 606x1078 crop
+        self.assertEqual(phone, 18000 * 606 * 1078 * 3 // 2)
+
+    def test_only_the_kept_and_sped_up_length_counts(self):
+        whole = reverse_memory(VideoEdit(aspect=None, reverse=True), self.HD)
+        cut = reverse_memory(VideoEdit(aspect=None, reverse=True, keep=[(0.0, 100.0), (200.0, 300.0)]), self.HD)
+        self.assertEqual(cut * 3, whole)
+        fast = reverse_memory(VideoEdit(aspect=None, reverse=True, speed=2.0), self.HD)
+        self.assertEqual(fast * 2, whole)        # the frame rate stays 30, so twice as fast means half the frames
+
+    def test_a_missing_frame_rate_is_taken_as_30_and_a_missing_length_as_unknown(self):
+        guessed = MediaInfo(duration=10.0, width=1920, height=1080, has_audio=True, fps=None)
+        edit = VideoEdit(aspect=None, reverse=True)
+        self.assertEqual(reverse_memory(edit, guessed), 300 * 1920 * 1080 * 3 // 2)
+        self.assertEqual(reverse_memory(edit, MediaInfo(duration=None, width=1920, height=1080, fps=30.0)), 0)
+
+    def test_a_joins_frame_rate_decides_the_frames_of_each_clip(self):
+        edit = VideoEdit(aspect=None, reverse=True)
+        info = MediaInfo(duration=10.0, width=1920, height=1080, fps=30.0)
+        self.assertEqual(reverse_memory(edit, info, fps=60.0), 2 * reverse_memory(edit, info))
+
+    def test_sound_alone_is_far_smaller(self):
+        edit = VideoEdit(reverse=True)
+        sound = reverse_memory(edit, self.HD, sound_only=True)
+        self.assertEqual(sound, 600 * 48000 * 2 * 4)
+        self.assertLess(sound, reverse_memory(edit, self.HD) / 50)
+        self.assertEqual(reverse_memory(edit, MediaInfo(duration=600.0, has_audio=True), sound_only=False), 0)
+
+    def test_the_warning_appears_only_above_2_gb(self):
+        self.assertEqual(reverse_warning(2 * self.GB), "")
+        self.assertEqual(reverse_warning(0), "")
+        text = reverse_warning(int(6.4 * self.GB))
+        self.assertEqual(text, "Reversing this needs about 6.4 GB of memory. "
+                               "Shorten the clip or lower the size if your PC has less.")
+        self.assertIn("2.5 GB", reverse_warning(int(2.5 * self.GB)))
+
+    def test_amounts_are_written_in_gb_or_mb(self):
+        self.assertEqual(format_memory(int(1.25 * self.GB)), "1.2 GB")
+        self.assertEqual(format_memory(300 * 1024 ** 2), "300 MB")
+
+
 SOURCE = MediaInfo(duration=6.0, width=640, height=360, has_audio=True, fps=15.0)
 
 
@@ -149,8 +278,9 @@ class VideoCommandTests(unittest.TestCase):
 
     def test_cut_times_are_relative_to_the_seek_point(self):
         graph = graph_of(command_for(VideoEdit(keep=[(1.0, 2.0), (3.0, 5.0)])))
-        self.assertIn("[vin0_0]trim=start=0:end=1,", graph)
-        self.assertIn("[vin0_1]trim=start=2:end=4,", graph)
+        # The sound is cut exactly; the picture half a frame (1/30 s at 15 fps) early, between two frames.
+        self.assertIn("[vin0_0]trim=start=0:end=0.966667,", graph)
+        self.assertIn("[vin0_1]trim=start=1.966667:end=3.966667,", graph)
         self.assertIn("atrim=start=0:end=1,", graph)
         self.assertIn("atrim=start=2:end=4,", graph)
         self.assertIn("concat=n=2:v=1:a=0[", graph)
@@ -165,8 +295,10 @@ class VideoCommandTests(unittest.TestCase):
         cmd = command_for(VideoEdit(keep=[(1.0, 3.0), (4.0, 6.0)], start=2.0, end=5.0))
         self.assertEqual(cmd[:cmd.index("-i")][-4:], ["-ss", "2.000", "-to", "5.000"])
         graph = graph_of(cmd)
-        self.assertIn("[vin0_0]trim=start=0:end=1,", graph)          # 2..3
-        self.assertIn("[vin0_1]trim=start=2:end=3,", graph)          # 4..5
+        self.assertIn("[vin0_0]trim=start=0:end=0.966667,", graph)          # 2..3, half a frame early
+        self.assertIn("[vin0_1]trim=start=1.966667:end=2.966667,", graph)   # 4..5
+        self.assertIn("atrim=start=0:end=1,", graph)
+        self.assertIn("atrim=start=2:end=3,", graph)
 
     def test_speed_changes_the_timestamps_and_keeps_the_source_frame_rate(self):
         graph = graph_of(command_for(VideoEdit(speed=2.0)))
@@ -263,7 +395,8 @@ class JoinCommandTests(unittest.TestCase):
         first = part("a.mp4", 640, 360, 15.0, True)
         first.edit.aspect = (9, 16)
         cmd, _ = self.build([first, part("b.mp4", 640, 360, 15.0, True)])
-        self.assertEqual(graph_of(cmd).count("pad=360:640:"), 2)
+        # 9:16 cropped out of 640x360 is 202x360, and "Same as source" does not enlarge it.
+        self.assertEqual(graph_of(cmd).count("pad=202:360:"), 2)
 
     def test_the_first_clips_quality_is_used(self):
         first = part("a.mp4", 640, 360, 15.0, True, crf=28)
@@ -394,11 +527,44 @@ class VideoExportTests(unittest.TestCase):
         return probe_media(FFMPEG, convert_video(FFMPEG, VideoJob(source or self.landscape, self.tmp / name, edit)))
 
     def test_phone_export_in_every_fit_mode(self):
-        for fit in ("crop", "blur", "bars"):
+        # A crop keeps its own size (202x360 out of the 640x360 source); a fit uses the source's short side.
+        for fit, size in (("crop", (202, 360)), ("blur", (360, 640)), ("bars", (360, 640))):
             with self.subTest(fit=fit):
                 info = self.export(f"phone-{fit}.mp4", VideoEdit(aspect=(9, 16), fit=fit))
-                self.assertEqual((info.width, info.height), (360, 640))
+                self.assertEqual((info.width, info.height), size)
                 self.assertTrue(info.has_audio)
+
+    def stream_lengths(self, path, rate):
+        """(seconds of picture, seconds of sound) of an exported file: the picture counted in frames,
+        the sound decoded to the sample."""
+        shown = subprocess.run([FFMPEG, "-i", str(path), "-map", "0:v:0", "-c", "copy", "-f", "null", "-"],
+                               capture_output=True, text=True)
+        frames = int(re.findall(r"frame=\s*(\d+)", shown.stderr)[-1])
+        sound = subprocess.run([FFMPEG, "-v", "error", "-i", str(path), "-map", "0:a:0", "-f", "s16le", "-ac", "1",
+                                "-ar", "48000", "-"], capture_output=True)
+        return frames / rate, len(sound.stdout) / 2 / 48000
+
+    def test_many_cuts_off_the_frame_grid_keep_picture_and_sound_together(self):
+        # Thirty parts of 0.21 s (5.25 frames at 25 fps) that start 0.8 of a frame past a frame. The sound
+        # is cut to the sample but the picture in whole frames, so unsnapped they drifted ~0.3 s apart.
+        source = self.tmp / "grid.mp4"
+        make_video(FFMPEG, source, width=160, height=90, seconds=12, rate=25)
+        keep = [(0.4 * i + 0.032, 0.4 * i + 0.242) for i in range(30)]
+        output = self.tmp / "grid-cut.mp4"
+        convert_video(FFMPEG, VideoJob(source, output, VideoEdit(aspect=None, keep=keep)))
+        picture, sound = self.stream_lengths(output, 25)
+        self.assertLess(abs(picture - sound), 1 / 25)
+        self.assertAlmostEqual(picture, 6.0, delta=0.05)         # 30 x 5 frames
+
+    def test_the_same_holds_when_joining_clips(self):
+        source = self.tmp / "grid.mp4"
+        make_video(FFMPEG, source, width=160, height=90, seconds=12, rate=25)
+        keep = [(0.4 * i + 0.032, 0.4 * i + 0.242) for i in range(15)]
+        parts = [JoinPart(source, VideoEdit(aspect=None, keep=keep)) for _ in range(2)]
+        output = join_clips(FFMPEG, JoinJob(parts, self.tmp / "grid-joined.mp4"))
+        picture, sound = self.stream_lengths(output, 25)
+        self.assertLess(abs(picture - sound), 1 / 25)
+        self.assertAlmostEqual(picture, 6.0, delta=0.1)
 
     def test_trim_rotate_mute_and_size(self):
         edit = VideoEdit(aspect=None, rotate=90, flip=True, mute=True, resolution=480, start=1.0, end=2.5)

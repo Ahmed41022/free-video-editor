@@ -151,6 +151,48 @@ def kept_segments(keep: list[Range], start: Optional[float], end: Optional[float
     return segments
 
 
+def frame_rate(fps: float) -> float:
+    """The exact rate a video most likely has. ffmpeg prints 30000/1001 as "29.97", and a frame
+    grid built on that rounded figure drifts by a frame after a few minutes."""
+    ntsc = round(fps * 1001 / 1000) * 1000 / 1001
+    if abs(ntsc - fps) < 0.006:
+        return ntsc
+    return float(round(fps)) if abs(fps - round(fps)) < 0.005 else fps
+
+
+def snap_segments(segments: list[Segment], fps: Optional[float],
+                  duration: Optional[float] = None) -> list[Segment]:
+    """`segments` with every start and end moved to the nearest frame boundary.
+
+    The picture of each part is cut in whole frames while the sound is cut to the sample, so
+    parts that start between frames come out slightly longer or shorter in the picture than in
+    the sound, and many cuts add that up into a visible lag. With the boundaries on frames both
+    are the same length. Nothing changes when the frame rate is unknown."""
+    if not fps or fps <= 0 or not segments:
+        return list(segments)
+    rate = frame_rate(fps)
+    snapped: list[Segment] = []
+    for a, b in segments:
+        a = round(a * rate) / rate
+        if b is not None:
+            b = round(b * rate) / rate
+            if duration:
+                b = min(b, duration)        # the last frame can't reach past the end of the file
+            if b - a < 0.5 / rate:
+                continue                    # shorter than one frame: nothing of it would show
+        if snapped and snapped[-1][1] is not None and a - snapped[-1][1] <= _EPS:
+            snapped[-1] = (snapped[-1][0], b)       # the gap between two parts was less than a frame
+        else:
+            snapped.append((a, b))
+    return snapped or list(segments)
+
+
+def frame_margin(fps: Optional[float]) -> float:
+    """How far before a frame boundary the picture is cut, in seconds: half a frame. A cut
+    placed exactly on a frame's time could land just after it and drop the frame."""
+    return 0.5 / frame_rate(fps) if fps and fps > 0 else 0.0
+
+
 def segments_length(segments: list[Segment]) -> Optional[float]:
     if any(b is None for _, b in segments):
         return None
@@ -201,8 +243,8 @@ def atempo_factors(speed: float) -> list[float]:
 
 # ----- ffmpeg filters ---------------------------------------------------------
 
-def _n(value: float) -> str:
-    return f"{value:.3f}".rstrip("0").rstrip(".") if math.isfinite(value) else "0"
+def _n(value: float, places: int = 3) -> str:
+    return f"{value:.{places}f}".rstrip("0").rstrip(".") if math.isfinite(value) else "0"
 
 
 def relative(segments: list[Segment]) -> list[Segment]:
@@ -211,9 +253,11 @@ def relative(segments: list[Segment]) -> list[Segment]:
     return [(a - base, None if b is None else b - base) for a, b in segments]
 
 
-def select_filters(src: str, out: str, segments: list[Segment], audio: bool, tag: str = "") -> list[str]:
+def select_filters(src: str, out: str, segments: list[Segment], audio: bool, tag: str = "",
+                   margin: float = 0.0) -> list[str]:
     """Filters that keep `segments` (relative to the input start) of stream `src` and play
-    them back to back as `out`."""
+    them back to back as `out`. A picture's cuts move `margin` seconds earlier (see `frame_margin`);
+    the sound's never do."""
     setpts = "asetpts" if audio else "setpts"
     if len(segments) <= 1:
         return [f"{src}{setpts}=PTS-STARTPTS{out}"]
@@ -223,7 +267,8 @@ def select_filters(src: str, out: str, segments: list[Segment], audio: bool, tag
     pieces = [f"[{kind}seg{tag}_{i}]" for i in range(len(segments))]
     filters = [f"{src}{split}={len(segments)}{''.join(copies)}"]
     for copy, piece, (a, b) in zip(copies, pieces, segments):
-        bounds = f"start={_n(a)}" + (f":end={_n(b)}" if b is not None else "")
+        a = max(a - margin, 0.0)
+        bounds = f"start={_n(a, 6)}" + (f":end={_n(max(b - margin, 0.0), 6)}" if b is not None else "")
         filters.append(f"{copy}{trim}={bounds},{setpts}=PTS-STARTPTS{piece}")
     flags = "v=0:a=1" if audio else "v=1:a=0"
     filters.append(f"{''.join(pieces)}concat=n={len(segments)}:{flags}{out}")

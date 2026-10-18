@@ -11,6 +11,8 @@ from video_converter.timing import (
     clamp_speed,
     cut_range,
     fade_filters,
+    frame_margin,
+    frame_rate,
     kept_segments,
     normalize_keep,
     output_duration,
@@ -20,6 +22,7 @@ from video_converter.timing import (
     removed_parts,
     restore_part_at,
     select_filters,
+    snap_segments,
     source_to_output,
     split_at,
     split_points,
@@ -409,6 +412,67 @@ class FilterStringTests(unittest.TestCase):
 
     def test_limits_are_the_documented_ones(self):
         self.assertEqual((SPEED_MIN, SPEED_MAX, FADE_MAX), (0.25, 4.0, 30.0))
+
+
+class FrameSnapTests(unittest.TestCase):
+    def test_every_edge_lands_on_a_frame(self):
+        snapped = snap_segments([(0.51, 1.234), (2.0, 3.337)], 10.0)
+        self.assertEqual(snapped, [(0.5, 1.2), (2.0, 3.3)])
+        for a, b in snapped:
+            for edge in (a, b):
+                self.assertAlmostEqual(edge * 10, round(edge * 10), places=9)
+
+    def test_parts_keep_a_whole_number_of_frames(self):
+        # 0.21 s at 25 fps is 5.25 frames: the picture can't match the sound unless the edges move.
+        snapped = snap_segments([(0.032 + 0.4 * i, 0.242 + 0.4 * i) for i in range(30)], 25.0)
+        self.assertEqual(len(snapped), 30)
+        for a, b in snapped:
+            self.assertAlmostEqual((b - a) * 25, round((b - a) * 25), places=6)
+
+    def test_an_unknown_frame_rate_changes_nothing(self):
+        segments = [(0.51, 1.234), (2.0, None)]
+        self.assertEqual(snap_segments(segments, None), segments)
+        self.assertEqual(snap_segments(segments, 0), segments)
+
+    def test_an_open_ended_part_only_moves_its_start(self):
+        self.assertEqual(snap_segments([(0.51, None)], 10.0), [(0.5, None)])
+
+    def test_parts_a_frame_apart_become_one_and_tiny_ones_vanish(self):
+        self.assertEqual(snap_segments([(0.0, 1.02), (1.04, 2.0)], 10.0), [(0.0, 2.0)])
+        self.assertEqual(snap_segments([(0.0, 1.0), (1.51, 1.53), (2.0, 3.0)], 10.0), [(0.0, 1.0), (2.0, 3.0)])
+
+    def test_nothing_is_lost_when_every_part_is_shorter_than_a_frame(self):
+        self.assertEqual(snap_segments([(1.01, 1.02)], 10.0), [(1.01, 1.02)])
+
+    def test_the_end_cannot_pass_the_end_of_the_file(self):
+        self.assertEqual(snap_segments([(0.0, 5.96)], 10.0, duration=5.96), [(0.0, 5.96)])
+
+    def test_the_edit_snaps_only_when_it_is_given_the_frame_rate(self):
+        from video_converter.video import VideoEdit
+        edit = VideoEdit(keep=[(0.51, 1.234), (2.0, 3.337)])
+        self.assertEqual(edit.segments(10.0), [(0.51, 1.234), (2.0, 3.337)])
+        self.assertEqual(edit.segments(10.0, 10.0), [(0.5, 1.2), (2.0, 3.3)])
+
+    def test_ntsc_rates_are_read_as_the_exact_fraction(self):
+        # ffmpeg prints 30000/1001 as 29.97; a grid of 1/29.97 is a frame off after 100 seconds.
+        self.assertAlmostEqual(frame_rate(29.97), 30000 / 1001, places=9)
+        self.assertAlmostEqual(frame_rate(23.98), 24000 / 1001, places=9)
+        self.assertAlmostEqual(frame_rate(59.94), 60000 / 1001, places=9)
+        self.assertEqual((frame_rate(25.0), frame_rate(30.0), frame_rate(15.0)), (25.0, 30.0, 15.0))
+        self.assertEqual(frame_rate(12.5), 12.5)
+        a, _ = snap_segments([(600.0, 601.0)], 29.97)[0]
+        self.assertAlmostEqual(a * 30000 / 1001 % 1, 0.0, places=6)     # a frame boundary of the real rate
+
+    def test_the_picture_is_cut_half_a_frame_early_and_the_sound_is_not(self):
+        segments = [(0.0, 1.0), (2.0, 3.0)]
+        margin = frame_margin(10.0)
+        self.assertAlmostEqual(margin, 0.05)
+        video = select_filters("[0:v]", "[v]", segments, audio=False, margin=margin)
+        self.assertIn("trim=start=0:end=0.95,", video[1])
+        self.assertIn("trim=start=1.95:end=2.95,", video[2])
+        audio = select_filters("[0:a]", "[a]", segments, audio=True)
+        self.assertIn("atrim=start=2:end=3,", audio[2])
+        self.assertEqual(frame_margin(None), 0.0)
 
 
 if __name__ == "__main__":

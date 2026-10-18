@@ -784,7 +784,8 @@ class EndToEndTests(unittest.TestCase):
         self.assertAlmostEqual(mp3_info.duration, 2.0, delta=0.3)
 
         info = probe_media(FFMPEG, mp4.output)
-        self.assertEqual((info.width, info.height), (180, 320))      # 9:16
+        # 9:16 cut out of the 320x180 source is 100x178; "Same as source" does not enlarge it to 180x320.
+        self.assertEqual((info.width, info.height), (100, 178))
         self.assertTrue(info.has_audio)
         self.assertAlmostEqual(info.duration, 2.0, delta=0.3)
         self.assertTrue(self.source.is_file())
@@ -917,6 +918,41 @@ class EndToEndTests(unittest.TestCase):
         self.assertIs(job.state, JobState.FAILED)
         self.assertIn("audio", job.error.lower())
         self.assertFalse((out / "no-audio.mp3").exists())
+
+
+class ReverseMemoryJobTests(unittest.TestCase):
+    HD = MediaInfo(duration=100.0, width=1920, height=1080, has_audio=True, fps=30.0)
+    SHORT = MediaInfo(duration=10.0, width=1920, height=1080, has_audio=True, fps=30.0)
+
+    def reversed_settings(self, **edit):
+        return ClipSettings(edit=VideoEdit(aspect=None, reverse=True, **edit))
+
+    def test_a_job_that_is_not_reversed_needs_nothing(self):
+        self.assertEqual(Job(Path("a.mp4"), ClipSettings(), info=self.HD).reverse_memory, 0)
+        self.assertEqual(Job(Path("a.mp4"), self.reversed_settings()).reverse_memory, 0)     # info not read yet
+
+    def test_a_reversed_job_holds_all_its_frames(self):
+        job = Job(Path("a.mp4"), self.reversed_settings(), info=self.HD)
+        self.assertEqual(job.reverse_memory, 3000 * 1920 * 1080 * 3 // 2)
+
+    def test_an_mp3_export_holds_only_the_sound(self):
+        settings = self.reversed_settings()
+        settings.output = OUTPUT_AUDIO
+        self.assertEqual(Job(Path("a.mp4"), settings, info=self.HD).reverse_memory, 100 * 48000 * 2 * 4)
+
+    def test_a_join_needs_what_its_biggest_clip_needs(self):
+        # Each clip is reversed on its own, so a short clip reversed next to a long one adds nothing.
+        clips = [Clip(Path("a.mp4"), self.reversed_settings(), self.SHORT),
+                 Clip(Path("b.mp4"), self.reversed_settings(), self.HD),
+                 Clip(Path("c.mp4"), ClipSettings(), self.HD)]
+        job = Job(Path("a.mp4"), clips[0].settings, info=self.SHORT, clips=clips)
+        self.assertEqual(job.reverse_memory, 3000 * 1920 * 1080 * 3 // 2)
+
+    def test_a_join_reverses_at_the_first_clips_frame_rate(self):
+        slow = MediaInfo(duration=10.0, width=1920, height=1080, has_audio=True, fps=15.0)
+        clips = [Clip(Path("a.mp4"), ClipSettings(), slow), Clip(Path("b.mp4"), self.reversed_settings(), self.SHORT)]
+        job = Job(Path("a.mp4"), clips[0].settings, info=slow, clips=clips)
+        self.assertEqual(job.reverse_memory, 150 * 1920 * 1080 * 3 // 2)       # b.mp4 becomes 15 fps
 
 
 if __name__ == "__main__":

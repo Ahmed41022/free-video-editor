@@ -28,11 +28,13 @@ from .timing import (
     audio_filters,
     clamp_speed,
     fade_filters,
+    frame_margin,
     kept_segments,
     output_duration,
     relative,
     segments_length,
     select_filters,
+    snap_segments,
     source_to_output,
 )
 
@@ -57,8 +59,12 @@ FIT_MODES = {
 
 ROTATIONS = {"None": 0, "90° clockwise": 90, "180°": 180, "90° counter-clockwise": 270}
 
-# Length of the short side of the output; None = same as the source video.
+# Length of the short side of the output. None = as large as the picture being exported, never
+# enlarged: see plan_geometry.
 RESOLUTIONS = {"Same as source": None, "1080p": 1080, "720p": 720, "480p": 480}
+
+# With "Same as source", phone, portrait and square videos are not made bigger than this (short side).
+SHORT_SIDE_CAP = 1080
 
 # x264 CRF: lower = better quality and bigger files.
 VIDEO_QUALITY = {"High": 18, "Balanced": 23, "Smaller file": 28}
@@ -122,9 +128,10 @@ class VideoEdit:
     def crops(self) -> bool:
         return self.fit == "crop" or self.aspect is None
 
-    def segments(self, duration: Optional[float]) -> list[Segment]:
-        """The parts of a source `duration` seconds long that the export keeps."""
-        return kept_segments(self.keep, self.start, self.end, duration)
+    def segments(self, duration: Optional[float], fps: Optional[float] = None) -> list[Segment]:
+        """The parts of a source `duration` seconds long that the export keeps. Given the source's
+        `fps`, their edges sit on whole frames (see `snap_segments`)."""
+        return snap_segments(kept_segments(self.keep, self.start, self.end, duration), fps, duration)
 
 
 @dataclass
@@ -149,18 +156,17 @@ def oriented_size(width: int, height: int, rotate: int) -> tuple[int, int]:
 
 
 def plan_geometry(width: int, height: int, edit: VideoEdit) -> Geometry:
-    """Work out the output size and crop box for a `width` x `height` source."""
+    """Work out the output size and crop box for a `width` x `height` source.
+
+    The output's short side is `edit.resolution` when that is set. Otherwise it is the cropped
+    picture's own short side, so a crop is never enlarged, and phone, portrait and square videos
+    stop at SHORT_SIDE_CAP. A fit (blurred background or bars) has no crop, so it uses the
+    source's short side, again capped for every shape but the original one."""
     w, h = oriented_size(width, height, edit.rotate)
     aw, ah = edit.aspect or (w, h)
     ratio = aw / ah
 
-    short = edit.resolution or min(w, h)
-    if ratio < 1:
-        out_w, out_h = _even(short), _even(short / ratio)
-    else:
-        out_w, out_h = _even(short * ratio), _even(short)
-
-    geometry = Geometry(w, h, out_w, out_h)
+    crop = None
     if edit.crops:
         if w / h > ratio:
             crop_w, crop_h = h * ratio, h
@@ -171,8 +177,65 @@ def plan_geometry(width: int, height: int, edit: VideoEdit) -> Geometry:
         crop_h = min(_even_floor(crop_h / zoom), _even_floor(h))
         x = round((w - crop_w) * min(max(edit.pos_x, 0.0), 1.0))
         y = round((h - crop_h) * min(max(edit.pos_y, 0.0), 1.0))
-        geometry.crop = (crop_w, crop_h, x, y)
-    return geometry
+        crop = (crop_w, crop_h, x, y)
+
+    if edit.resolution:
+        short = edit.resolution
+    else:
+        short = min(crop[0], crop[1]) if crop else min(w, h)
+        if edit.aspect and (crop is None or ratio <= 1):
+            short = min(short, SHORT_SIDE_CAP)
+    short = _even(short)
+    # The other side follows from the exact ratio (360 -> 640 for 9:16), not from an odd source size.
+    if ratio < 1:
+        out_w, out_h = short, _even(short * ah / aw)
+    else:
+        out_w, out_h = _even(short * aw / ah), short
+    return Geometry(w, h, out_w, out_h, crop)
+
+
+# ----- memory for reverse -------------------------------------------------------
+
+DEFAULT_FPS = 30.0                     # assumed when the video doesn't say
+REVERSE_WARN_BYTES = 2 * 1024 ** 3     # more than this is worth a warning
+_SOUND_BYTES_PER_SECOND = 48000 * 2 * 4    # stereo floats, which is what the sound is reversed as
+
+
+def reverse_memory(edit: VideoEdit, info: MediaInfo, fps: Optional[float] = None, sound_only: bool = False) -> int:
+    """About how many bytes ffmpeg needs to play this clip backwards, or 0 when it isn't reversed
+    (or its length is unknown).
+
+    Reversing holds every frame of the result in memory, as raw yuv420p: width x height x 1.5
+    bytes each. The size is the exported one (see `plan_geometry`), the number of frames comes from
+    the kept, sped-up length at `fps` (a join's frame rate; the clip's own by default, or 30 when
+    unknown). A `sound_only` export holds just the sound instead."""
+    if not edit.reverse:
+        return 0
+    segments = edit.segments(info.duration)
+    length, seconds = segments_length(segments), output_duration(segments, edit.speed)
+    if length is None or seconds is None:
+        return 0
+    if sound_only:
+        return int(seconds * _SOUND_BYTES_PER_SECOND)
+    if not info.has_video:
+        return 0
+    geometry = plan_geometry(info.width, info.height, edit)
+    rate = fps or info.fps
+    frames = seconds * rate if rate else length * DEFAULT_FPS
+    return int(frames * geometry.out_width * geometry.out_height * 1.5)
+
+
+def format_memory(nbytes: float) -> str:
+    gigabytes = nbytes / 1024 ** 3
+    return f"{gigabytes:.1f} GB" if gigabytes >= 1 else f"{max(round(nbytes / 1024 ** 2), 1)} MB"
+
+
+def reverse_warning(nbytes: int) -> str:
+    """The warning to show next to a reversed clip that needs `nbytes`, or "" when that is fine."""
+    if nbytes <= REVERSE_WARN_BYTES:
+        return ""
+    return (f"Reversing this needs about {format_memory(nbytes)} of memory. "
+            "Shorten the clip or lower the size if your PC has less.")
 
 
 def orientation_filters(edit: VideoEdit) -> list[str]:
@@ -245,7 +308,8 @@ def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segm
     """Filters that take input `index` through cuts, stabilization, speed, reframing, picture
     adjustments, reverse and fades.
 
-    The input must start at the first segment (see `input_args`). `frame` and `fps` force the
+    The input must start at the first segment (see `input_args`), and `segments` should come from
+    `edit.segments(duration, fps)` so their edges sit on whole frames. `frame` and `fps` force the
     output size and frame rate, for joining clips: a clip whose shape differs is fitted inside
     that frame with black bars. `transforms` names the file from the stabilizer's detect pass,
     relative to ffmpeg's working folder."""
@@ -256,7 +320,8 @@ def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segm
     filters: list[str] = []
     if video:
         timed = f"[t{tag}]"
-        filters += select_filters(f"[{index}:v:0]", timed, rel, audio=False, tag=tag)
+        filters += select_filters(f"[{index}:v:0]", timed, rel, audio=False, tag=tag,
+                                 margin=frame_margin(info.fps))
         tempo = []
         strength = STABILIZE.get(edit.stabilize)
         if transforms and strength:
@@ -313,7 +378,7 @@ _AAC = ["-c:a", "aac", "-b:a", "192k"]
 
 def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None) -> list[str]:
     edit = job.edit
-    segments = edit.segments(info.duration)
+    segments = edit.segments(info.duration, info.fps)
     if not segments:
         raise no_segments_error()
     graph = clip_graph(0, edit, info, segments, transforms=transforms)
@@ -324,26 +389,29 @@ def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optio
     return cmd
 
 
-def detect_command(ffmpeg: str, source: Path, edit: VideoEdit, segments: list[Segment], transforms: str) -> list[str]:
-    """The stabilizer's first pass: measure the shake of the kept frames into `transforms`."""
+def detect_command(ffmpeg: str, source: Path, edit: VideoEdit, segments: list[Segment], transforms: str,
+                   fps: Optional[float] = None) -> list[str]:
+    """The stabilizer's first pass: measure the shake of the kept frames into `transforms`.
+    `segments` and `fps` are the export's own, so both passes see the same frames."""
     shakiness = STABILIZE[edit.stabilize][0]
-    graph = select_filters("[0:v:0]", "[t]", relative(segments), audio=False)
+    graph = select_filters("[0:v:0]", "[t]", relative(segments), audio=False, margin=frame_margin(fps))
     graph.append(f"[t]vidstabdetect=shakiness={shakiness}:accuracy=15:result={transforms}[d]")
     return [ffmpeg, *_HEAD, *input_args(segments, source), "-filter_complex", ";".join(graph),
             "-map", "[d]", "-f", "null", *_TAIL, "-"]
 
 
-DETECT_SHARE = 0.4      # part of the progress bar for the stabilizer's detect passes
+DETECT_SHARE = 0.2      # part of the progress bar for the stabilizer's detect passes, which take about a fifth
 
 
-def _run_export(ffmpeg: str, clips: list[tuple[Path, VideoEdit, list[Segment]]],
+def _run_export(ffmpeg: str, clips: list[tuple[Path, VideoEdit, list[Segment], Optional[float]]],
                 command: Callable[[dict[int, str]], list[str]], output: Path, duration: Optional[float],
                 on_progress: Optional[Callable[[float], None]], cancel_event: Optional[threading.Event]) -> Path:
     """Run an export, first running the stabilizer's detect pass for every clip that asks for it.
 
-    `command(transforms)` builds the export command given {clip index: transforms file name}.
+    Each clip is (source, edit, kept segments, frame rate). `command(transforms)` builds the export
+    command given {clip index: transforms file name}.
     The transforms files live in a temporary folder that is ffmpeg's working folder."""
-    shaky = [i for i, (_, edit, _) in enumerate(clips) if STABILIZE.get(edit.stabilize)]
+    shaky = [i for i, (_, edit, _, _) in enumerate(clips) if STABILIZE.get(edit.stabilize)]
     if not shaky:
         return run_ffmpeg(command({}), output, duration, on_progress, cancel_event)
     with tempfile.TemporaryDirectory(prefix="fve-stabilize-") as folder:
@@ -352,13 +420,13 @@ def _run_export(ffmpeg: str, clips: list[tuple[Path, VideoEdit, list[Segment]]],
         total = sum(lengths.values()) or 1.0
         done, transforms = 0.0, {}
         for i in shaky:
-            source, edit, segments = clips[i]
+            source, edit, segments, fps = clips[i]
             name = f"shake{i}.trf"
 
             def detect_progress(fraction: float, done: float = done, length: float = lengths[i]) -> None:
                 on_progress(DETECT_SHARE * min((done + fraction * length) / total, 1.0))
 
-            run_ffmpeg(detect_command(ffmpeg, source, edit, segments, name), folder / name, lengths[i] or None,
+            run_ffmpeg(detect_command(ffmpeg, source, edit, segments, name, fps), folder / name, lengths[i] or None,
                        detect_progress if on_progress else None, cancel_event, cwd=folder)
             done += lengths[i]
             transforms[i] = name
@@ -387,9 +455,9 @@ def convert_video(
 
     job = VideoJob(job.source.resolve(), job.output, job.edit)   # ffmpeg may run in another folder
     video_command(ffmpeg, job, info)                               # fail early on bad settings
-    segments = job.edit.segments(info.duration)
+    segments = job.edit.segments(info.duration, info.fps)
     duration = output_duration(segments, job.edit.speed)
-    return _run_export(ffmpeg, [(job.source, job.edit, segments)],
+    return _run_export(ffmpeg, [(job.source, job.edit, segments, info.fps)],
                        lambda transforms: video_command(ffmpeg, job, info, transforms.get(0)),
                        job.output, duration, on_progress, cancel_event)
 
@@ -432,7 +500,7 @@ def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]]
 
     inputs, filters, labels, total = [], [], [], 0.0
     for i, part in enumerate(parts):
-        segments = part.edit.segments(part.info.duration)
+        segments = part.edit.segments(part.info.duration, part.info.fps if video else None)
         if not segments:
             raise ConversionError(f"Nothing is left of {part.source.name}: the trim and cuts remove all of it.")
         graph = clip_graph(i, part.edit, part.info, segments, video=video, audio=any_audio, frame=frame,
@@ -481,7 +549,8 @@ def join_clips(
             raise ConversionError(f"{part.source.name} has no video track.")
         part.source = part.source.resolve()     # ffmpeg may run in another folder
     _, duration = join_command(ffmpeg, job)     # fail early on bad settings
-    clips = [] if job.audio_only else [(p.source, p.edit, p.edit.segments(p.info.duration)) for p in job.parts]
+    clips = [] if job.audio_only else [(p.source, p.edit, p.edit.segments(p.info.duration, p.info.fps), p.info.fps)
+                                       for p in job.parts]
     return _run_export(ffmpeg, clips, lambda transforms: join_command(ffmpeg, job, transforms)[0],
                        job.output, duration, on_progress, cancel_event)
 

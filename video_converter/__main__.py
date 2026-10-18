@@ -27,8 +27,8 @@ from .core import (
 )
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, cut_range
 from .video import (
-    ADJUSTMENTS, LOOKS, STABILIZE, VIDEO_QUALITY, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video,
-    join_clips, output_tag,
+    ADJUSTMENTS, DEFAULT_FPS, LOOKS, STABILIZE, VIDEO_QUALITY, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video,
+    join_clips, output_tag, reverse_memory, reverse_warning,
 )
 
 # Short command-line names for the quality presets.
@@ -83,9 +83,8 @@ def _seconds(text: str) -> float:
     return value
 
 
-def _adjustment(name: str):
-    low, high, _ = ADJUSTMENTS[name]
-
+def _between(name: str, low: float, high: float):
+    """An argument type: a number from `low` to `high`, refused with a clear message otherwise."""
     def parse(text: str) -> float:
         try:
             value = float(text)
@@ -95,6 +94,18 @@ def _adjustment(name: str):
             raise argparse.ArgumentTypeError(f"{name} must be between {low:g} and {high:g}")
         return value
     return parse
+
+
+def _adjustment(name: str):
+    low, high, _ = ADJUSTMENTS[name]
+    return _between(name, low, high)
+
+
+def _warn_reverse(name: str, edit: VideoEdit, info, sound_only: bool, fps: float | None = None) -> None:
+    """Say so on stderr when playing `edit` backwards will need a lot of memory. The export still runs."""
+    warning = reverse_warning(reverse_memory(edit, info, fps, sound_only))
+    if warning:
+        print(f"\r{name}: warning - {warning}", file=sys.stderr)
 
 
 def _with_cuts(edit: VideoEdit, cuts: list[tuple[float, float]], duration: float | None) -> VideoEdit:
@@ -126,9 +137,11 @@ def run_cli(argv: list[str]) -> int:
     video.add_argument("--video", choices=CLI_SHAPES, help="output shape; phone = 9:16")
     video.add_argument("--fit", choices=("crop", "blur", "bars"), default="crop",
                        help="crop to fill, or fit inside with a blurred background / black bars (default: crop)")
-    video.add_argument("--position", type=float, nargs=2, metavar=("X", "Y"), default=(0.5, 0.5),
+    video.add_argument("--position", type=_between("--position", 0.0, 1.0), nargs=2, metavar=("X", "Y"),
+                       default=(0.5, 0.5),
                        help="where to crop, 0..1 from left/top (default: 0.5 0.5 = center)")
-    video.add_argument("--zoom", type=float, default=1.0, help="crop tighter, 1.0 to 3.0 (default: 1.0)")
+    video.add_argument("--zoom", type=_between("--zoom", 1.0, 3.0), default=1.0,
+                       help="crop tighter, 1.0 to 3.0 (default: 1.0)")
     video.add_argument("--rotate", type=int, choices=(0, 90, 180, 270), default=0, help="degrees clockwise")
     video.add_argument("--mirror", action="store_true", help="flip left-right")
     video.add_argument("--size", type=int, choices=(1080, 720, 480), help="short side in pixels (default: as source)")
@@ -196,6 +209,8 @@ def run_cli(argv: list[str]) -> int:
                     raise ConversionError(f"File not found: {source}")
                 info = probe_media(ffmpeg, source)
                 parts.append(JoinPart(source, _with_cuts(edit, args.cut, info.duration), info))
+            for part in parts:
+                _warn_reverse(part.source.name, part.edit, part.info, not args.video, parts[0].info.fps or DEFAULT_FPS)
             job = JoinJob(parts, target, audio_only=not args.video, quality=quality)
             output = join_clips(ffmpeg, job, on_progress=lambda f: show(f, target.name))
         except ConversionError as exc:
@@ -209,7 +224,10 @@ def run_cli(argv: list[str]) -> int:
         try:
             if not source.is_file():
                 raise ConversionError(f"File not found: {source}")
-            file_edit = _with_cuts(edit, args.cut, probe_media(ffmpeg, source).duration) if args.cut else edit
+            info = probe_media(ffmpeg, source) if args.cut or args.reverse else None
+            file_edit = _with_cuts(edit, args.cut, info.duration) if args.cut else edit
+            if args.reverse:
+                _warn_reverse(source.name, file_edit, info, not args.video)
             if not args.video:
                 target = output_path_for(source, args.output_dir, args.overwrite)
                 job = ConversionJob(source, target, quality, args.start, args.end, file_edit.keep, args.speed,

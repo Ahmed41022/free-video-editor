@@ -235,6 +235,23 @@ class StabilizeExportTests(unittest.TestCase):
         self.assertTrue(any(DETECT_SHARE < p < 1 for p in progress))
         self.assertEqual(progress[-1], 1.0)
 
+    def test_the_detect_pass_is_a_fifth_of_the_progress_bar(self):
+        # The detect pass takes about a fifth of the time; it used to be given 40% of the bar.
+        self.assertEqual(DETECT_SHARE, 0.2)
+        progress = []
+
+        def fake(cmd, output, duration, on_progress=None, cancel_event=None, cwd=None):
+            on_progress(0.5)
+            on_progress(1.0)
+            return output
+
+        job = VideoJob(self.source, self.tmp / "unused.mp4", VideoEdit(aspect=None, stabilize="light"))
+        with mock.patch.object(video, "run_ffmpeg", fake):
+            convert_video(FFMPEG, job, on_progress=progress.append)
+        self.assertEqual(len(progress), 4)
+        for got, expected in zip(progress, (0.1, 0.2, 0.6, 1.0)):
+            self.assertAlmostEqual(got, expected)
+
     def test_relative_paths_still_work_although_ffmpeg_runs_elsewhere(self):
         # ffmpeg runs in the transforms folder, so relative paths must not be taken from there.
         out_dir = self.tmp / "relative"
