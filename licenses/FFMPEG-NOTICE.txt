@@ -1,4 +1,4 @@
-The Windows executable of Video Converter includes an unmodified copy of FFmpeg
+The Windows executable of Free Video Editor includes an unmodified copy of FFmpeg
 (https://ffmpeg.org), which it runs as a separate program to convert files.
 
 That FFmpeg build is a static "essentials" build by gyan.dev, distributed through
@@ -12,5 +12,5 @@ Source code:
 
 FFmpeg is a trademark of Fabrice Bellard, originator of the FFmpeg project.
 
-Video Converter's own source code is licensed separately under the MIT License
+Free Video Editor's own source code is licensed separately under the MIT License
 (see LICENSE).

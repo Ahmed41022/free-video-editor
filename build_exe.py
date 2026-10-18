@@ -1,4 +1,4 @@
-"""Build a standalone Windows executable: dist/Video Converter.exe
+"""Build a standalone Windows executable: dist/Free Video Editor.exe
 
 The exe bundles its own copy of ffmpeg and the Qt libraries, so it runs on PCs with nothing else installed.
 
@@ -21,7 +21,7 @@ from video_converter import __version__
 
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
-APP_NAME = "Video Converter"
+APP_NAME = "Free Video Editor"
 AUTHOR = "Ahmed Ragab"
 
 
@@ -94,7 +94,7 @@ def main() -> None:
             "--distpath", str(ROOT / "dist"),
             "--workpath", str(BUILD / "pyinstaller"),
             "--specpath", str(BUILD),
-            str(ROOT / "Video Converter.pyw"),
+            str(ROOT / "Free Video Editor.pyw"),
         ],
         check=True,
     )

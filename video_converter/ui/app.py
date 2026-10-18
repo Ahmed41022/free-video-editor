@@ -9,6 +9,7 @@ from typing import Optional
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from .. import APP_NAME
 from ..core import find_ffmpeg
 
 
@@ -28,7 +29,7 @@ def main(paths: Optional[list[str]] = None) -> int:
         except (OSError, AttributeError):
             pass
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("Video Converter")
+    app.setApplicationName(APP_NAME)
     app.setOrganizationName("VideoConverter")
     if _icon_path().is_file():
         app.setWindowIcon(QIcon(str(_icon_path())))

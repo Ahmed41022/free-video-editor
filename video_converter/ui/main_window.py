@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
-from .. import __version__
+from .. import APP_NAME, __version__
 from ..core import VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_video_file, probe_media
 from ..jobs import Clip, Job, JobQueue
 from ..media import extract_thumbnails, extract_waveform
@@ -105,6 +105,7 @@ class MainWindow(QMainWindow):
     def __init__(self, ffmpeg: str, settings: Optional[QSettings] = None):
         super().__init__()
         self.ffmpeg = ffmpeg
+        # The storage key keeps the app's original name so saved settings and presets carry over.
         self.store = settings or QSettings("VideoConverter", "Video Converter")
         self.items: list[MediaItem] = []
         self.current: Optional[MediaItem] = None
@@ -125,7 +126,7 @@ class MainWindow(QMainWindow):
         self.queue = JobQueue(ffmpeg, on_update=self.bridge.jobUpdated.emit)
         self.player = Player(self)
 
-        self.setWindowTitle(f"Video Converter {__version__}")
+        self.setWindowTitle(f"{APP_NAME} {__version__}")
         self.setAcceptDrops(True)
         self.resize(1320, 840)
         self._build()
@@ -493,9 +494,9 @@ class MainWindow(QMainWindow):
             self.view.clear("Drop videos here, or click Add files")
             self.timeline.clear()
             self.inspector.set_settings(None, None)
-            self.setWindowTitle(f"Video Converter {__version__}")
+            self.setWindowTitle(f"{APP_NAME} {__version__}")
             return
-        self.setWindowTitle(f"{item.path.name} · Video Converter {__version__}")
+        self.setWindowTitle(f"{item.path.name} · {APP_NAME} {__version__}")
         if changed or reload:
             self.view.clear("Loading…")
             self.compare_button.setChecked(False)

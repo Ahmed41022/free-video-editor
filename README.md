@@ -1,14 +1,14 @@
-# Video Converter
+# Free Video Editor
 
 A Windows video editor that reshapes, crops, cuts and joins videos into new MP4s, for example to fit a phone
 screen for Stories, Reels, TikTok or Shorts, changes their speed, adds fades, and turns videos into MP3 audio.
 Everything runs locally on your computer; no files are uploaded anywhere.
 
-![Video Converter editing a landscape video into a 9:16 phone video](docs/screenshot.png)
+![Free Video Editor editing a landscape video into a 9:16 phone video](docs/screenshot.png)
 
 ## Download
 
-Grab **`VideoConverter.exe`** from the [latest release](https://github.com/Ahmed41022/video-converter/releases/latest) and double-click it.
+Grab **`FreeVideoEditor.exe`** from the [latest release](https://github.com/Ahmed41022/free-video-editor/releases/latest) and double-click it.
 Nothing else to install: everything it needs is built into the exe.
 
 > Windows SmartScreen may warn about an unrecognized app the first time because the exe isn't code-signed.
@@ -83,7 +83,7 @@ then in `imageio-ffmpeg`.
 python -m video_converter
 ```
 
-On Windows you can also double-click **`Video Converter.pyw`**.
+On Windows you can also double-click **`Free Video Editor.pyw`**.
 
 ### Command line
 
@@ -124,7 +124,7 @@ python -m venv .venv
 .venv\Scripts\python build_exe.py
 ```
 
-The result is `dist\Video Converter.exe`, a single file that includes ffmpeg and the Qt libraries.
+The result is `dist\Free Video Editor.exe`, a single file that includes ffmpeg and the Qt libraries.
 
 ## Running the tests
 
@@ -138,5 +138,5 @@ ffmpeg, and the editor tests (`tests/test_ui.py`) need PySide6, so run them from
 
 ## License
 
-Video Converter is released under the [MIT License](LICENSE).
+Free Video Editor is released under the [MIT License](LICENSE).
 The Windows exe bundles FFmpeg (GPLv3) and Qt for Python (LGPLv3); see [licenses/](licenses/).
