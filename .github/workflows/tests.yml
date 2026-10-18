@@ -15,9 +15,12 @@ permissions:
 jobs:
   test:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       QT_QPA_PLATFORM: offscreen
+      # The runner has no GPU. Qt's media backend still tries DXVA2 hardware decoding, fails 30+ times per run
+      # and once hung inside a QMediaPlayer test. Decode in software (no effect on the shipped app).
+      QT_FFMPEG_DECODING_HW_DEVICE_TYPES: none
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
@@ -39,4 +42,8 @@ jobs:
           "$ffmpeg" -version | head -n 1
 
       - name: Run the tests
-        run: python -m unittest discover -s tests -v
+        shell: bash
+        # If a test ever hangs, dump every thread's stack after 20 minutes and fail (the suite takes about 4).
+        run: >-
+          python -X faulthandler -c "import faulthandler, unittest; faulthandler.dump_traceback_later(1200, exit=True);
+          unittest.main(module=None, argv=['unittest', 'discover', '-s', 'tests', '-v'])"
