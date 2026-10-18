@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QEvent, QObject, QSettings, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QByteArray, QEvent, QObject, QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
@@ -21,12 +21,14 @@ from PySide6.QtWidgets import (
 )
 
 from .. import APP_NAME, __version__
-from ..core import VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_video_file, probe_media
+from ..core import (
+    AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_media_file, probe_media,
+)
 from ..jobs import Clip, Job, JobQueue
 from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
 from ..timing import part_index, remove_part_at, restore_part_at, split_at
-from ..video import plan_geometry, render_frame
+from ..video import REVERSE_WARN_BYTES, format_memory, plan_geometry, render_frame, reverse_memory, reverse_warning
 from . import icons, theme
 from .inspector import Inspector
 from .player import Player, VideoView
@@ -34,6 +36,8 @@ from .queue_panel import QueueBridge, QueuePanel
 from .timeline import Timeline
 
 FRAME_STEP = 1 / 30
+FILE_FILTER = "Videos and audio ({});;All files (*.*)".format(
+    " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS))
 
 
 @dataclass(eq=False)
@@ -114,6 +118,8 @@ class MainWindow(QMainWindow):
         self.merge_open = False
         self.theme_mode = "dark"
         self.tmpdir = Path(tempfile.mkdtemp(prefix="videoconverter-"))
+        self.closed = False
+        self.confirm_heavy_exports = True     # ask before an export that needs a lot of memory
         self.loader = ThreadPoolExecutor(max_workers=2, thread_name_prefix="media-loader")
         self.signals = Signals()
         self.signals.loaded.connect(self._on_loaded)
@@ -308,24 +314,35 @@ class MainWindow(QMainWindow):
     # ----- preferences --------------------------------------------------------
 
     def _load_preferences(self) -> None:
-        self.theme_mode = theme.apply_theme(QApplication.instance(), self.store.value("theme", "system"))
-        geometry = self.store.value("geometry")
+        mode = self._saved_text("theme", "system")
+        self.theme_mode = theme.apply_theme(QApplication.instance(), mode if mode in ("dark", "light") else "system")
+        geometry = self._saved_bytes("geometry")
         if geometry is not None:
             self.restoreGeometry(geometry)
         for key, splitter in (("splitTop", self.top_split), ("splitMain", self.main_split)):
-            state = self.store.value(key)
+            state = self._saved_bytes(key)
             if state is not None:
                 splitter.restoreState(state)
-        folder = self.store.value("outputDir", "")
+        folder = self._saved_text("outputDir")
         self.output_dir = Path(folder) if folder and Path(folder).is_dir() else None
         try:
-            presets = json.loads(self.store.value("presets", "{}") or "{}")
+            presets = json.loads(self._saved_text("presets", "{}") or "{}")
             self.user_presets = presets if isinstance(presets, dict) else {}
-        except (ValueError, TypeError):
+        except ValueError:
             self.user_presets = {}
         self.inspector.set_presets(self.user_presets)
         self._show_output_folder()
         self.refresh_icons()
+
+    def _saved_text(self, key: str, default: str = "") -> str:
+        """A saved text setting. Anything else a damaged settings file holds is ignored."""
+        value = self.store.value(key, default)
+        return value if isinstance(value, str) else default
+
+    def _saved_bytes(self, key: str) -> Optional[QByteArray]:
+        """A saved window layout, or None if there is none or the settings file holds something else."""
+        value = self.store.value(key)
+        return QByteArray(value) if isinstance(value, (QByteArray, bytes)) and len(value) else None
 
     def _save_preferences(self) -> None:
         self.store.setValue("geometry", self.saveGeometry())
@@ -344,25 +361,25 @@ class MainWindow(QMainWindow):
     # ----- adding and removing files -----------------------------------------
 
     def choose_files(self) -> None:
-        last = self.store.value("lastDir", "")
-        patterns = " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS)
-        names, _ = QFileDialog.getOpenFileNames(self, "Add videos", last, f"Videos ({patterns});;All files (*.*)")
+        last = self._saved_text("lastDir")
+        names, _ = QFileDialog.getOpenFileNames(self, "Add videos or audio", last, FILE_FILTER)
         if names:
             self.store.setValue("lastDir", str(Path(names[0]).parent))
             self.add_paths([Path(n) for n in names])
 
     def choose_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Add a folder of videos", self.store.value("lastDir", ""))
+        folder = QFileDialog.getExistingDirectory(self, "Add a folder of videos or audio",
+                                                  self._saved_text("lastDir"))
         if folder:
             self.store.setValue("lastDir", folder)
             self.add_paths([Path(folder)])
 
     def add_paths(self, paths: list[Path]) -> int:
-        """Add files (and the videos inside any folders). Returns how many were new."""
+        """Add files (and the videos and audio files inside any folders). Returns how many were new."""
         files: list[Path] = []
         for path in paths:
             if path.is_dir():
-                files.extend(sorted(p for p in path.iterdir() if p.is_file() and is_video_file(p)))
+                files.extend(sorted(p for p in path.iterdir() if p.is_file() and is_media_file(p)))
             elif path.is_file():
                 files.append(path)
         known = {item.path.resolve() for item in self.items}
@@ -385,7 +402,7 @@ class MainWindow(QMainWindow):
             if self.current is None:
                 self.media_list.setCurrentRow(len(self.items) - added)
         elif paths:
-            self.statusBar().showMessage("No new video files there.", 4000)
+            self.statusBar().showMessage("No new video or audio files there.", 4000)
         return added
 
     def _update_list_actions(self) -> None:
@@ -462,6 +479,7 @@ class MainWindow(QMainWindow):
             info, thumbs, wave = MediaInfo(duration=None), [], []
             item.error = f"Can't read this file ({exc})"
         self.signals.loaded.emit(item, info, thumbs, wave)
+        self._remove_tmpdir_if_closed()
 
     def _on_loaded(self, item: MediaItem, info: MediaInfo, thumbs: list[Path], wave: list[float]) -> None:
         item.info, item.loading = info, False
@@ -494,6 +512,7 @@ class MainWindow(QMainWindow):
             self.view.clear("Drop videos here, or click Add files")
             self.timeline.clear()
             self.inspector.set_settings(None, None)
+            self.inspector.set_reverse_warning("")
             self.setWindowTitle(f"{APP_NAME} {__version__}")
             return
         self.setWindowTitle(f"{item.path.name} · {APP_NAME} {__version__}")
@@ -515,6 +534,8 @@ class MainWindow(QMainWindow):
         self.inspector.set_settings(settings, info.duration if info else None)
         edit = settings.edit
         video_out = settings.output == OUTPUT_VIDEO
+        self.inspector.set_reverse_warning(
+            reverse_warning(reverse_memory(edit, info, sound_only=not video_out)) if info else "")
         self.timeline.setTrim(edit.start, edit.end)
         self.timeline.setKeep(edit.keep)
         self.player.set_segments(edit.segments(info.duration if info else None))
@@ -726,7 +747,8 @@ class MainWindow(QMainWindow):
 
     def _render_after(self) -> None:
         item = self.current
-        if item is None or item.info is None or not item.info.has_video or not self.compare_button.isChecked():
+        if (self.closed or item is None or item.info is None or not item.info.has_video
+                or not self.compare_button.isChecked()):
             return
         self._after_token += 1
         token, settings, at = self._after_token, item.settings.copy(), self.player.position
@@ -742,6 +764,7 @@ class MainWindow(QMainWindow):
                 self.signals.afterReady.emit(token, image)
             except (ConversionError, OSError) as exc:
                 self.signals.afterReady.emit(token, str(exc))
+            self._remove_tmpdir_if_closed()
         threading.Thread(target=work, daemon=True).start()
 
     def _on_after_ready(self, token: int, result) -> None:
@@ -755,19 +778,48 @@ class MainWindow(QMainWindow):
     # ----- exporting ----------------------------------------------------------
 
     def _make_job(self, item: MediaItem) -> Optional[Job]:
+        """A job for exporting `item`, or None (with a message) if it can't be exported yet."""
         if item.loading:
             self.statusBar().showMessage(f"{item.path.name} is still loading; try again in a moment.", 4000)
             return None
         if item.error:
             return None
-        return self.queue.add(Job(item.path, item.settings.copy(), self.output_dir, item.info))
+        return Job(item.path, item.settings.copy(), self.output_dir, item.info)
+
+    def _confirm_heavy(self, jobs: list[Job]) -> bool:
+        """Ask whether to go ahead with exports that play something backwards and need a lot of memory."""
+        if not self.confirm_heavy_exports:
+            return True
+        if len(jobs) == 1:
+            text = f"Reversing {jobs[0].title} needs about {format_memory(jobs[0].reverse_memory)} of memory."
+        else:
+            lines = "\n".join(f"{job.title}: about {format_memory(job.reverse_memory)}" for job in jobs[:6])
+            more = f"\nand {len(jobs) - 6} more" if len(jobs) > 6 else ""
+            text = f"These exports play clips backwards, which needs a lot of memory:\n\n{lines}{more}"
+        answer = QMessageBox.question(
+            self, "This needs a lot of memory",
+            f"{text}\n\nIf your PC has less, the export can fail or make everything slow. Export anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _queue_jobs(self, jobs: list[Job]) -> list[Job]:
+        """Add `jobs` to the export queue, after checking with the user about the ones that need
+        a lot of memory. Returns the jobs that were queued."""
+        heavy = [job for job in jobs if job.reverse_memory > REVERSE_WARN_BYTES]
+        if heavy and not self._confirm_heavy(heavy):
+            skipped = {job.id for job in heavy}
+            jobs = [job for job in jobs if job.id not in skipped]
+            self.statusBar().showMessage("Left out the exports that need a lot of memory.", 6000)
+        return [self.queue.add(job) for job in jobs]
 
     def export_current(self) -> None:
-        if self.current is not None and self._make_job(self.current):
+        job = self._make_job(self.current) if self.current is not None else None
+        if job and self._queue_jobs([job]):
             self.statusBar().showMessage(f"Exporting {self.current.path.name}…", 4000)
 
     def export_all(self) -> None:
-        count = sum(1 for item in list(self.items) if self._make_job(item))
+        jobs = [job for job in (self._make_job(item) for item in list(self.items)) if job]
+        count = len(self._queue_jobs(jobs))
         if count:
             self.statusBar().showMessage(f"Added {count} export{'s' if count != 1 else ''} to the queue.", 4000)
 
@@ -795,8 +847,9 @@ class MainWindow(QMainWindow):
                                          "MP3: set the first file's output to Audio (MP3).", 6000)
             return
         clips = [Clip(item.path, item.settings.copy(), item.info) for item in chosen]
-        self.queue.add(Job(first.path, first.settings.copy(), self.output_dir, first.info, clips=clips))
-        self.statusBar().showMessage(f"Joining {len(chosen)} files into one {'MP3' if audio else 'video'}…", 4000)
+        job = Job(first.path, first.settings.copy(), self.output_dir, first.info, clips=clips)
+        if self._queue_jobs([job]):
+            self.statusBar().showMessage(f"Joining {len(chosen)} files into one {'MP3' if audio else 'video'}…", 4000)
 
     def _job_updated(self, job: Job) -> None:
         if job.state.finished and job.state.value == "Failed":
@@ -860,5 +913,11 @@ class MainWindow(QMainWindow):
         self.queue.shutdown()
         self.player.load(None)
         self.loader.shutdown(wait=False, cancel_futures=True)
+        self.closed = True
         shutil.rmtree(self.tmpdir, ignore_errors=True)
         event.accept()
+
+    def _remove_tmpdir_if_closed(self) -> None:
+        """A background job still running when the window closed may have made its folder again."""
+        if self.closed:
+            shutil.rmtree(self.tmpdir, ignore_errors=True)

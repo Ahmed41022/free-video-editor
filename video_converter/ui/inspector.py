@@ -327,6 +327,11 @@ class Inspector(QScrollArea):
         self.reverse_box.setToolTip("Reversing holds the whole clip in memory, so it suits short clips best")
         self.reverse_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "reverse", on), "Reverse"))
         self.speed_section.grid.addWidget(self.reverse_box, 1, 1)
+        self.reverse_warning = QLabel()
+        self.reverse_warning.setObjectName("error")
+        self.reverse_warning.setWordWrap(True)
+        self.reverse_warning.hide()
+        self.speed_section.grid.addWidget(self.reverse_warning, 2, 1)
 
         # Fades
         self.fade_section = Section("Fades")
@@ -377,6 +382,9 @@ class Inspector(QScrollArea):
         self.size_box = QComboBox()
         for label, value in RESOLUTIONS.items():
             self.size_box.addItem(label, value)
+        self.size_box.setToolTip(
+            "Same as source keeps the picture as sharp as it is and never enlarges a crop. Phone, portrait and "
+            "square videos are capped at 1080 pixels on the short side. 1080p, 720p and 480p set the short side.")
         self.size_box.currentIndexChanged.connect(
             lambda: self._edit(lambda s: setattr(s.edit, "resolution", self.size_box.currentData()), "Size"))
         self.quality_section.row("Size", self.size_box, 0)
@@ -414,6 +422,11 @@ class Inspector(QScrollArea):
 
     def set_output_folder(self, text: str) -> None:
         self.folder_label.setText(text)
+
+    def set_reverse_warning(self, text: str) -> None:
+        """Show (or, with "", hide) the note about how much memory playing the clip backwards needs."""
+        self.reverse_warning.setText(text)
+        self.reverse_warning.setVisible(bool(text))
 
     def set_presets(self, user_presets: dict[str, dict]) -> None:
         self.user_presets = user_presets

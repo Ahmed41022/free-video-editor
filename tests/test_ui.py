@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
@@ -15,11 +16,11 @@ try:
     from PySide6.QtCore import QEvent, QModelIndex, QPoint, QPointF, QSettings, Qt
     from PySide6.QtGui import QColor, QContextMenuEvent, QImage
     from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication, QPushButton
+    from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from video_converter.core import find_ffmpeg, probe_media
+from video_converter.core import MediaInfo, find_ffmpeg, probe_media
 from video_converter.project import OUTPUT_AUDIO, ClipSettings
 from video_converter.video import VideoEdit
 
@@ -671,6 +672,28 @@ class InspectorTests(unittest.TestCase):
 
 
 
+class ReverseWarningInspectorTests(unittest.TestCase):
+    def setUp(self):
+        from video_converter.ui.inspector import Inspector
+        self.inspector = Inspector()
+        self.inspector.set_settings(ClipSettings(), 10.0)
+        self.addCleanup(self.inspector.close)
+
+    def test_the_warning_sits_with_the_reverse_control_and_hides_again(self):
+        self.assertTrue(self.inspector.reverse_warning.isHidden())
+        self.inspector.set_reverse_warning("Reversing this needs about 6.4 GB of memory.")
+        self.assertFalse(self.inspector.reverse_warning.isHidden())
+        self.assertEqual(self.inspector.reverse_warning.text(), "Reversing this needs about 6.4 GB of memory.")
+        self.assertIs(self.inspector.reverse_warning.parentWidget(), self.inspector.reverse_box.parentWidget())
+        self.inspector.set_reverse_warning("")
+        self.assertTrue(self.inspector.reverse_warning.isHidden())
+
+    def test_the_size_menu_explains_same_as_source(self):
+        tip = self.inspector.size_box.toolTip()
+        self.assertIn("never enlarges", tip)
+        self.assertIn("1080", tip)
+
+
 class AdjustSectionTests(unittest.TestCase):
     def setUp(self):
         from video_converter.ui.inspector import Inspector
@@ -768,7 +791,10 @@ class MainWindowTests(unittest.TestCase):
         self.window.show()
 
     def tearDown(self):
+        tmpdir = self.window.tmpdir
         self.window.close()
+        self.window.loader.shutdown(wait=True)      # a load cut short by closing clears up after itself
+        self.assertFalse(tmpdir.exists(), "the window left its temp folder behind")
         # unittest keeps every test case alive until the run ends, so free the window (and its
         # media player) now instead of letting closed windows pile up and slow later tests.
         self.window.deleteLater()
@@ -882,7 +908,10 @@ class MainWindowTests(unittest.TestCase):
         self.load(self.landscape)
         self.window._set_output_folder(self.tmp)
         self.window.user_presets["Mine"] = ClipSettings().to_dict()
+        first_tmpdir = self.window.tmpdir
         self.window.close()
+        self.window.loader.shutdown(wait=True)
+        self.assertFalse(first_tmpdir.exists())
         pump(0.1)
         self.window = MainWindow(FFMPEG, QSettings(str(self.ini), QSettings.Format.IniFormat))
         self.assertEqual(self.window.output_dir, self.tmp)
@@ -897,6 +926,154 @@ class MainWindowTests(unittest.TestCase):
         self.window.close()
         self.window = MainWindow(FFMPEG, QSettings(str(self.ini), QSettings.Format.IniFormat))
         self.assertEqual(self.window.user_presets, {})
+
+    def test_junk_in_the_saved_settings_does_not_stop_startup(self):
+        from video_converter.ui.main_window import MainWindow
+        self.window.close()
+        ini = self.tmp / "junk.ini"
+        ini.write_text("[General]\ngeometry=not a window layout\nsplitTop=3, 4\nsplitMain=@Invalid()\n"
+                       "outputDir=C:/a, C:/b\nlastDir=x, y\ntheme=neon\npresets=[1, 2]\n", encoding="utf-8")
+        self.window = MainWindow(FFMPEG, QSettings(str(ini), QSettings.Format.IniFormat))
+        self.assertIsNone(self.window.output_dir)
+        self.assertEqual(self.window.user_presets, {})
+        self.assertIn(self.window.theme_mode, ("dark", "light"))
+        with mock.patch("video_converter.ui.main_window.QFileDialog.getOpenFileNames",
+                        return_value=([], "")) as dialog:
+            self.window.choose_files()
+        self.assertEqual(dialog.call_args.args[2], "")           # the bad "last folder" was ignored
+        self.window.close()                                      # and the window can save over the junk
+        self.window = MainWindow(FFMPEG, QSettings(str(ini), QSettings.Format.IniFormat))
+        self.assertEqual(self.window.user_presets, {})
+
+    def test_a_saved_layout_is_still_restored(self):
+        from PySide6.QtCore import QByteArray
+        from PySide6.QtWidgets import QSplitter
+        from video_converter.ui.main_window import MainWindow
+        self.window.close()
+        self.window.loader.shutdown(wait=True)
+        saved = QSettings(str(self.ini), QSettings.Format.IniFormat)
+        geometry = saved.value("geometry")
+        self.assertIsInstance(geometry, QByteArray)
+        with mock.patch.object(MainWindow, "restoreGeometry", return_value=True) as window_layout:
+            with mock.patch.object(QSplitter, "restoreState", return_value=True) as split_layouts:
+                self.window = MainWindow(FFMPEG, QSettings(str(self.ini), QSettings.Format.IniFormat))
+        self.assertEqual(window_layout.call_args.args[0], geometry)
+        self.assertEqual(split_layouts.call_count, 2)
+
+    def test_closing_removes_the_temp_folder(self):
+        folder = self.window.tmpdir
+        self.assertTrue(folder.is_dir())
+        self.window.close()
+        self.assertFalse(folder.exists())
+
+    def test_closing_while_files_are_still_loading_leaves_no_folder(self):
+        # The background loaders make their thumbnail folders inside the temp folder, possibly after
+        # the window has already removed it.
+        self.window.add_paths([self.landscape, self.portrait, self.third])
+        folder = self.window.tmpdir
+        self.window.close()
+        self.window.loader.shutdown(wait=True)
+        self.assertFalse(folder.exists())
+
+    def test_audio_files_are_added_alone_and_from_folders(self):
+        folder = self.tmp / "mixed"
+        folder.mkdir(exist_ok=True)
+        (folder / "video.mp4").write_bytes(self.third.read_bytes())
+        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                        "sine=duration=1", str(folder / "song.mp3")], check=True)
+        for name in ("notes.txt", "photo.jpg", "cover.png"):
+            (folder / name).write_text("not media")
+        self.assertEqual(self.window.add_paths([folder]), 2)
+        self.assertEqual(sorted(item.path.name for item in self.window.items), ["song.mp3", "video.mp4"])
+        self.assertTrue(pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)), "files never loaded")
+        song = next(i for i in self.window.items if i.path.name == "song.mp3")
+        self.assertFalse(song.info.has_video)
+        self.assertEqual(song.settings.output, OUTPUT_AUDIO)
+
+    def test_every_common_audio_type_is_in_the_file_dialog_filter(self):
+        from video_converter.ui.main_window import FILE_FILTER
+        head = FILE_FILTER.split(";;")[0]
+        self.assertTrue(head.startswith("Videos and audio ("))
+        for ext in (".mp4", ".mkv", ".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus"):
+            self.assertIn(f"*{ext}", head)
+        with mock.patch("video_converter.ui.main_window.QFileDialog.getOpenFileNames",
+                        return_value=([], "")) as dialog:
+            self.window.choose_files()
+        self.assertEqual(dialog.call_args.args[3], FILE_FILTER)
+
+    def reverse_everything(self):
+        """Make the open file a long one (about 50 GB to play backwards) and turn reverse on."""
+        item = self.window.current
+        item.info = MediaInfo(duration=600.0, width=1920, height=1080, has_audio=True, fps=30.0)
+        new = item.settings.copy()
+        new.edit.reverse = True
+        self.window.push_settings(new, "Reverse")
+        return item
+
+    def test_a_reversed_file_that_needs_over_2_gb_shows_a_warning_next_to_the_control(self):
+        self.load(self.landscape)
+        label = self.window.inspector.reverse_warning
+        self.assertTrue(label.isHidden())
+        self.reverse_everything()
+        self.assertFalse(label.isHidden())
+        self.assertRegex(label.text(), r"^Reversing this needs about \d+\.\d GB of memory\. Shorten the clip")
+        new = self.window.current.settings.copy()
+        new.edit.reverse = False
+        self.window.push_settings(new, "Reverse")
+        self.assertTrue(label.isHidden())
+
+    def test_a_small_reversed_clip_shows_no_warning(self):
+        self.load(self.landscape)
+        new = self.window.current.settings.copy()
+        new.edit.reverse = True
+        self.window.push_settings(new, "Reverse")
+        self.assertTrue(self.window.inspector.reverse_warning.isHidden())
+
+    def test_exporting_a_huge_reverse_asks_first_and_no_means_no(self):
+        self.load(self.landscape)
+        self.reverse_everything()
+        with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as ask:
+            self.window.export_current()
+        ask.assert_called_once()
+        self.assertIn("GB of memory", ask.call_args.args[2])
+        self.assertEqual(self.window.queue.jobs, [])
+
+    def test_exporting_a_huge_reverse_goes_ahead_on_yes(self):
+        self.load(self.landscape)
+        self.reverse_everything()
+        with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes) as ask:
+            self.window.export_current()
+        ask.assert_called_once()
+        self.assertEqual(len(self.window.queue.jobs), 1)
+        self.stop_exports()
+
+    def test_the_question_can_be_switched_off_and_is_not_asked_for_small_exports(self):
+        self.load(self.landscape)
+        with mock.patch.object(QMessageBox, "question") as ask:
+            self.window.export_current()                                # nothing reversed
+            self.reverse_everything()
+            self.window.confirm_heavy_exports = False
+            self.window.export_current()
+        ask.assert_not_called()
+        self.assertEqual(len(self.window.queue.jobs), 2)
+        self.stop_exports()
+
+    def test_export_all_asks_once_and_a_no_only_leaves_out_the_big_ones(self):
+        self.load(self.landscape, self.third)
+        self.reverse_everything()                                        # the first file only
+        with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as ask:
+            self.window.export_all()
+        ask.assert_called_once()
+        self.assertEqual([job.source.name for job in self.window.queue.jobs], ["third.mp4"])
+        self.stop_exports()
+
+    def test_joining_asks_about_a_huge_reversed_clip(self):
+        self.load(self.landscape, self.third)
+        self.reverse_everything()
+        with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as ask:
+            self.window.join_clips()
+        ask.assert_called_once()
+        self.assertEqual(self.window.queue.jobs, [])
 
     def test_keyboard_shortcuts_skip_text_fields(self):
         self.load(self.landscape)
@@ -1100,7 +1277,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual([p.name for p in out_dir.iterdir()], ["landscape (joined).mp4"])
         info = probe_media(FFMPEG, out_dir / "landscape (joined).mp4")
         self.assertAlmostEqual(info.duration, 6.0, delta=0.3)
-        self.assertEqual((info.width, info.height), (180, 320))          # the first file's phone shape
+        # The first file's phone shape: 9:16 cut out of 320x180 is 100x178, not enlarged to 180x320.
+        self.assertEqual((info.width, info.height), (100, 178))
         self.assertTrue(info.has_audio)
         self.assertEqual(job.title, "landscape.mp4 + 1 more")
 

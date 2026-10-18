@@ -18,6 +18,8 @@ from .timing import Range, audio_filters, kept_segments, output_duration
 VIDEO_EXTENSIONS = (
     ".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm", ".flv", ".wmv", ".mpg", ".mpeg", ".3gp", ".ts",
 )
+# Sound-only files the editor can also open (to trim or cut them, or save them as MP3).
+AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus")
 
 # Label shown in the UI -> ffmpeg audio arguments.
 QUALITY_PRESETS = {
@@ -77,6 +79,11 @@ def find_ffmpeg() -> Optional[str]:
 
 def is_video_file(path: Path) -> bool:
     return path.suffix.lower() in VIDEO_EXTENSIONS
+
+
+def is_media_file(path: Path) -> bool:
+    """A video or an audio file, by its extension."""
+    return path.suffix.lower() in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS
 
 
 def unique_output_path(path: Path) -> Path:
