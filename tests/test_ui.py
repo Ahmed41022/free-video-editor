@@ -497,6 +497,14 @@ class InspectorTests(unittest.TestCase):
         self.type_trim(self.inspector.start_edit, "0:02.5")
         self.assertEqual(self.edits[-1][0].edit.start, 2.5)
 
+    def test_leaving_the_trim_fields_untouched_keeps_the_exact_times(self):
+        settings = ClipSettings()
+        settings.edit.start, settings.edit.end = 4.234, 8.766       # the fields show 0:04.2 and 0:08.8
+        self.inspector.set_settings(settings, 10.0)
+        for widget in (self.inspector.start_edit, self.inspector.end_edit):
+            widget.editingFinished.emit()
+        self.assertEqual(self.edits, [])
+
     def test_bad_trim_times_are_rejected_with_a_message(self):
         for text in ("abc", "0:20"):                          # not a time; past the 10 s end
             self.type_trim(self.inspector.start_edit, text)

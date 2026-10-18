@@ -540,6 +540,11 @@ class Inspector(QScrollArea):
         if self._updating or self.settings is None:
             return
         widget = self.start_edit if which == "start" else self.end_edit
+        current = getattr(self.settings.edit, which)
+        if widget.text().strip() == (format_time(current) if current is not None else ""):
+            # Leaving the field untouched must not round a time set elsewhere to the one decimal shown.
+            self.trim_error.hide()
+            return
         try:
             value = parse_time(widget.text())
         except ValueError as exc:
