@@ -30,6 +30,9 @@ _SHAPES = {
     "mute": '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9l5 6M21 9l-5 6"/>',
     "mark_in": '<path d="M9 4H6v16h3M10 12h9M15 8l4 4-4 4"/>',
     "mark_out": '<path d="M15 4h3v16h-3M14 12H5M9 8l-4 4 4 4"/>',
+    "split": '<path d="M12 3v18"/><path d="M8 8l-4 4 4 4M16 8l4 4-4 4"/>',
+    "scissors": '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>'
+                '<path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/>',
     "compare": '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 3v18"/>',
     "rotate_left": '<path d="M4 4v5h5"/><path d="M5 9a8 8 0 1 1 1.5 7.5"/>',
     "rotate_right": '<path d="M20 4v5h-5"/><path d="M19 9a8 8 0 1 0-1.5 7.5"/>',

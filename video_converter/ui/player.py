@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QTransfor
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QtVideo, QVideoFrame, QVideoSink
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+from ..timing import Segment
 from . import theme
 
 ZOOM_MIN, ZOOM_MAX = 1.0, 3.0
@@ -35,7 +36,8 @@ def fit_rect(content: QSizeF, bounds: QRectF) -> QRectF:
 
 
 class Player(QObject):
-    """Wraps QMediaPlayer: decodes frames to QImages and keeps playback inside the trim range."""
+    """Wraps QMediaPlayer: decodes frames to QImages, keeps playback inside the trim range and
+    skips the parts that are cut out."""
 
     frameReady = Signal(QImage, bool)       # image, whether Qt already applied rotation metadata
     positionChanged = Signal(float)
@@ -56,8 +58,7 @@ class Player(QObject):
         self.media.playbackStateChanged.connect(
             lambda state: self.playingChanged.emit(state == QMediaPlayer.PlaybackState.PlayingState))
         self.media.errorOccurred.connect(lambda _e, message: self.errorOccurred.emit(message))
-        self.trim_start: Optional[float] = None
-        self.trim_end: Optional[float] = None
+        self.segments: list[Segment] = []      # what the export keeps; [] = everything
 
     @property
     def playing(self) -> bool:
@@ -74,16 +75,32 @@ class Player(QObject):
             # Pausing straight away decodes the first frame, so the preview isn't blank.
             self.media.pause()
 
-    def set_trim(self, start: Optional[float], end: Optional[float]) -> None:
-        self.trim_start, self.trim_end = start, end
+    def set_segments(self, segments: list[Segment]) -> None:
+        self.segments = list(segments)
+
+    def set_rate(self, rate: float) -> None:
+        if abs(self.media.playbackRate() - rate) > 1e-6:
+            self.media.setPlaybackRate(rate)
+
+    def next_play_position(self, t: float) -> Optional[float]:
+        """Where playback continues from `t`: `t` itself inside a kept part, the start of the
+        next kept part inside a cut, or None after the last one."""
+        for a, b in self.segments:
+            if t < a - 0.05:
+                return a
+            if b is None or t < b - 0.05:
+                return max(t, a)
+        return None if self.segments else t
 
     def toggle(self) -> None:
         if self.playing:
             self.media.pause()
             return
-        start, end = self.trim_start or 0.0, self.trim_end
-        if self.position < start - 0.05 or (end is not None and self.position >= end - 0.05):
-            self.seek(start)
+        resume = self.next_play_position(self.position)
+        if resume is None:          # past the end: start over
+            resume = self.segments[0][0]
+        if abs(resume - self.position) > 0.01:
+            self.seek(resume)
         self.media.play()
 
     def pause(self) -> None:
@@ -100,9 +117,15 @@ class Player(QObject):
 
     def _on_position(self, ms: int) -> None:
         seconds = ms / 1000
-        if self.playing and self.trim_end is not None and seconds >= self.trim_end:
-            self.media.pause()
-            self.seek(self.trim_end)
+        if self.playing and self.segments:
+            resume = self.next_play_position(seconds)
+            if resume is None:
+                self.media.pause()
+                end = self.segments[-1][1]
+                if end is not None:
+                    self.seek(end)
+            elif resume - seconds > 0.01:
+                self.seek(resume)       # jump over a cut
         self.positionChanged.emit(seconds)
 
     def _on_frame(self, frame: QVideoFrame) -> None:

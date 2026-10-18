@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
 
 from ..core import format_time
 from ..jobs import Job, JobQueue, JobState
-from ..project import describe
 from . import icons
 
 
@@ -44,7 +43,7 @@ class JobRow(QFrame):
         layout.setContentsMargins(8, 4, 8, 4)
         text = QVBoxLayout()
         text.setSpacing(2)
-        self.title = QLabel(f"{job.source.name}  ·  {describe(job.settings)}")
+        self.title = QLabel(f"{job.title}  ·  {job.summary}")
         self.status = QLabel()
         self.status.setObjectName("muted")
         text.addWidget(self.title)

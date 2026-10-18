@@ -7,6 +7,7 @@ from pathlib import Path
 from video_converter.core import DEFAULT_QUALITY, QUALITY_PRESETS
 from video_converter.project import (
     FRAMING_FIELDS,
+    MAX_KEPT_RANGES,
     OUTPUT_AUDIO,
     OUTPUT_VIDEO,
     PRESETS,
@@ -14,8 +15,10 @@ from video_converter.project import (
     apply_preset,
     apply_to,
     describe,
+    describe_join,
     output_file_for,
 )
+from video_converter.timing import FADE_MAX, SPEED_MAX, SPEED_MIN
 from video_converter.video import VideoEdit
 
 
@@ -24,7 +27,9 @@ def custom_settings() -> ClipSettings:
     return ClipSettings(
         output=OUTPUT_AUDIO,
         edit=VideoEdit(aspect=(4, 5), fit="bars", pos_x=0.25, pos_y=0.75, zoom=1.75, rotate=270, flip=True,
-                       resolution=720, crf=18, mute=True, start=1.5, end=9.25),
+                       resolution=720, crf=18, mute=True, start=1.5, end=9.25,
+                       keep=[(1.0, 3.0), (5.0, 8.0)], speed=1.5, reverse=True, fade_in=0.5, fade_out=1.0,
+                       audio_fade_in=0.25, audio_fade_out=2.0),
         audio_quality="320 kbps",
     )
 
@@ -73,6 +78,24 @@ class RoundTripTests(unittest.TestCase):
         self.assertEqual(clone, settings)
         clone.edit.zoom = 3.0
         self.assertEqual(settings.edit.zoom, 1.75)
+
+    def test_kept_ranges_round_trip_as_a_list_of_tuples(self):
+        settings = custom_settings()
+        data = json.loads(json.dumps(settings.to_dict()))
+        self.assertEqual(data["edit"]["keep"], [[1.0, 3.0], [5.0, 8.0]])
+        loaded = ClipSettings.from_dict(data)
+        self.assertEqual(loaded.edit.keep, [(1.0, 3.0), (5.0, 8.0)])
+        self.assertTrue(all(isinstance(r, tuple) for r in loaded.edit.keep))
+
+    def test_splits_survive_a_round_trip(self):
+        settings = ClipSettings(edit=VideoEdit(keep=[(0.0, 3.0), (3.0, 6.0), (8.0, 9.0)]))
+        loaded = ClipSettings.from_dict(json.loads(json.dumps(settings.to_dict())))
+        self.assertEqual(loaded.edit.keep, [(0.0, 3.0), (3.0, 6.0), (8.0, 9.0)])
+
+    def test_to_dict_does_not_share_the_kept_ranges(self):
+        settings = custom_settings()
+        settings.to_dict()["edit"]["keep"].append([9.0, 9.5])
+        self.assertEqual(settings.edit.keep, [(1.0, 3.0), (5.0, 8.0)])
 
     def test_trim_values_may_be_none_or_numbers(self):
         for start, end in ((None, None), (None, 12.5), (3.0, None), (0.0, 7), (2, 5)):
@@ -152,6 +175,73 @@ class DefensiveLoadingTests(unittest.TestCase):
         self.assertEqual(self.load(resolution=None).edit.resolution, None)
         self.assertEqual(self.load(resolution=480).edit.resolution, 480)
 
+    def test_bad_kept_ranges_fall_back_to_no_cuts(self):
+        bad = {
+            "not a list": ["1-2", 5, {"a": 1}, None, True, 1.5],
+            "wrong pair shape": [[[1]], [[1, 2, 3]], [[]], [[1, 2], [3]], [1, 2], ["ab"], [None]],
+            "strings": [[["1", "2"]], [[1, "2"]]],
+            "bools": [[[True, 2]], [[0, True]]],
+            "not finite": [[[0, float("inf")]], [[float("nan"), 1]], [[0, float("nan")]], [[float("-inf"), 1]]],
+            "negative": [[[-1, 2]], [[-3, -1]]],
+            "start not before end": [[[2, 2]], [[3, 1]]],
+            "one bad range spoils the list": [[[1, 2], ["x", 3]], [[1, 2], [4, 3]]],
+        }
+        for why, values in bad.items():
+            for value in values:
+                with self.subTest(why=why, value=value):
+                    self.assertEqual(self.load(keep=value).edit.keep, [])
+
+    def test_too_many_kept_ranges_are_ignored(self):
+        many = [[i, i + 0.5] for i in range(MAX_KEPT_RANGES + 1)]
+        self.assertEqual(self.load(keep=many).edit.keep, [])
+        self.assertEqual(len(self.load(keep=many[:-1]).edit.keep), MAX_KEPT_RANGES)
+
+    def test_a_bad_kept_range_does_not_discard_the_other_settings(self):
+        loaded = self.load(keep="oops", speed=2, reverse=True)
+        self.assertEqual((loaded.edit.keep, loaded.edit.speed, loaded.edit.reverse), ([], 2.0, True))
+
+    def test_saved_kept_ranges_are_tidied_up(self):
+        self.assertEqual(self.load(keep=[[0, 5], [3, 8]]).edit.keep, [(0.0, 8.0)])
+        self.assertEqual(self.load(keep=[[5, 6], [1, 2]]).edit.keep, [(1.0, 2.0), (5.0, 6.0)])
+        self.assertEqual(self.load(keep=[[1, 2], [2, 3]]).edit.keep, [(1.0, 2.0), (2.0, 3.0)])     # a split stays
+        self.assertEqual(self.load(keep=[[1, 1.005]]).edit.keep, [])        # too short to matter
+
+    def test_kept_ranges_may_be_given_as_tuples(self):
+        loaded = self.load(keep=((1, 2), (4, 5.5)))
+        self.assertEqual(loaded.edit.keep, [(1.0, 2.0), (4.0, 5.5)])
+
+    def test_speed_outside_the_supported_range_or_of_the_wrong_type_is_ignored(self):
+        for value in (0.1, 0.24, 4.01, 100, -1, 0, "2", True, False, None, [2], {}, float("nan"), float("inf")):
+            with self.subTest(value=value):
+                self.assertEqual(self.load(speed=value).edit.speed, 1.0)
+
+    def test_valid_speeds_are_accepted(self):
+        for value in (SPEED_MIN, 0.5, 1, 1.5, 2, 3.5, SPEED_MAX):
+            with self.subTest(value=value):
+                loaded = self.load(speed=value)
+                self.assertEqual(loaded.edit.speed, value)
+                self.assertIsInstance(loaded.edit.speed, float)
+
+    def test_bad_fades_are_ignored(self):
+        for name in ("fade_in", "fade_out", "audio_fade_in", "audio_fade_out"):
+            for value in (-1, -0.1, FADE_MAX + 0.5, 1000, True, "2", None, [1], float("nan"), float("inf")):
+                with self.subTest(field=name, value=value):
+                    self.assertEqual(getattr(self.load(**{name: value}).edit, name), 0.0)
+
+    def test_valid_fades_are_accepted(self):
+        for name in ("fade_in", "fade_out", "audio_fade_in", "audio_fade_out"):
+            for value in (0, 0.5, 3, FADE_MAX):
+                with self.subTest(field=name, value=value):
+                    loaded = self.load(**{name: value})
+                    self.assertEqual(getattr(loaded.edit, name), value)
+                    self.assertIsInstance(getattr(loaded.edit, name), float)
+
+    def test_reverse_must_be_a_bool(self):
+        for value in (1, 0, "true", None, [True]):
+            with self.subTest(value=value):
+                self.assertFalse(self.load(reverse=value).edit.reverse)
+        self.assertTrue(self.load(reverse=True).edit.reverse)
+
     # The next tests describe the documented contract ("ignoring unknown keys and bad values so
     # presets saved by other versions still load"). Values that are lists or dicts reach a
     # `value in <dict>` test and raise TypeError instead of being ignored.
@@ -182,12 +272,12 @@ class ApplyToTests(unittest.TestCase):
         self.source = custom_settings()
         self.target = ClipSettings(
             edit=VideoEdit(aspect=(1, 1), fit="blur", pos_x=0.1, pos_y=0.9, zoom=2.5, start=10.0, end=20.0,
-                           crf=28, mute=False, rotate=90),
+                           crf=28, mute=False, rotate=90, keep=[(2.0, 4.0)]),
             audio_quality="128 kbps",
         )
 
     def test_framing_fields_are_exactly_the_per_file_ones(self):
-        self.assertEqual(set(FRAMING_FIELDS), {"pos_x", "pos_y", "zoom", "start", "end"})
+        self.assertEqual(set(FRAMING_FIELDS), {"pos_x", "pos_y", "zoom", "start", "end", "keep"})
         names = {f.name for f in fields(VideoEdit)}
         self.assertTrue(set(FRAMING_FIELDS) <= names)
 
@@ -202,6 +292,25 @@ class ApplyToTests(unittest.TestCase):
                     self.assertEqual(getattr(result.edit, f.name), getattr(self.source.edit, f.name))
         self.assertEqual(result.output, self.source.output)
         self.assertEqual(result.audio_quality, self.source.audio_quality)
+
+    def test_cuts_stay_with_the_target_but_speed_and_fades_follow_the_source(self):
+        result = apply_to(self.target, self.source)
+        self.assertEqual(result.edit.keep, [(2.0, 4.0)])
+        self.assertEqual((result.edit.speed, result.edit.reverse), (1.5, True))
+        self.assertEqual((result.edit.fade_in, result.edit.fade_out), (0.5, 1.0))
+        self.assertEqual((result.edit.audio_fade_in, result.edit.audio_fade_out), (0.25, 2.0))
+
+    def test_a_target_without_cuts_stays_uncut(self):
+        target = ClipSettings(edit=VideoEdit(keep=[]))
+        self.assertEqual(apply_to(target, self.source).edit.keep, [])
+
+    def test_the_result_does_not_share_the_kept_ranges_list(self):
+        result = apply_to(self.target, self.source)
+        self.assertIsNot(result.edit.keep, self.target.edit.keep)
+        result.edit.keep.append((6.0, 7.0))
+        self.assertEqual(self.target.edit.keep, [(2.0, 4.0)])
+        full = apply_to(self.target, self.source, include_framing=True)
+        self.assertIsNot(full.edit.keep, self.source.edit.keep)
 
     def test_include_framing_takes_everything_from_the_source(self):
         self.assertEqual(apply_to(self.target, self.source, include_framing=True), self.source)
@@ -290,6 +399,15 @@ class PresetTests(unittest.TestCase):
                 for field_name in FRAMING_FIELDS:
                     self.assertEqual(getattr(result.edit, field_name), getattr(base.edit, field_name))
 
+    def test_presets_do_not_touch_cuts_speed_or_fades(self):
+        base = custom_settings()
+        for name, values in PRESETS.items():
+            with self.subTest(preset=name):
+                edit = apply_preset(base, values).edit
+                for field_name in ("keep", "speed", "reverse", "fade_in", "fade_out", "audio_fade_in",
+                                   "audio_fade_out"):
+                    self.assertEqual(getattr(edit, field_name), getattr(base.edit, field_name))
+
     def test_preset_dicts_are_not_modified_by_applying_them(self):
         snapshot = {name: dict(values) for name, values in PRESETS.items()}
         for values in PRESETS.values():
@@ -367,6 +485,42 @@ class OutputFileTests(unittest.TestCase):
         self.assertEqual(output_file_for(source, ClipSettings()), self.tmp / "my.trip.2024 (phone).mp4")
 
 
+class JoinedOutputFileTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+        self.source = self.tmp / "holiday.mov"
+
+    def test_joined_names(self):
+        self.assertEqual(output_file_for(self.source, ClipSettings(), joined=True), self.tmp / "holiday (joined).mp4")
+        self.assertEqual(output_file_for(self.source, ClipSettings(output=OUTPUT_AUDIO), joined=True),
+                         self.tmp / "holiday (joined).mp3")
+
+    def test_the_shape_does_not_change_a_joined_name(self):
+        for aspect in (None, (1, 1), (16, 9)):
+            with self.subTest(aspect=aspect):
+                settings = ClipSettings(edit=VideoEdit(aspect=aspect))
+                self.assertEqual(output_file_for(self.source, settings, joined=True).name, "holiday (joined).mp4")
+
+    def test_joined_collisions_are_numbered(self):
+        for settings, suffix in ((ClipSettings(), ".mp4"), (ClipSettings(output=OUTPUT_AUDIO), ".mp3")):
+            with self.subTest(suffix=suffix):
+                for expected in (f"holiday (joined){suffix}", f"holiday (joined) (1){suffix}",
+                                 f"holiday (joined) (2){suffix}"):
+                    path = output_file_for(self.source, settings, joined=True)
+                    self.assertEqual(path, self.tmp / expected)
+                    path.write_bytes(b"x")
+
+    def test_a_joined_name_is_independent_of_the_single_file_name(self):
+        (self.tmp / "holiday (phone).mp4").write_bytes(b"x")
+        self.assertEqual(output_file_for(self.source, ClipSettings(), joined=True).name, "holiday (joined).mp4")
+
+    def test_joined_output_directory(self):
+        out = self.tmp / "exports"
+        self.assertEqual(output_file_for(self.source, ClipSettings(), out, joined=True), out / "holiday (joined).mp4")
+
+
 class DescribeTests(unittest.TestCase):
     def test_audio(self):
         text = describe(ClipSettings(output=OUTPUT_AUDIO, audio_quality="320 kbps"))
@@ -424,6 +578,85 @@ class DescribeTests(unittest.TestCase):
         text = describe(ClipSettings(output=OUTPUT_AUDIO, edit=VideoEdit(start=2.0, end=4.0)))
         self.assertIn("0:02.0", text)
         self.assertIn("0:04.0", text)
+
+    def cuts(self, duration=None, **edit):
+        return describe(ClipSettings(edit=VideoEdit(**edit)), duration)
+
+    def test_cuts_between_kept_parts_are_counted(self):
+        keep = [(0.0, 3.0), (4.0, 6.0), (7.0, 10.0)]
+        self.assertIn("2 cuts", self.cuts(keep=keep))
+        self.assertIn("2 cuts", self.cuts(10.0, keep=keep))
+        self.assertIn("1 cut", self.cuts(keep=[(0.0, 3.0), (6.0, 10.0)]))
+        self.assertNotIn("1 cuts", self.cuts(keep=[(0.0, 3.0), (6.0, 10.0)]))
+
+    def test_no_cuts_and_plain_splits_are_not_mentioned(self):
+        self.assertNotIn("cut", self.cuts())
+        self.assertNotIn("cut", self.cuts(10.0))
+        self.assertNotIn("cut", self.cuts(10.0, keep=[(0.0, 3.0), (3.0, 10.0)]))
+
+    def test_a_cut_running_to_the_end_needs_the_duration_to_be_seen(self):
+        self.assertNotIn("cut", self.cuts(keep=[(0.0, 1.0)]))
+        self.assertIn("1 cut", self.cuts(4.0, keep=[(0.0, 1.0)]))
+
+    def test_a_leading_cut_is_counted_without_the_duration(self):
+        self.assertIn("1 cut", self.cuts(keep=[(1.0, 4.0)]))
+        self.assertIn("1 cut", self.cuts(4.0, keep=[(1.0, 4.0)]))
+
+    def test_leading_middle_and_trailing_cuts_all_count(self):
+        keep = [(1.0, 3.0), (5.0, 8.0)]
+        self.assertIn("3 cuts", self.cuts(10.0, keep=keep))
+        self.assertIn("2 cuts", self.cuts(keep=keep))             # the trailing one can't be seen yet
+
+    def test_cuts_outside_the_trim_are_not_counted(self):
+        keep = [(0.0, 3.0), (6.0, 10.0)]                           # the cut is 3..6
+        self.assertIn("1 cut", self.cuts(10.0, keep=keep, start=2.0, end=8.0))
+        self.assertIn("1 cut", self.cuts(10.0, keep=keep, start=5.0))        # only partly inside the trim
+        self.assertNotIn("cut", self.cuts(10.0, keep=keep, start=7.0))
+        self.assertNotIn("cut", self.cuts(10.0, keep=keep, end=2.0))
+        self.assertNotIn("cut", self.cuts(keep=keep, start=7.0))
+
+    def test_cuts_are_shown_for_audio_too(self):
+        text = describe(ClipSettings(output=OUTPUT_AUDIO, edit=VideoEdit(keep=[(0.0, 3.0), (6.0, 10.0)])), 10.0)
+        self.assertIn("1 cut", text)
+
+    def test_speed_and_reverse(self):
+        self.assertIn("2× speed", self.cuts(speed=2.0))
+        self.assertIn("0.5× speed", self.cuts(speed=0.5))
+        self.assertIn("1.25× speed", self.cuts(speed=1.25))
+        self.assertIn("reversed", self.cuts(reverse=True))
+        plain = self.cuts()
+        self.assertNotIn("speed", plain)
+        self.assertNotIn("reversed", plain)
+
+    def test_speed_and_reverse_are_shown_for_audio_too(self):
+        text = describe(ClipSettings(output=OUTPUT_AUDIO, edit=VideoEdit(speed=2.0, reverse=True)))
+        self.assertIn("2× speed", text)
+        self.assertIn("reversed", text)
+
+    def test_fades(self):
+        self.assertNotIn("fades", self.cuts())
+        for name in ("fade_in", "fade_out", "audio_fade_in", "audio_fade_out"):
+            with self.subTest(field=name):
+                self.assertIn("fades", self.cuts(**{name: 1.0}))
+
+    def test_picture_fades_do_not_count_for_mp3_but_sound_fades_do(self):
+        picture = describe(ClipSettings(output=OUTPUT_AUDIO, edit=VideoEdit(fade_in=1.0, fade_out=1.0)))
+        self.assertNotIn("fades", picture)
+        sound = describe(ClipSettings(output=OUTPUT_AUDIO, edit=VideoEdit(audio_fade_out=1.0)))
+        self.assertIn("fades", sound)
+
+    def test_everything_together_in_order(self):
+        settings = ClipSettings(edit=VideoEdit(keep=[(0.0, 3.0), (4.0, 6.0), (7.0, 10.0)], speed=2.0, reverse=True,
+                                               fade_in=1.0))
+        self.assertEqual(describe(settings, 10.0), "MP4 · 9:16 · crop · 2 cuts · 2× speed · reversed · fades")
+
+    def test_describe_join(self):
+        self.assertEqual(describe_join(ClipSettings(), 3), "MP4 · 9:16 · 3 clips joined")
+        self.assertEqual(describe_join(ClipSettings(edit=VideoEdit(aspect=None)), 2),
+                         "MP4 · original shape · 2 clips joined")
+        self.assertEqual(describe_join(ClipSettings(edit=VideoEdit(aspect=(16, 9))), 5), "MP4 · 16:9 · 5 clips joined")
+        self.assertEqual(describe_join(ClipSettings(output=OUTPUT_AUDIO, audio_quality="320 kbps"), 4),
+                         "MP3 · 320 kbps · 4 clips joined")
 
     def test_every_preset_can_be_described(self):
         for name, values in PRESETS.items():

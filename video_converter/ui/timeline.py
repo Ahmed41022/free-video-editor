@@ -1,14 +1,15 @@
-"""Timeline: thumbnails, audio waveform, trim handles and the playhead."""
+"""Timeline: thumbnails, audio waveform, trim handles, cut-out sections and the playhead."""
 
 from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QContextMenuEvent, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ..core import format_time
+from ..timing import MIN_PART, Range, normalize_keep, removed_parts, split_points
 from . import theme
 
 MARGIN = 12          # space left and right of the track, so handles at the ends stay grabbable
@@ -17,6 +18,7 @@ THUMBS_H = 46
 WAVE_H = 30
 HANDLE_GRAB = 7      # pixels either side of a handle that start dragging it
 SNAP_EDGE = 0.05     # seconds; trims this close to the ends mean "no trim"
+_EPS = 1e-6
 
 
 def time_to_x(t: float, duration: float, left: float, width: float) -> float:
@@ -50,10 +52,47 @@ def tick_step(duration: float, width: float, min_gap_px: float = 70) -> float:
     return 7200.0
 
 
+def cut_edges(keep: list[Range], duration: float) -> list[tuple[float, int, str]]:
+    """The draggable edges of the cut-out sections: (time, kept range index, side).
+
+    "start" and "end" move one side of a kept range; "split" moves the point where
+    range i meets range i + 1."""
+    edges = []
+    for i, (a, b) in enumerate(keep):
+        joined_before = i > 0 and abs(a - keep[i - 1][1]) <= _EPS
+        if a > _EPS and not joined_before:
+            edges.append((a, i, "start"))
+        if i + 1 < len(keep) and abs(keep[i + 1][0] - b) <= _EPS:
+            edges.append((b, i, "split"))
+        elif b < duration - _EPS:
+            edges.append((b, i, "end"))
+    return edges
+
+
+def move_edge(keep: list[Range], index: int, side: str, t: float, duration: float) -> list[Range]:
+    """Kept ranges with one edge moved to `t`, kept clear of its neighbours."""
+    keep = list(keep)
+    a, b = keep[index]
+    if side == "start":
+        low = keep[index - 1][1] if index > 0 else 0.0
+        keep[index] = (min(max(t, low), b - MIN_PART), b)
+    elif side == "end":
+        high = keep[index + 1][0] if index + 1 < len(keep) else duration
+        keep[index] = (a, max(min(t, high), a + MIN_PART))
+    else:
+        next_end = keep[index + 1][1]
+        t = min(max(t, a + MIN_PART), next_end - MIN_PART)
+        keep[index], keep[index + 1] = (a, t), (t, next_end)
+    return keep
+
+
 class Timeline(QWidget):
     seekRequested = Signal(float)
     trimChanged = Signal(object, object)   # start, end (None = untrimmed); emitted while dragging
     trimEditFinished = Signal()
+    keepChanged = Signal(object)           # kept ranges; emitted while dragging a cut's edge
+    keepEditFinished = Signal()
+    menuRequested = Signal(float, QPoint)  # right-click: source time, global position
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -65,15 +104,18 @@ class Timeline(QWidget):
         self.position = 0.0
         self.start: Optional[float] = None
         self.end: Optional[float] = None
+        self.keep: list[Range] = []
         self.thumbnails: list[QPixmap] = []
         self.waveform: list[float] = []
-        self._drag: Optional[str] = None   # "in", "out" or "playhead"
+        self._drag: Optional[str] = None   # "in", "out", "cut" or "playhead"
+        self._edge: Optional[tuple[int, str]] = None
 
     # ----- data ---------------------------------------------------------------
 
     def clear(self) -> None:
         self.duration = self.position = 0.0
         self.start = self.end = None
+        self.keep = []
         self.thumbnails, self.waveform = [], []
         self.update()
 
@@ -89,6 +131,11 @@ class Timeline(QWidget):
     def setTrim(self, start: Optional[float], end: Optional[float]) -> None:
         if self._drag not in ("in", "out"):
             self.start, self.end = start, end
+            self.update()
+
+    def setKeep(self, keep: list[Range]) -> None:
+        if self._drag != "cut":
+            self.keep = list(keep)
             self.update()
 
     def setThumbnails(self, pixmaps: list[QPixmap]) -> None:
@@ -121,14 +168,25 @@ class Timeline(QWidget):
     def _out_time(self) -> float:
         return self.end if self.end is not None else self.duration
 
+    def edge_at(self, x: float) -> Optional[tuple[int, str]]:
+        """The cut edge within reach of `x`, if any."""
+        best, best_d = None, HANDLE_GRAB + 0.5
+        for t, index, side in cut_edges(self.keep, self.duration):
+            d = abs(x - self._x(t))
+            if d < best_d:
+                best, best_d = (index, side), d
+        return best
+
     def hit_test(self, x: float) -> str:
-        """Which handle a press at `x` grabs; trim handles win over the playhead."""
+        """What a press at `x` grabs: trim handles win over cut edges, which win over the playhead."""
         if self.duration <= 0:
             return "none"
         in_x, out_x = self._x(self._in_time()), self._x(self._out_time())
         d_in, d_out = abs(x - in_x), abs(x - out_x)
         if min(d_in, d_out) <= HANDLE_GRAB:
             return "in" if d_in < d_out or (d_in == d_out and x <= in_x) else "out"
+        if self.edge_at(x) is not None:
+            return "cut"
         return "playhead"
 
     # ----- mouse --------------------------------------------------------------
@@ -138,6 +196,7 @@ class Timeline(QWidget):
             return
         x = event.position().x()
         self._drag = self.hit_test(x)
+        self._edge = self.edge_at(x) if self._drag == "cut" else None
         self._drag_to(x)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -145,14 +204,25 @@ class Timeline(QWidget):
         if self._drag:
             self._drag_to(x)
         else:
-            grab = self.hit_test(x) in ("in", "out")
+            grab = self.hit_test(x) in ("in", "out", "cut")
             self.setCursor(Qt.CursorShape.SizeHorCursor if grab else Qt.CursorShape.ArrowCursor)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         drag, self._drag = self._drag, None
         if drag in ("in", "out"):
             self.trimEditFinished.emit()
+        elif drag == "cut":
+            self._edge = None
+            tidy = normalize_keep(self.keep, self.duration)
+            if tidy != self.keep:
+                self.keep = tidy
+                self.keepChanged.emit(list(tidy))
+            self.keepEditFinished.emit()
         self.update()
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        if self.duration > 0 and self._drag is None:
+            self.menuRequested.emit(self._t(event.pos().x()), event.globalPos())
 
     def _drag_to(self, x: float) -> None:
         t = self._t(x)
@@ -167,6 +237,15 @@ class Timeline(QWidget):
             self.start, self.end = normalize_trim(self.start, min(t, self.duration), self.duration)
             self.trimChanged.emit(self.start, self.end)
             self.seekRequested.emit(max(self._out_time() - 0.04, 0.0))
+        elif self._drag == "cut" and self._edge is not None:
+            index, side = self._edge
+            keep = move_edge(self.keep, index, side, t, self.duration)
+            if keep != self.keep:
+                self.keep = keep
+                self.keepChanged.emit(list(keep))
+            # Show the frame that now starts (or, for an "end" edge, ends) the kept part.
+            a, b = keep[index]
+            self.seekRequested.emit(a if side == "start" else b if side == "split" else max(b - 0.04, 0.0))
         elif self._drag == "playhead":
             self.position = t
             self.seekRequested.emit(t)
@@ -231,9 +310,31 @@ class Timeline(QWidget):
             p.setPen(QColor(c["muted"]))
             p.drawText(wave, Qt.AlignmentFlag.AlignCenter, "No sound")
 
+        top, bottom = thumbs.top(), wave.bottom()
+
+        # cut-out sections: dark, hatched, with grabbable edges
+        danger = QColor(c["danger"])
+        for a, b in removed_parts(self.keep, self.duration):
+            area = QRectF(self._x(a), top, self._x(b) - self._x(a), bottom - top)
+            p.fillRect(area, QColor(0, 0, 0, 170))
+            hatch = QColor(danger)
+            hatch.setAlpha(150)
+            p.fillRect(area, QBrush(hatch, Qt.BrushStyle.BDiagPattern))
+            for x in (area.left(), area.right()):
+                p.fillRect(QRectF(x - 1.5, top, 3, bottom - top), danger)
+        split_pen = QPen(QColor(c["text"]))
+        split_pen.setWidthF(2)
+        split_pen.setStyle(Qt.PenStyle.DashLine)
+        for t in split_points(self.keep):
+            x = self._x(t)
+            p.setPen(split_pen)
+            p.drawLine(QPointF(x, top), QPointF(x, bottom))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(c["text"]))
+            p.drawPolygon([QPointF(x - 4, top - 1), QPointF(x + 4, top - 1), QPointF(x, top + 5)])
+
         # trimmed-away parts
         shade = QColor(0, 0, 0, 150)
-        top, bottom = thumbs.top(), wave.bottom()
         in_x, out_x = self._x(self._in_time()), self._x(self._out_time())
         if in_x > left:
             p.fillRect(QRectF(left, top, in_x - left, bottom - top), shade)

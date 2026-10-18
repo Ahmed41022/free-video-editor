@@ -9,9 +9,11 @@ import subprocess
 import sys
 import threading
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
+
+from .timing import Range, audio_filters, kept_segments, output_duration
 
 VIDEO_EXTENSIONS = (
     ".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm", ".flv", ".wmv", ".mpg", ".mpeg", ".3gp", ".ts",
@@ -31,6 +33,8 @@ DEFAULT_QUALITY = "192 kbps"
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 _VIDEO_STREAM_RE = re.compile(r"Stream #\d+:\d+.*?: Video: .*?(\d{2,5})x(\d{2,5})")
 _ROTATION_RE = re.compile(r"rotation of (-?\d+(?:\.\d+)?) degrees")
+_FPS_RE = re.compile(r"(\d+(?:\.\d+)?) fps")
+_TBR_RE = re.compile(r"(\d+(?:\.\d+)?)(k?) tbr")
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
@@ -135,6 +139,7 @@ class MediaInfo:
     # Clockwise turn (0, 90, 180, 270) that rotation metadata asks players to apply to
     # the stored frames. ffmpeg applies it automatically; a raw decoder may not.
     display_rotation: int = 0
+    fps: Optional[float] = None    # frames per second of the first video stream
 
     @property
     def has_video(self) -> bool:
@@ -180,6 +185,16 @@ def parse_media_info(text: str) -> MediaInfo:
         if info.display_rotation in (90, 270):
             width, height = height, width
         info.width, info.height = width, height
+        line = text[video.start():].split("\n", 1)[0]
+        rate = _FPS_RE.search(line)
+        if rate:
+            info.fps = float(rate.group(1))
+        else:
+            rate = _TBR_RE.search(line)
+            if rate:
+                info.fps = float(rate.group(1)) * (1000 if rate.group(2) else 1)
+        if info.fps is not None and not 0 < info.fps <= 1000:
+            info.fps = None
     return info
 
 
@@ -200,13 +215,6 @@ def trim_args(start: Optional[float], end: Optional[float]) -> list[str]:
     if end is not None:
         args += ["-to", f"{end:.3f}"]
     return args
-
-
-def trimmed_duration(duration: Optional[float], start: Optional[float], end: Optional[float]) -> Optional[float]:
-    if duration is None and end is None:
-        return None
-    stop = min(end, duration) if (end is not None and duration) else (end or duration)
-    return max(stop - (start or 0.0), 0.0)
 
 
 def run_ffmpeg(
@@ -276,6 +284,20 @@ class ConversionJob:
     quality: str = DEFAULT_QUALITY
     start: Optional[float] = None   # seconds; None = from the beginning
     end: Optional[float] = None     # seconds; None = to the end
+    keep: list[Range] = field(default_factory=list)   # kept parts of the source; [] = no cuts
+    speed: float = 1.0
+    reverse: bool = False
+    fade_in: float = 0.0
+    fade_out: float = 0.0
+
+
+def check_trim(start: Optional[float], end: Optional[float]) -> None:
+    if start is not None and end is not None and end <= start:
+        raise ConversionError("The trim end time must be after the start time.")
+
+
+def no_segments_error() -> ConversionError:
+    return ConversionError("Nothing is left to export: the trim and cuts remove the whole video.")
 
 
 def convert(
@@ -287,17 +309,20 @@ def convert(
     """Extract the first audio track of `job.source` into an MP3 at `job.output`."""
     if not job.source.is_file():
         raise ConversionError(f"File not found: {job.source}")
-    if job.start is not None and job.end is not None and job.end <= job.start:
-        raise ConversionError("The trim end time must be after the start time.")
+    check_trim(job.start, job.end)
 
-    duration = trimmed_duration(probe_duration(ffmpeg, job.source), job.start, job.end)
+    segments = kept_segments(job.keep, job.start, job.end, probe_duration(ffmpeg, job.source))
+    if not segments:
+        raise no_segments_error()
+    graph = audio_filters("[0:a:0]", "[a]", segments, job.speed, job.reverse, job.fade_in, job.fade_out)
     cmd = [
         ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-        *trim_args(job.start, job.end),
+        *trim_args(segments[0][0], segments[-1][1]),
         "-i", str(job.source),
-        "-map", "0:a:0", "-vn", "-map_metadata", "0",
+        *(["-filter_complex", graph, "-map", "[a]"] if graph else ["-map", "0:a:0"]),
+        "-vn", "-map_metadata", "0",
         "-c:a", "libmp3lame", *QUALITY_PRESETS[job.quality],
         "-progress", "pipe:1", "-nostats",
         str(job.output),
     ]
-    return run_ffmpeg(cmd, job.output, duration, on_progress, cancel_event)
+    return run_ffmpeg(cmd, job.output, output_duration(segments, job.speed), on_progress, cancel_event)

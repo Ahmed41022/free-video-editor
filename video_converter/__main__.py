@@ -3,11 +3,13 @@
     python -m video_converter                          # open the desktop app
     python -m video_converter video.mp4 [...]          # convert to MP3 from the command line
     python -m video_converter video.mp4 --video phone  # export an edited MP4 instead
+    python -m video_converter a.mp4 b.mp4 --video original --join   # one MP4 made of both
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import sys
 from pathlib import Path
 
@@ -21,8 +23,10 @@ from .core import (
     find_ffmpeg,
     output_path_for,
     parse_time,
+    probe_media,
 )
-from .video import VIDEO_QUALITY, VideoEdit, VideoJob, convert_video, output_tag
+from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, cut_range
+from .video import VIDEO_QUALITY, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, output_tag
 
 # Short command-line names for the quality presets.
 CLI_QUALITY = {
@@ -47,6 +51,44 @@ def _time(text: str) -> float:
     if value is None:
         raise argparse.ArgumentTypeError("empty time")
     return value
+
+
+def _range(text: str) -> tuple[float, float]:
+    start, sep, end = text.partition("-")
+    if not sep:
+        raise argparse.ArgumentTypeError(f"use START-END, e.g. 0:10-0:15 (got {text!r})")
+    a, b = _time(start), _time(end)
+    if b <= a:
+        raise argparse.ArgumentTypeError(f"the end of {text!r} must be after its start")
+    return a, b
+
+
+def _speed(text: str) -> float:
+    try:
+        value = float(text.rstrip("xX×"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+    if not SPEED_MIN <= value <= SPEED_MAX:
+        raise argparse.ArgumentTypeError(f"speed must be between {SPEED_MIN:g} and {SPEED_MAX:g}")
+    return value
+
+
+def _seconds(text: str) -> float:
+    value = _time(text)
+    if value > FADE_MAX:
+        raise argparse.ArgumentTypeError(f"at most {FADE_MAX:g} seconds")
+    return value
+
+
+def _with_cuts(edit: VideoEdit, cuts: list[tuple[float, float]], duration: float | None) -> VideoEdit:
+    """A copy of `edit` with `cuts` removed from a source `duration` seconds long."""
+    edit = copy.deepcopy(edit)
+    if cuts:
+        if not duration:
+            raise ConversionError("Can't cut this file: its length is unknown.")
+        for a, b in cuts:
+            edit.keep = cut_range(edit.keep, a, b, duration)
+    return edit
 
 
 def run_cli(argv: list[str]) -> int:
@@ -75,38 +117,77 @@ def run_cli(argv: list[str]) -> int:
     video.add_argument("--size", type=int, choices=(1080, 720, 480), help="short side in pixels (default: as source)")
     video.add_argument("--video-quality", choices=CLI_VIDEO_QUALITY, default="balanced")
     video.add_argument("--mute", action="store_true", help="remove the sound")
+
+    timing = parser.add_argument_group("cutting, speed, fades and joining (MP3 or MP4)")
+    timing.add_argument("--cut", type=_range, action="append", default=[], metavar="START-END",
+                        help="remove a section, e.g. 0:10-0:15; repeat to remove more")
+    timing.add_argument("--speed", type=_speed, default=1.0, help="0.25 to 4, e.g. 2 = twice as fast (default: 1)")
+    timing.add_argument("--reverse", action="store_true", help="play backwards")
+    timing.add_argument("--fade-in", type=_seconds, default=0.0, metavar="SECONDS",
+                        help="fade in from black and silence")
+    timing.add_argument("--fade-out", type=_seconds, default=0.0, metavar="SECONDS",
+                        help="fade out to black and silence")
+    timing.add_argument("--join", action="store_true", help="make one file of all the inputs, in order")
     args = parser.parse_args(argv)
 
     if args.start is not None and args.end is not None and args.end <= args.start:
         parser.error("--end must be after --start")
+    if args.join and len(args.files) < 2:
+        parser.error("--join needs at least two files")
 
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
         print("error: ffmpeg not found. Install ffmpeg or run `pip install imageio-ffmpeg`.", file=sys.stderr)
         return 2
 
-    edit = None
+    timing = dict(start=args.start, end=args.end, speed=args.speed, reverse=args.reverse, fade_in=args.fade_in,
+                  fade_out=args.fade_out, audio_fade_in=args.fade_in, audio_fade_out=args.fade_out)
+    edit = VideoEdit(**timing)
     if args.video:
         edit = VideoEdit(
             aspect=CLI_SHAPES[args.video], fit=args.fit, pos_x=args.position[0], pos_y=args.position[1],
             zoom=args.zoom, rotate=args.rotate, flip=args.mirror, resolution=args.size,
-            crf=VIDEO_QUALITY[CLI_VIDEO_QUALITY[args.video_quality]], mute=args.mute,
-            start=args.start, end=args.end,
+            crf=VIDEO_QUALITY[CLI_VIDEO_QUALITY[args.video_quality]], mute=args.mute, **timing,
         )
+    quality = CLI_QUALITY[args.quality]
+
+    def show(fraction: float, name: str) -> None:
+        print(f"\r{name}: {fraction:6.1%}", end="", flush=True)
+
+    if args.join:
+        first = args.files[0]
+        suffix = ".mp4" if args.video else ".mp3"
+        target = output_path_for(first, args.output_dir, args.overwrite, suffix, " (joined)")
+        try:
+            parts = []
+            for source in args.files:
+                if not source.is_file():
+                    raise ConversionError(f"File not found: {source}")
+                info = probe_media(ffmpeg, source)
+                parts.append(JoinPart(source, _with_cuts(edit, args.cut, info.duration), info))
+            job = JoinJob(parts, target, audio_only=not args.video, quality=quality)
+            output = join_clips(ffmpeg, job, on_progress=lambda f: show(f, target.name))
+        except ConversionError as exc:
+            print(f"\r{target.name}: FAILED - {exc}", file=sys.stderr)
+            return 1
+        print(f"\r{len(parts)} files -> {output}")
+        return 0
 
     failures = 0
     for source in args.files:
-        def show(fraction: float, name: str = source.name) -> None:
-            print(f"\r{name}: {fraction:6.1%}", end="", flush=True)
-
         try:
-            if edit is None:
+            if not source.is_file():
+                raise ConversionError(f"File not found: {source}")
+            file_edit = _with_cuts(edit, args.cut, probe_media(ffmpeg, source).duration) if args.cut else edit
+            if not args.video:
                 target = output_path_for(source, args.output_dir, args.overwrite)
-                job = ConversionJob(source, target, CLI_QUALITY[args.quality], args.start, args.end)
-                output = convert(ffmpeg, job, on_progress=show)
+                job = ConversionJob(source, target, quality, args.start, args.end, file_edit.keep, args.speed,
+                                    args.reverse, args.fade_in, args.fade_out)
+                output = convert(ffmpeg, job, on_progress=lambda f, n=source.name: show(f, n))
             else:
                 target = output_path_for(source, args.output_dir, args.overwrite, ".mp4", f" ({output_tag(edit)})")
-                output = convert_video(ffmpeg, VideoJob(source, target, edit), on_progress=show)
+                output = convert_video(ffmpeg, VideoJob(source, target, file_edit),
+                                       on_progress=lambda f, n=source.name: show(f, n))
             print(f"\r{source.name} -> {output}")
         except ConversionError as exc:
             failures += 1

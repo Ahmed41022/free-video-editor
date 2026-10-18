@@ -6,12 +6,13 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
 )
 
 from ..core import QUALITY_PRESETS, format_time, parse_time
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, PRESETS, ClipSettings
+from ..timing import FADE_MAX, SPEED_MAX, SPEED_MIN, output_duration, removed_parts
 from ..video import FIT_MODES, RESOLUTIONS, VIDEO_QUALITY
 
 SHAPES = [("Original", None), ("9:16", (9, 16)), ("1:1", (1, 1)), ("4:5", (4, 5)), ("16:9", (16, 9))]
@@ -63,6 +64,7 @@ class Inspector(QScrollArea):
     applyToAllRequested = Signal()
     savePresetRequested = Signal()
     playheadRequested = Signal(str)          # "start" or "end": use the current playhead time
+    cutRequested = Signal(str)               # "split" or "remove": at the current playhead
     outputFolderRequested = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -183,8 +185,8 @@ class Inspector(QScrollArea):
         center.clicked.connect(lambda: self._edit(self._center, "Center crop"))
         self.frame_section.grid.addWidget(center, 5, 1)
 
-        # Trim
-        self.trim_section = Section("Trim")
+        # Trim and cut
+        self.trim_section = Section("Trim and cut")
         self.start_edit = QLineEdit()
         self.end_edit = QLineEdit()
         for edit, which in ((self.start_edit, "start"), (self.end_edit, "end")):
@@ -203,7 +205,7 @@ class Inspector(QScrollArea):
         self.trim_info = QLabel()
         self.trim_info.setObjectName("muted")
         self.trim_section.grid.addWidget(self.trim_info, 2, 1)
-        clear = QPushButton("Keep the whole video")
+        clear = QPushButton("Clear the trim")
         clear.clicked.connect(lambda: self._edit(self._clear_trim, "Clear trim"))
         self.trim_section.grid.addWidget(clear, 3, 1)
         self.trim_error = QLabel()
@@ -211,6 +213,85 @@ class Inspector(QScrollArea):
         self.trim_error.setWordWrap(True)
         self.trim_error.hide()
         self.trim_section.grid.addWidget(self.trim_error, 4, 0, 1, 2)
+
+        cut_row = QHBoxLayout()
+        cut_row.setContentsMargins(0, 0, 0, 0)
+        self.split_button = QPushButton("Split")
+        self.split_button.setToolTip("Split the video at the playhead (S)")
+        self.split_button.clicked.connect(lambda: self.cutRequested.emit("split"))
+        self.remove_part_button = QPushButton("Remove part")
+        self.remove_part_button.setToolTip("Cut out the part under the playhead, between two splits (X)")
+        self.remove_part_button.clicked.connect(lambda: self.cutRequested.emit("remove"))
+        cut_row.addWidget(self.split_button)
+        cut_row.addWidget(self.remove_part_button)
+        cut_holder = QWidget()
+        cut_holder.setLayout(cut_row)
+        self.trim_section.row("Cut", cut_holder, 5)
+        self.cut_info = QLabel()
+        self.cut_info.setObjectName("muted")
+        self.cut_info.setWordWrap(True)
+        self.trim_section.grid.addWidget(self.cut_info, 6, 1)
+        self.restore_button = QPushButton("Put back the cut parts")
+        self.restore_button.clicked.connect(lambda: self._edit(self._clear_cuts, "Restore cuts"))
+        self.trim_section.grid.addWidget(self.restore_button, 7, 1)
+
+        # Speed
+        self.speed_section = Section("Speed")
+        self.speed_box = QDoubleSpinBox()
+        self.speed_box.setRange(SPEED_MIN, SPEED_MAX)
+        self.speed_box.setSingleStep(0.25)
+        self.speed_box.setDecimals(2)
+        self.speed_box.setSuffix("×")
+        self.speed_box.setKeyboardTracking(False)
+        self.speed_box.setToolTip("0.25× is four times slower, 4× four times faster; the sound keeps its pitch")
+        self.speed_box.valueChanged.connect(
+            lambda value: self._edit(lambda s: setattr(s.edit, "speed", round(value, 2)), "Speed"))
+        speed_row = QHBoxLayout()
+        speed_row.setContentsMargins(0, 0, 0, 0)
+        speed_row.addWidget(self.speed_box, 1)
+        for value in (0.5, 1.0, 2.0):
+            chip = QPushButton(f"{value:g}×")
+            chip.setObjectName("chip")
+            chip.setMinimumWidth(0)
+            chip.clicked.connect(lambda _=False, value=value: self.speed_box.setValue(value))
+            speed_row.addWidget(chip)
+        speed_holder = QWidget()
+        speed_holder.setLayout(speed_row)
+        self.speed_section.row("Speed", speed_holder, 0)
+        self.reverse_box = QCheckBox("Play backwards")
+        self.reverse_box.setToolTip("Reversing holds the whole clip in memory, so it suits short clips best")
+        self.reverse_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "reverse", on), "Reverse"))
+        self.speed_section.grid.addWidget(self.reverse_box, 1, 1)
+
+        # Fades
+        self.fade_section = Section("Fades")
+        self.fade_boxes: dict[str, QDoubleSpinBox] = {}
+        self.fade_rows: dict[str, tuple[QLabel, QWidget]] = {}
+        rows = (("Picture", "fade_in", "fade_out"), ("Sound", "audio_fade_in", "audio_fade_out"))
+        for row_index, (label, fade_in, fade_out) in enumerate(rows):
+            line = QHBoxLayout()
+            line.setContentsMargins(0, 0, 0, 0)
+            for name, word in ((fade_in, "in"), (fade_out, "out")):
+                box = QDoubleSpinBox()
+                box.setRange(0.0, FADE_MAX)
+                box.setSingleStep(0.5)
+                box.setDecimals(1)
+                box.setSuffix(" s")
+                box.setSpecialValueText("Off")
+                box.setKeyboardTracking(False)
+                box.setToolTip("Seconds to fade in from black or silence" if word == "in"
+                               else "Seconds to fade out to black or silence")
+                box.valueChanged.connect(
+                    lambda value, name=name: self._edit(lambda s: setattr(s.edit, name, round(value, 1)), "Fade"))
+                caption = QLabel(word.capitalize())
+                caption.setObjectName("muted")
+                line.addWidget(caption)
+                line.addWidget(box, 1)
+                self.fade_boxes[name] = box
+            holder = QWidget()
+            holder.setLayout(line)
+            self.fade_section.row(label, holder, row_index)
+            self.fade_rows[label] = (self.fade_section.grid.itemAtPosition(row_index, 0).widget(), holder)
 
         # Sound
         self.audio_section = Section("Sound")
@@ -256,7 +337,7 @@ class Inspector(QScrollArea):
             combo.setMinimumContentsLength(8)
 
         self.sections = [self.preset_section, self.output_section, self.frame_section, self.trim_section,
-                         self.audio_section, self.quality_section]
+                         self.speed_section, self.fade_section, self.audio_section, self.quality_section]
         for section in self.sections + [self.export_section]:
             layout.addWidget(section)
         layout.addStretch(1)
@@ -314,6 +395,12 @@ class Inspector(QScrollArea):
             self.zoom_label.setText(f"{edit.zoom:.1f}×")
             self.mirror_box.setChecked(edit.flip)
             self._show_trim()
+            self.speed_box.setValue(edit.speed)
+            self.reverse_box.setChecked(edit.reverse)
+            for name, box in self.fade_boxes.items():
+                box.setValue(getattr(edit, name))
+            for widget in self.fade_rows["Picture"]:
+                widget.setVisible(video)
             self.mute_box.setChecked(edit.mute)
             self.mp3_box.setCurrentText(settings.audio_quality)
             self.size_box.setCurrentIndex(max(self.size_box.findData(edit.resolution), 0))
@@ -344,15 +431,29 @@ class Inspector(QScrollArea):
     def _clear_trim(s: ClipSettings) -> None:
         s.edit.start = s.edit.end = None
 
+    @staticmethod
+    def _clear_cuts(s: ClipSettings) -> None:
+        s.edit.keep = []
+
     def _show_trim(self) -> None:
         edit = self.settings.edit
         self.start_edit.setText(format_time(edit.start) if edit.start is not None else "")
         self.end_edit.setText(format_time(edit.end) if edit.end is not None else "")
         if self.duration:
-            length = (edit.end if edit.end is not None else self.duration) - (edit.start or 0.0)
-            self.trim_info.setText(f"Length {format_time(max(length, 0.0))} of {format_time(self.duration)}")
+            length = output_duration(edit.segments(self.duration), edit.speed) or 0.0
+            self.trim_info.setText(f"Result {format_time(length)} of {format_time(self.duration)}")
         else:
             self.trim_info.setText("")
+        gaps = removed_parts(edit.keep, self.duration)
+        if gaps:
+            shown = ", ".join(f"{format_time(a)}–{format_time(b)}" for a, b in gaps[:4])
+            more = f" and {len(gaps) - 4} more" if len(gaps) > 4 else ""
+            self.cut_info.setText(f"Cut out: {shown}{more}")
+        elif edit.keep:
+            self.cut_info.setText("Split. Put the playhead on a part and click Remove part to cut it out.")
+        else:
+            self.cut_info.setText("Split at the playhead, then remove the parts you don't want.")
+        self.restore_button.setEnabled(bool(edit.keep))
 
     def _trim_typed(self, which: str) -> None:
         if self._updating or self.settings is None:

@@ -1,7 +1,7 @@
 # Video Converter
 
-A Windows video editor that reshapes, crops and trims videos into new MP4s, for example to fit a phone
-screen for Stories, Reels, TikTok or Shorts, and turns videos into MP3 audio.
+A Windows video editor that reshapes, crops, cuts and joins videos into new MP4s, for example to fit a phone
+screen for Stories, Reels, TikTok or Shorts, changes their speed, adds fades, and turns videos into MP3 audio.
 Everything runs locally on your computer; no files are uploaded anywhere.
 
 ![Video Converter editing a landscape video into a 9:16 phone video](docs/screenshot.png)
@@ -18,10 +18,14 @@ Nothing else to install: everything it needs is built into the exe.
 
 **Editor**
 - Video player with a timeline: thumbnails, audio waveform, and drag handles to trim
+- Cut sections out of the middle: split at the playhead, remove the parts you don't want, and drag the edges
+  of a cut on the timeline to adjust it (right-click the timeline for more). Playback skips the cut parts
+- Join several files into one video, in list order: drag files in the list to reorder them
 - Crop box right on the video: drag it to choose what to keep, drag a corner (or scroll) to zoom
 - Before / after view that renders exactly what the export will look like
 - Undo and redo for every change, dark and light themes, and drag-and-drop of files and folders
-- Each file keeps its own settings; **Apply to all files** copies them to the rest (each keeps its own crop and trim)
+- Each file keeps its own settings; **Apply to all files** copies them to the rest (each keeps its own crop,
+  trim and cuts)
 - Export queue that runs in the background with progress, time left, cancel and "show in folder"
 
 **Video (MP4)**
@@ -35,7 +39,9 @@ Nothing else to install: everything it needs is built into the exe.
 - 128 / 192 / 256 / 320 kbps or variable bitrate, keeping title and artist metadata
 
 **Both**
-- Trim to any range, e.g. from `0:15` to `1:02:30`
+- Trim to any range, e.g. from `0:15` to `1:02:30`, and cut out as many sections as you like
+- Speed from 0.25× to 4× with natural-sounding audio (the pitch stays the same), and play backwards
+- Fade in and out, with separate lengths for the picture and the sound
 - Never overwrites anything: edits are saved as `name (phone).mp4`, `name (square).mp4`, …,
   and existing names get a number (`file.mp3` becomes `file (1).mp3`)
 - Accepts MP4, MOV, MKV, AVI, WEBM, M4V and other common video formats
@@ -43,8 +49,13 @@ Nothing else to install: everything it needs is built into the exe.
 ## How to use
 
 1. Click **Add files** or **Add folder**, or drop videos onto the window (or onto the exe)
-2. Pick a file, then choose a preset or set the shape, crop and trim on the right
+2. Pick a file, then choose a preset or set the shape, crop, trim, cuts, speed and fades on the right
 3. Click **Export** (or **Export all**); exports run in the queue at the bottom while you keep working
+
+To make one video from several files, put them in the order you want (drag them in the list), select the
+ones to join (or none, to join them all) and click **Join into one**. Each clip keeps its own crop, cuts,
+speed and fades; the result takes its size, frame rate and quality from the first clip, and clips of
+another shape get black bars. If the first clip is set to MP3, you get one MP3 instead.
 
 ### Keyboard shortcuts
 
@@ -54,10 +65,13 @@ Nothing else to install: everything it needs is built into the exe.
 | J / L | Back / forward 5 seconds |
 | ← / → | Previous / next frame (hold Shift for 1 second) |
 | I / O | Start / end the trim at the playhead |
+| S | Split at the playhead |
+| X | Cut out the part under the playhead |
 | B | Before / after view |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+O | Add files |
 | Ctrl+E / Ctrl+Shift+E | Export the selected file / export all |
+| Ctrl+J | Join the files into one |
 
 ## Running from source
 
@@ -78,6 +92,8 @@ Pass one or more files to convert them without opening the window:
 ```bash
 python -m video_converter "My video.mp4" another.mp4 -q 320 -o converted
 python -m video_converter "My video.mp4" --video phone --fit blur --start 0:10 --end 0:40
+python -m video_converter "My video.mp4" --video original --cut 0:05-0:12 --cut 1:00-1:10 --speed 1.5
+python -m video_converter intro.mp4 main.mp4 --video widescreen --fade-in 1 --fade-out 2 --join
 ```
 
 | Option | Description |
@@ -94,6 +110,11 @@ python -m video_converter "My video.mp4" --video phone --fit blur --start 0:10 -
 | `--mirror`, `--mute` | Flip left-right; remove the sound |
 | `--size` | Short side in pixels: `1080`, `720`, or `480` (default: same as the source) |
 | `--video-quality` | `high`, `balanced` (default), or `small` |
+| `--cut START-END` | Remove a section, e.g. `--cut 0:05-0:12`; repeat it to remove more |
+| `--speed` | `0.25` to `4`, e.g. `2` for twice as fast (default `1`) |
+| `--reverse` | Play backwards |
+| `--fade-in`, `--fade-out` | Fade the picture and sound in from / out to black and silence, in seconds |
+| `--join` | Make one file of all the inputs, in the order given (an MP4 with `--video`, else an MP3) |
 
 ## Building the exe
 

@@ -12,15 +12,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
-    from PySide6.QtCore import QPoint, QPointF, QSettings, Qt
-    from PySide6.QtGui import QColor, QImage
+    from PySide6.QtCore import QEvent, QModelIndex, QPoint, QPointF, QSettings, Qt
+    from PySide6.QtGui import QColor, QContextMenuEvent, QImage
     from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QPushButton
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
 from video_converter.core import find_ffmpeg, probe_media
 from video_converter.project import OUTPUT_AUDIO, ClipSettings
+from video_converter.video import VideoEdit
 
 FFMPEG = find_ffmpeg()
 TIMEOUT = 30
@@ -81,6 +82,58 @@ class TimelineMathTests(unittest.TestCase):
         self.assertGreaterEqual(tick_step(3600, 800), tick_step(60, 800))
 
 
+class CutEdgeMathTests(unittest.TestCase):
+    def assertRanges(self, actual, expected):
+        self.assertEqual(len(actual), len(expected), actual)
+        for (a, b), (x, y) in zip(actual, expected):
+            self.assertAlmostEqual(a, x)
+            self.assertAlmostEqual(b, y)
+
+    def test_edges_of_separate_parts(self):
+        from video_converter.ui.timeline import cut_edges
+        self.assertEqual(cut_edges([(2.0, 5.0), (7.0, 9.0)], 10.0),
+                         [(2.0, 0, "start"), (5.0, 0, "end"), (7.0, 1, "start"), (9.0, 1, "end")])
+
+    def test_the_ends_of_the_video_and_splits(self):
+        from video_converter.ui.timeline import cut_edges
+        # Nothing to grab at 0 or at the end of the video; touching ranges share one "split" edge.
+        self.assertEqual(cut_edges([(0.0, 3.0), (3.0, 6.0), (8.0, 10.0)], 10.0),
+                         [(3.0, 0, "split"), (6.0, 1, "end"), (8.0, 2, "start")])
+
+    def test_no_cuts_no_edges(self):
+        from video_converter.ui.timeline import cut_edges
+        self.assertEqual(cut_edges([], 10.0), [])
+
+    def test_moving_a_start_edge_stays_clear_of_its_neighbours(self):
+        from video_converter.ui.timeline import move_edge
+        keep = [(2.0, 5.0), (7.0, 9.0)]
+        self.assertRanges(move_edge(keep, 1, "start", 7.5, 10.0), [(2, 5), (7.5, 9)])
+        self.assertRanges(move_edge(keep, 1, "start", 3.0, 10.0), [(2, 5), (5, 9)])        # stops at the part before
+        self.assertRanges(move_edge(keep, 1, "start", 8.95, 10.0), [(2, 5), (8.9, 9)])     # keeps MIN_PART
+        self.assertRanges(move_edge(keep, 0, "start", -1.0, 10.0), [(0, 5), (7, 9)])       # stops at the video start
+
+    def test_moving_an_end_edge_stays_clear_of_its_neighbours(self):
+        from video_converter.ui.timeline import move_edge
+        keep = [(2.0, 5.0), (7.0, 9.0)]
+        self.assertRanges(move_edge(keep, 0, "end", 6.0, 10.0), [(2, 6), (7, 9)])
+        self.assertRanges(move_edge(keep, 0, "end", 8.0, 10.0), [(2, 7), (7, 9)])          # stops at the next part
+        self.assertRanges(move_edge(keep, 0, "end", 2.05, 10.0), [(2, 2.1), (7, 9)])       # keeps MIN_PART
+        self.assertRanges(move_edge(keep, 1, "end", 12.0, 10.0), [(2, 5), (7, 10)])        # stops at the video end
+
+    def test_moving_a_split_moves_both_ranges(self):
+        from video_converter.ui.timeline import move_edge
+        keep = [(0.0, 3.0), (3.0, 6.0), (8.0, 10.0)]
+        self.assertRanges(move_edge(keep, 0, "split", 4.5, 10.0), [(0, 4.5), (4.5, 6), (8, 10)])
+        self.assertRanges(move_edge(keep, 0, "split", 0.01, 10.0), [(0, 0.1), (0.1, 6), (8, 10)])
+        self.assertRanges(move_edge(keep, 0, "split", 9.0, 10.0), [(0, 5.9), (5.9, 6), (8, 10)])
+
+    def test_moving_an_edge_does_not_change_the_input(self):
+        from video_converter.ui.timeline import move_edge
+        keep = [(2.0, 5.0), (7.0, 9.0)]
+        move_edge(keep, 0, "end", 6.0, 10.0)
+        self.assertEqual(keep, [(2.0, 5.0), (7.0, 9.0)])
+
+
 class TimelineWidgetTests(unittest.TestCase):
     def setUp(self):
         from video_converter.ui.timeline import Timeline
@@ -129,6 +182,208 @@ class TimelineWidgetTests(unittest.TestCase):
         self.timeline.setTrim(5.0, None)      # e.g. an undo arriving while dragging
         self.assertIsNone(self.timeline.start)
         QTest.mouseRelease(self.timeline, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(12, 60))
+
+
+class TimelineCutTests(unittest.TestCase):
+    """The track is 500 px wide from x=12, so 50 px per second of a 10 s video."""
+
+    def setUp(self):
+        from video_converter.ui.timeline import Timeline
+        self.timeline = Timeline()
+        self.timeline.resize(524, 130)
+        self.timeline.setDuration(10.0)
+        self.timeline.show()
+        self.timeline.setKeep([(2.0, 5.0), (7.0, 9.0)])
+        self.seeks, self.trims, self.keeps, self.keep_done, self.trim_done = [], [], [], [], []
+        self.timeline.seekRequested.connect(self.seeks.append)
+        self.timeline.trimChanged.connect(lambda s, e: self.trims.append((s, e)))
+        self.timeline.keepChanged.connect(self.keeps.append)
+        self.timeline.keepEditFinished.connect(lambda: self.keep_done.append(True))
+        self.timeline.trimEditFinished.connect(lambda: self.trim_done.append(True))
+
+    def tearDown(self):
+        self.timeline.close()
+
+    @staticmethod
+    def x(seconds):
+        return 12 + int(round(seconds * 50))
+
+    def press(self, x, button=Qt.MouseButton.LeftButton):
+        QTest.mousePress(self.timeline, button, Qt.KeyboardModifier.NoModifier, QPoint(x, 60))
+
+    def move(self, x):
+        QTest.mouseMove(self.timeline, QPoint(x, 60))
+
+    def release(self, x, button=Qt.MouseButton.LeftButton):
+        QTest.mouseRelease(self.timeline, button, Qt.KeyboardModifier.NoModifier, QPoint(x, 60))
+
+    def drag(self, x0, x1):
+        self.press(x0)
+        self.move(x1)
+        self.release(x1)
+
+    def test_dragging_a_cut_edge_moves_it(self):
+        self.drag(self.x(5), self.x(6))                              # the end of the first part
+        self.assertEqual(self.keeps[-1], [(2.0, 6.0), (7.0, 9.0)])
+        self.assertEqual(self.timeline.keep, [(2.0, 6.0), (7.0, 9.0)])
+        self.assertEqual(self.keep_done, [True])
+        self.assertEqual(self.trims, [])
+        self.assertAlmostEqual(self.seeks[-1], 5.96, delta=0.02)       # shows the new last frame of that part
+
+    def test_dragging_a_start_edge_seeks_to_where_the_part_now_starts(self):
+        self.drag(self.x(7), self.x(7.5))
+        self.assertEqual(self.keeps[-1], [(2.0, 5.0), (7.5, 9.0)])
+        self.assertAlmostEqual(self.seeks[-1], 7.5, delta=0.02)
+
+    def test_a_cut_edge_cannot_be_dragged_past_its_neighbour(self):
+        self.drag(self.x(5), self.x(9.5))
+        self.assertEqual(self.timeline.keep, [(2.0, 7.0), (7.0, 9.0)])       # stops where the next part begins
+
+    def test_one_edit_finished_signal_per_drag_however_many_moves(self):
+        self.press(self.x(5))
+        for seconds in (5.5, 6.0, 5.2):
+            self.move(self.x(seconds))
+        self.release(self.x(5.2))
+        self.assertEqual(self.keep_done, [True])
+        self.assertGreaterEqual(len(self.keeps), 3)
+
+    def test_dragging_a_split_marker_moves_both_ranges(self):
+        self.timeline.setKeep([(0.0, 3.0), (3.0, 6.0), (8.0, 10.0)])
+        self.drag(self.x(3), self.x(2))
+        self.assertEqual(self.timeline.keep, [(0.0, 2.0), (2.0, 6.0), (8.0, 10.0)])
+        self.assertEqual(self.keeps[-1], [(0.0, 2.0), (2.0, 6.0), (8.0, 10.0)])
+        self.assertAlmostEqual(self.seeks[-1], 2.0, delta=0.02)
+
+    def test_the_trim_handle_wins_over_a_cut_edge_at_the_same_place(self):
+        self.timeline.setTrim(2.0, None)                              # the first part also starts at 2 s
+        self.assertEqual(self.timeline.hit_test(self.x(2)), "in")
+        self.drag(self.x(2), self.x(3))
+        self.assertAlmostEqual(self.trims[-1][0], 3.0, delta=0.05)
+        self.assertEqual(self.keeps, [])
+        self.assertEqual(self.timeline.keep, [(2.0, 5.0), (7.0, 9.0)])
+        self.assertEqual((self.trim_done, self.keep_done), ([True], []))
+
+    def test_what_a_press_grabs(self):
+        self.assertEqual(self.timeline.hit_test(self.x(5)), "cut")
+        self.assertEqual(self.timeline.hit_test(self.x(5) + 6), "cut")
+        self.assertEqual(self.timeline.hit_test(self.x(6)), "playhead")
+        self.assertEqual(self.timeline.hit_test(12), "in")
+        self.assertEqual(self.timeline.hit_test(512), "out")
+        self.timeline.setKeep([])
+        self.assertEqual(self.timeline.hit_test(self.x(5)), "playhead")
+
+    def test_the_nearest_edge_is_chosen(self):
+        self.timeline.setKeep([(2.0, 2.1), (2.14, 6.0)])
+        self.assertEqual(self.timeline.edge_at(self.x(2.0)), (0, "start"))
+        self.assertEqual(self.timeline.edge_at(self.x(2.14) + 1), (1, "start"))
+
+    def test_clicking_between_edges_seeks_and_leaves_the_cuts_alone(self):
+        self.drag(self.x(6), self.x(6))
+        self.assertAlmostEqual(self.seeks[-1], 6.0, delta=0.05)
+        self.assertEqual(self.keeps, [])
+        self.assertEqual(self.keep_done, [])
+
+    def test_external_cut_updates_are_ignored_mid_drag(self):
+        self.press(self.x(5))
+        self.timeline.setKeep([])                                     # e.g. an undo arriving while dragging
+        self.assertEqual(self.timeline.keep, [(2.0, 5.0), (7.0, 9.0)])
+        self.release(self.x(5))
+        self.timeline.setKeep([])                                     # fine again once the drag is over
+        self.assertEqual(self.timeline.keep, [])
+
+    def test_releasing_snaps_a_part_that_reaches_the_start_of_the_video(self):
+        self.drag(self.x(2), self.x(0.04))
+        self.assertEqual(self.timeline.keep, [(0.0, 5.0), (7.0, 9.0)])
+        self.assertEqual(self.keeps[-1], [(0.0, 5.0), (7.0, 9.0)])
+        self.assertEqual(self.keep_done, [True])
+
+    def test_releasing_snaps_a_part_that_reaches_the_end_of_the_video(self):
+        self.drag(self.x(9), self.x(9.97))
+        self.assertEqual(self.timeline.keep, [(2.0, 5.0), (7.0, 10.0)])
+        self.assertEqual(self.keeps[-1], [(2.0, 5.0), (7.0, 10.0)])
+
+    def test_dragging_without_changing_anything_still_finishes_the_edit(self):
+        self.drag(self.x(5), self.x(5))
+        self.assertEqual(self.keeps, [])
+        self.assertEqual(self.keep_done, [True])
+
+    def test_right_click_does_not_start_a_drag(self):
+        self.press(self.x(5), Qt.MouseButton.RightButton)
+        self.move(self.x(6))
+        self.release(self.x(6), Qt.MouseButton.RightButton)
+        self.assertEqual((self.keeps, self.seeks), ([], []))
+
+    def test_context_menu_reports_the_time_under_the_pointer(self):
+        requests = []
+        self.timeline.menuRequested.connect(lambda t, pos: requests.append((t, pos)))
+        event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(self.x(6), 60), QPoint(300, 400))
+        QApplication.sendEvent(self.timeline, event)
+        self.assertEqual(len(requests), 1)
+        self.assertAlmostEqual(requests[0][0], 6.0, delta=0.05)
+        self.assertEqual(requests[0][1], QPoint(300, 400))
+
+    def test_no_context_menu_without_a_video(self):
+        requests = []
+        self.timeline.menuRequested.connect(lambda t, pos: requests.append(t))
+        self.timeline.clear()
+        event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(100, 60), QPoint(100, 60))
+        QApplication.sendEvent(self.timeline, event)
+        self.assertEqual(requests, [])
+
+    def test_clear_forgets_the_cuts(self):
+        self.timeline.clear()
+        self.assertEqual(self.timeline.keep, [])
+
+
+class PlayerTests(unittest.TestCase):
+    def setUp(self):
+        from video_converter.ui.player import Player
+        self.player = Player()
+        self.player.set_segments([(1.0, 3.0), (5.0, 8.0)])
+
+    def test_inside_a_kept_part_playback_carries_on(self):
+        self.assertEqual(self.player.next_play_position(2.0), 2.0)
+        self.assertEqual(self.player.next_play_position(6.5), 6.5)
+
+    def test_before_the_first_part_it_jumps_to_its_start(self):
+        self.assertEqual(self.player.next_play_position(0.2), 1.0)
+        self.assertEqual(self.player.next_play_position(0.0), 1.0)
+
+    def test_a_hair_before_a_part_counts_as_inside_it(self):
+        self.assertEqual(self.player.next_play_position(0.97), 1.0)
+
+    def test_inside_a_cut_it_jumps_to_the_next_part(self):
+        self.assertEqual(self.player.next_play_position(3.5), 5.0)
+        self.assertEqual(self.player.next_play_position(4.9), 5.0)
+
+    def test_at_the_end_of_a_part_it_moves_on_to_the_next_one(self):
+        self.assertEqual(self.player.next_play_position(2.98), 5.0)
+
+    def test_after_the_last_part_it_stops(self):
+        self.assertIsNone(self.player.next_play_position(7.98))
+        self.assertIsNone(self.player.next_play_position(9.0))
+
+    def test_without_segments_playback_is_unrestricted(self):
+        self.player.set_segments([])
+        for t in (0.0, 4.2, 100.0):
+            self.assertEqual(self.player.next_play_position(t), t)
+
+    def test_an_open_ended_part_never_stops(self):
+        self.player.set_segments([(2.0, None)])
+        self.assertEqual(self.player.next_play_position(500.0), 500.0)
+        self.assertEqual(self.player.next_play_position(0.5), 2.0)
+
+    def test_segments_are_copied(self):
+        segments = [(1.0, 2.0)]
+        self.player.set_segments(segments)
+        segments.append((4.0, 5.0))
+        self.assertEqual(self.player.segments, [(1.0, 2.0)])
+
+    def test_playback_rate_follows_the_speed(self):
+        self.player.set_rate(2.0)
+        self.assertEqual(self.player.media.playbackRate(), 2.0)
+        self.player.set_rate(0.5)
+        self.assertEqual(self.player.media.playbackRate(), 0.5)
 
 
 class OrientationTests(unittest.TestCase):
@@ -273,6 +528,139 @@ class InspectorTests(unittest.TestCase):
         self.assertNotIn(True, finals[:-1])
         self.assertAlmostEqual(self.edits[-1][0].edit.zoom, 1.8)
 
+    def test_speed_box_sets_the_speed(self):
+        self.inspector.speed_box.setValue(2.0)
+        settings, label, final = self.edits[-1]
+        self.assertEqual((settings.edit.speed, label, final), (2.0, "Speed", True))
+        self.inspector.speed_box.setValue(1.37)
+        self.assertEqual(self.edits[-1][0].edit.speed, 1.37)
+
+    def test_speed_box_stays_within_the_supported_range(self):
+        self.inspector.speed_box.setValue(0.1)
+        self.assertEqual(self.edits[-1][0].edit.speed, 0.25)
+        self.inspector.speed_box.setValue(9.0)
+        self.assertEqual(self.edits[-1][0].edit.speed, 4.0)
+
+    def test_speed_chips(self):
+        chips = {b.text(): b for b in self.inspector.speed_section.findChildren(QPushButton)}
+        self.assertEqual(set(chips), {"0.5×", "1×", "2×"})
+        chips["2×"].click()
+        self.assertEqual(self.edits[-1][0].edit.speed, 2.0)
+        self.assertEqual(self.inspector.speed_box.value(), 2.0)
+        chips["0.5×"].click()
+        self.assertEqual(self.edits[-1][0].edit.speed, 0.5)
+        chips["1×"].click()
+        self.assertEqual(self.edits[-1][0].edit.speed, 1.0)
+        self.assertEqual(len(self.edits), 3)
+
+    def test_showing_a_speed_does_not_report_an_edit(self):
+        settings = ClipSettings(edit=VideoEdit(speed=3.0, reverse=True, fade_in=1.5, audio_fade_out=2.0))
+        self.inspector.set_settings(settings, 10.0)
+        self.assertEqual(self.edits, [])
+        self.assertEqual(self.inspector.speed_box.value(), 3.0)
+        self.assertTrue(self.inspector.reverse_box.isChecked())
+        self.assertEqual(self.inspector.fade_boxes["fade_in"].value(), 1.5)
+        self.assertEqual(self.inspector.fade_boxes["audio_fade_out"].value(), 2.0)
+        self.assertEqual(self.inspector.fade_boxes["fade_out"].value(), 0.0)
+
+    def test_reverse_box(self):
+        self.inspector.reverse_box.click()
+        settings, label, _ = self.edits[-1]
+        self.assertTrue(settings.edit.reverse)
+        self.assertEqual(label, "Reverse")
+        self.inspector.reverse_box.click()
+        self.assertFalse(self.edits[-1][0].edit.reverse)
+
+    def test_each_fade_box_sets_only_its_own_field(self):
+        names = ("fade_in", "fade_out", "audio_fade_in", "audio_fade_out")
+        self.assertEqual(set(self.inspector.fade_boxes), set(names))
+        for name in names:
+            with self.subTest(field=name):
+                self.inspector.set_settings(ClipSettings(), 10.0)
+                self.inspector.fade_boxes[name].setValue(1.5)
+                edit = self.edits[-1][0].edit
+                self.assertEqual(getattr(edit, name), 1.5)
+                for other in names:
+                    if other != name:
+                        self.assertEqual(getattr(edit, other), 0.0)
+
+    def test_a_fade_box_at_zero_reads_off(self):
+        box = self.inspector.fade_boxes["fade_in"]
+        self.assertEqual(box.specialValueText(), "Off")
+        box.setValue(2.0)
+        box.setValue(0.0)
+        self.assertEqual(self.edits[-1][0].edit.fade_in, 0.0)
+
+    def test_fade_length_is_limited(self):
+        self.inspector.fade_boxes["fade_out"].setValue(100.0)
+        self.assertEqual(self.edits[-1][0].edit.fade_out, 30.0)
+
+    def test_the_picture_fade_row_is_hidden_for_mp3_output(self):
+        label, holder = self.inspector.fade_rows["Picture"]
+        self.assertFalse(label.isHidden() or holder.isHidden())
+        self.inspector.set_settings(ClipSettings(output=OUTPUT_AUDIO), 10.0)
+        self.assertTrue(label.isHidden() and holder.isHidden())
+        sound_label, sound_holder = self.inspector.fade_rows["Sound"]
+        self.assertFalse(sound_label.isHidden() or sound_holder.isHidden())
+        self.inspector.set_settings(ClipSettings(), 10.0)
+        self.assertFalse(label.isHidden() or holder.isHidden())
+
+    def test_split_and_remove_buttons_ask_for_a_cut_at_the_playhead(self):
+        requests = []
+        self.inspector.cutRequested.connect(requests.append)
+        self.inspector.split_button.click()
+        self.inspector.remove_part_button.click()
+        self.inspector.split_button.click()
+        self.assertEqual(requests, ["split", "remove", "split"])
+        self.assertEqual(self.edits, [])                      # the window decides what the cut does
+
+    def test_restore_button_is_off_without_cuts_and_clears_them(self):
+        self.assertFalse(self.inspector.restore_button.isEnabled())
+        settings = ClipSettings(edit=VideoEdit(keep=[(0.0, 3.0), (6.0, 10.0)]))
+        self.inspector.set_settings(settings, 10.0)
+        self.assertTrue(self.inspector.restore_button.isEnabled())
+        self.inspector.restore_button.click()
+        new, label, _ = self.edits[-1]
+        self.assertEqual((new.edit.keep, label), ([], "Restore cuts"))
+
+    def test_restore_button_also_puts_back_plain_splits(self):
+        self.inspector.set_settings(ClipSettings(edit=VideoEdit(keep=[(0.0, 3.0), (3.0, 10.0)])), 10.0)
+        self.assertTrue(self.inspector.restore_button.isEnabled())
+
+    def test_trim_info_shows_the_length_of_the_result(self):
+        self.assertEqual(self.inspector.trim_info.text(), "Result 0:10.0 of 0:10.0")
+        cut = ClipSettings(edit=VideoEdit(keep=[(0.0, 3.0), (6.0, 10.0)]))
+        self.inspector.set_settings(cut, 10.0)
+        self.assertEqual(self.inspector.trim_info.text(), "Result 0:07.0 of 0:10.0")
+        cut.edit.speed = 2.0
+        self.inspector.set_settings(cut, 10.0)
+        self.assertEqual(self.inspector.trim_info.text(), "Result 0:03.5 of 0:10.0")
+
+    def test_trim_info_counts_the_trim_and_the_cuts_together(self):
+        settings = ClipSettings(edit=VideoEdit(keep=[(0.0, 3.0), (6.0, 10.0)], start=2.0, end=8.0))
+        self.inspector.set_settings(settings, 10.0)
+        self.assertEqual(self.inspector.trim_info.text(), "Result 0:03.0 of 0:10.0")       # 2..3 and 6..8
+
+    def test_trim_info_is_empty_for_an_unknown_length(self):
+        self.inspector.set_settings(ClipSettings(), None)
+        self.assertEqual(self.inspector.trim_info.text(), "")
+
+    def test_cut_info_explains_what_to_do_then_lists_the_cuts(self):
+        self.assertIn("Split", self.inspector.cut_info.text())
+        self.inspector.set_settings(ClipSettings(edit=VideoEdit(keep=[(0.0, 3.0), (3.0, 10.0)])), 10.0)
+        self.assertIn("Remove part", self.inspector.cut_info.text())
+        self.inspector.set_settings(ClipSettings(edit=VideoEdit(keep=[(0.0, 3.0), (6.0, 10.0)])), 10.0)
+        self.assertEqual(self.inspector.cut_info.text(), "Cut out: 0:03.0–0:06.0")
+
+    def test_cut_info_lists_the_leading_and_trailing_cuts_and_shortens_long_lists(self):
+        self.inspector.set_settings(ClipSettings(edit=VideoEdit(keep=[(2.0, 8.0)])), 10.0)
+        self.assertEqual(self.inspector.cut_info.text(), "Cut out: 0:00.0–0:02.0, 0:08.0–0:10.0")
+        keep = [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0), (7.0, 8.0), (9.0, 10.0), (11.0, 12.0)]
+        self.inspector.set_settings(ClipSettings(edit=VideoEdit(keep=keep)), 14.0)
+        text = self.inspector.cut_info.text()
+        self.assertTrue(text.startswith("Cut out: 0:00.0–0:01.0, 0:02.0–0:03.0"), text)
+        self.assertTrue(text.endswith("and 3 more"), text)
+
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class MainWindowTests(unittest.TestCase):
@@ -284,6 +672,9 @@ class MainWindowTests(unittest.TestCase):
         cls.portrait = cls.tmp / "portrait.mp4"
         make_video(cls.landscape)
         make_video(cls.portrait, rotation=-90)
+        (cls.tmp / "more").mkdir()
+        cls.third = cls.tmp / "more" / "third.mp4"          # 2 s, in a folder of its own
+        make_video(cls.third, seconds=2)
 
     @classmethod
     def tearDownClass(cls):
@@ -298,6 +689,11 @@ class MainWindowTests(unittest.TestCase):
 
     def tearDown(self):
         self.window.close()
+        # unittest keeps every test case alive until the run ends, so free the window (and its
+        # media player) now instead of letting closed windows pile up and slow later tests.
+        self.window.deleteLater()
+        self.window = None
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         pump(0.1)
 
     def load(self, *paths):
@@ -419,6 +815,247 @@ class MainWindowTests(unittest.TestCase):
         self.window.media_list.setFocus()
         QTest.keyClick(self.window.media_list, Qt.Key.Key_I)
         self.assertAlmostEqual(item.settings.edit.start or 0.0, 1.0, delta=0.1)
+
+    def stop_exports(self):
+        # Closing the window asks a question while an export is running, so let them stop first.
+        self.window.queue.cancel_all()
+        self.assertTrue(pump(30, lambda: not self.window.queue.busy), "exports never stopped")
+
+    def seek(self, seconds):
+        self.window.player.seek(seconds)
+        self.assertTrue(pump(5, lambda: abs(self.window.player.position - seconds) < 0.05), "seek never landed")
+
+    def test_split_then_remove_at_the_playhead_are_one_undo_step_each(self):
+        self.load(self.landscape)
+        item, duration = self.window.current, self.window.current.info.duration
+        self.seek(1.0)
+        self.window.cut_at("split")
+        keep = item.settings.edit.keep
+        self.assertEqual(len(keep), 2)
+        self.assertAlmostEqual(keep[0][1], 1.0, delta=0.05)
+        self.assertEqual(keep[0][1], keep[1][0])                              # they touch: a split
+        self.assertEqual((keep[0][0], keep[1][1]), (0.0, duration))
+        self.assertEqual(self.window.undo_stack.count(), 1)
+        self.assertEqual(self.window.timeline.keep, keep)
+        self.assertTrue(self.window.inspector.restore_button.isEnabled())
+
+        self.seek(2.0)
+        self.window.cut_at("remove")
+        self.assertEqual(item.settings.edit.keep, [keep[0]])
+        self.assertEqual(self.window.undo_stack.count(), 2)
+        self.assertEqual(self.window.player.segments, [keep[0]])               # playback skips the removed part
+        self.assertIn("1 cut", item.list_item.text())                          # the list entry says so too
+        self.assertIn("1 cut", item.list_item.toolTip())                       # in full, even when cut short
+
+        self.window.undo_stack.undo()
+        self.assertEqual(item.settings.edit.keep, keep)
+        self.window.undo_stack.undo()
+        self.assertEqual(item.settings.edit.keep, [])
+        self.assertFalse(self.window.inspector.restore_button.isEnabled())
+        self.assertEqual(self.window.timeline.keep, [])
+        self.window.undo_stack.redo()
+        self.assertEqual(item.settings.edit.keep, keep)
+
+    def test_cut_at_refuses_inside_a_cut_and_says_why(self):
+        self.load(self.landscape)
+        item, duration = self.window.current, self.window.current.info.duration
+        self.window.push_settings(ClipSettings(edit=VideoEdit(keep=[(0.0, 1.0), (2.0, duration)])), "Cut")
+        steps = self.window.undo_stack.count()
+        self.window.cut_at("split", 1.5)
+        self.assertEqual(item.settings.edit.keep, [(0.0, 1.0), (2.0, duration)])
+        self.assertIn("cut out", self.window.statusBar().currentMessage())
+        self.window.statusBar().clearMessage()
+        self.window.cut_at("remove", 1.5)
+        self.assertIn("already cut out", self.window.statusBar().currentMessage())
+        self.assertEqual(self.window.undo_stack.count(), steps)
+
+    def test_cut_at_refuses_to_split_at_the_edge_of_a_part(self):
+        self.load(self.landscape)
+        self.window.cut_at("split", 0.02)
+        self.assertEqual(self.window.current.settings.edit.keep, [])
+        self.assertIn("Too close", self.window.statusBar().currentMessage())
+        self.assertEqual(self.window.undo_stack.count(), 0)
+
+    def test_cut_at_refuses_to_remove_the_only_part(self):
+        self.load(self.landscape)
+        self.window.cut_at("remove", 1.0)
+        self.assertEqual(self.window.current.settings.edit.keep, [])
+        self.assertIn("Split the video first", self.window.statusBar().currentMessage())
+        self.assertEqual(self.window.undo_stack.count(), 0)
+
+    def test_cut_parts_can_be_put_back_one_by_one_or_all_at_once(self):
+        self.load(self.landscape)
+        item, duration = self.window.current, self.window.current.info.duration
+        self.window.push_settings(ClipSettings(edit=VideoEdit(keep=[(0.0, 0.5), (1.0, 1.5), (2.0, duration)])), "Cut")
+        self.window.cut_at("restore", 0.75)
+        self.assertEqual(item.settings.edit.keep, [(0.0, 0.5), (0.5, 1.0), (1.0, 1.5), (2.0, duration)])
+        self.window.cut_at("restore_all")
+        self.assertEqual(item.settings.edit.keep, [])
+
+    def test_a_cut_drag_on_the_timeline_is_one_undo_step(self):
+        self.load(self.landscape)
+        item, duration = self.window.current, self.window.current.info.duration
+        self.window.push_settings(ClipSettings(edit=VideoEdit(keep=[(0.5, 1.5), (2.0, duration)])), "Cut")
+        steps = self.window.undo_stack.count()
+        for end in (1.6, 1.7, 1.8):
+            self.window._timeline_keep([(0.5, end), (2.0, duration)])
+        self.window.timeline.keepEditFinished.emit()
+        self.assertEqual(self.window.undo_stack.count(), steps + 1)
+        self.assertEqual(item.settings.edit.keep, [(0.5, 1.8), (2.0, duration)])
+        self.window.undo_stack.undo()
+        self.assertEqual(item.settings.edit.keep, [(0.5, 1.5), (2.0, duration)])
+
+    def test_the_player_follows_the_speed_and_the_cuts(self):
+        self.load(self.landscape)
+        duration = self.window.current.info.duration
+        edit = VideoEdit(keep=[(0.0, 1.0), (2.0, duration)], speed=2.0, start=0.5)
+        self.window.push_settings(ClipSettings(edit=edit), "Cut")
+        self.assertEqual(self.window.player.segments, [(0.5, 1.0), (2.0, duration)])
+        self.assertEqual(self.window.player.media.playbackRate(), 2.0)
+
+    def test_s_and_x_keys_split_and_remove_at_the_playhead(self):
+        self.load(self.landscape)
+        self.window.activateWindow()
+        item = self.window.current
+        self.seek(1.0)
+        self.window.media_list.setFocus()
+        QTest.keyClick(self.window.media_list, Qt.Key.Key_S)
+        self.assertEqual(len(item.settings.edit.keep), 2)
+        self.assertAlmostEqual(item.settings.edit.keep[0][1], 1.0, delta=0.1)
+        self.seek(2.0)
+        QTest.keyClick(self.window.media_list, Qt.Key.Key_X)
+        self.assertEqual(len(item.settings.edit.keep), 1)
+        self.assertAlmostEqual(item.settings.edit.keep[0][1], 1.0, delta=0.1)
+
+    def test_s_and_x_are_ordinary_keys_in_text_fields(self):
+        self.load(self.landscape)
+        self.window.activateWindow()
+        field = self.window.inspector.start_edit
+        field.setFocus()
+        QTest.keyClick(field, Qt.Key.Key_S)
+        QTest.keyClick(field, Qt.Key.Key_X)
+        self.assertEqual(field.text(), "sx")
+        self.assertEqual(self.window.current.settings.edit.keep, [])
+
+    def test_the_split_and_cut_buttons_work_like_the_keys(self):
+        self.load(self.landscape)
+        self.seek(1.0)
+        self.window.split_button.click()
+        self.assertEqual(len(self.window.current.settings.edit.keep), 2)
+        self.seek(2.0)
+        self.window.inspector.remove_part_button.click()
+        self.assertEqual(len(self.window.current.settings.edit.keep), 1)
+
+    def names(self):
+        return [item.path.name for item in self.window.items]
+
+    def listed(self):
+        return [self.window.media_list.item(row).text().split("\n")[0] for row in range(self.window.media_list.count())]
+
+    def test_dragging_a_file_in_the_list_reorders_the_items(self):
+        self.load(self.landscape, self.portrait, self.third)
+        self.assertEqual(self.names(), ["landscape.mp4", "portrait.mp4", "third.mp4"])
+        self.window.media_list.model().moveRow(QModelIndex(), 0, QModelIndex(), 3)      # first file to the end
+        self.assertEqual(self.listed(), ["portrait.mp4", "third.mp4", "landscape.mp4"])
+        self.assertEqual(self.names(), self.listed())
+        self.window.media_list.model().moveRow(QModelIndex(), 2, QModelIndex(), 1)      # and back to the middle
+        self.assertEqual(self.listed(), ["portrait.mp4", "landscape.mp4", "third.mp4"])
+        self.assertEqual(self.names(), self.listed())
+
+    def test_selection_still_maps_to_the_right_file_after_a_reorder(self):
+        self.load(self.landscape, self.portrait, self.third)
+        self.window.media_list.model().moveRow(QModelIndex(), 0, QModelIndex(), 3)
+        for row, name in enumerate(self.listed()):
+            self.window.media_list.setCurrentRow(row)
+            self.assertEqual(self.window.current.path.name, name)
+            self.assertIs(self.window.current, self.window.items[row])
+        self.window.media_list.setCurrentRow(2)                 # landscape, now last
+        self.window.remove_selected()
+        self.assertEqual(self.names(), ["portrait.mp4", "third.mp4"])
+        self.assertEqual(self.listed(), self.names())
+
+    def test_reordering_keeps_each_files_settings(self):
+        self.load(self.landscape, self.third)
+        first, second = self.window.items
+        fast = first.settings.copy()
+        fast.edit.speed = 2.0
+        self.window.apply_settings(first, fast)
+        self.window.media_list.model().moveRow(QModelIndex(), 0, QModelIndex(), 2)
+        self.assertEqual(self.window.items, [second, first])
+        self.window.media_list.setCurrentRow(0)
+        self.assertIs(self.window.current, second)
+        self.assertEqual(self.window.inspector.speed_box.value(), 1.0)
+        self.window.media_list.setCurrentRow(1)
+        self.assertIs(self.window.current, first)
+        self.assertEqual(self.window.inspector.speed_box.value(), 2.0)
+
+    def test_joining_two_files_exports_one_file_as_long_as_both(self):
+        self.load(self.landscape, self.portrait)
+        out_dir = self.tmp / "joined"
+        out_dir.mkdir(exist_ok=True)
+        self.window._set_output_folder(out_dir)
+        self.window.join_clips()
+        self.assertTrue(pump(90, lambda: not self.window.queue.busy), "the join never finished")
+        job = self.window.queue.jobs[-1]
+        self.assertEqual(job.state.value, "Done", job.error)
+        self.assertEqual([p.name for p in out_dir.iterdir()], ["landscape (joined).mp4"])
+        info = probe_media(FFMPEG, out_dir / "landscape (joined).mp4")
+        self.assertAlmostEqual(info.duration, 6.0, delta=0.3)
+        self.assertEqual((info.width, info.height), (180, 320))          # the first file's phone shape
+        self.assertTrue(info.has_audio)
+        self.assertEqual(job.title, "landscape.mp4 + 1 more")
+
+    def test_joining_follows_the_list_order(self):
+        self.load(self.landscape, self.portrait, self.third)
+        self.window.media_list.model().moveRow(QModelIndex(), 2, QModelIndex(), 0)       # third to the top
+        self.window.join_clips()
+        job = self.window.queue.jobs[-1]
+        self.assertEqual([c.source.name for c in job.clips], ["third.mp4", "landscape.mp4", "portrait.mp4"])
+        self.assertEqual(job.source.name, "third.mp4")
+        self.stop_exports()
+
+    def test_joining_only_the_selected_files(self):
+        self.load(self.landscape, self.portrait, self.third)
+        self.window.media_list.clearSelection()
+        self.window.media_list.item(0).setSelected(True)
+        self.window.media_list.item(2).setSelected(True)
+        self.window.join_clips()
+        job = self.window.queue.jobs[-1]
+        self.assertEqual([c.source.name for c in job.clips], ["landscape.mp4", "third.mp4"])
+        self.stop_exports()
+
+    def test_joining_uses_each_files_own_cuts_and_the_first_files_output(self):
+        self.load(self.landscape, self.third)
+        first, second = self.window.items
+        first.settings.edit.speed = 2.0
+        second.settings.edit.keep = [(0.0, 0.5), (1.0, 2.0)]
+        self.window.join_clips()
+        job = self.window.queue.jobs[-1]
+        self.assertEqual([c.settings.edit.speed for c in job.clips], [2.0, 1.0])
+        self.assertEqual(job.clips[1].settings.edit.keep, [(0.0, 0.5), (1.0, 2.0)])
+        self.assertEqual(job.settings.edit.speed, 2.0)
+        self.stop_exports()
+
+    def test_joining_a_single_file_is_refused_with_a_message(self):
+        self.load(self.landscape)
+        self.window.join_clips()
+        self.assertEqual(self.window.queue.jobs, [])
+        self.assertIn("two or more", self.window.statusBar().currentMessage())
+
+    def test_join_button_is_on_only_while_there_are_two_files(self):
+        self.assertFalse(self.window.join_button.isEnabled())
+        self.load(self.landscape, self.third)
+        self.assertTrue(self.window.join_button.isEnabled())
+        self.window.remove_selected()
+        self.assertFalse(self.window.join_button.isEnabled())
+
+    def test_join_button_follows_the_number_of_files(self):
+        self.load(self.landscape)
+        self.load(self.third)                  # added while the first file stays open
+        self.assertTrue(self.window.join_button.isEnabled())
+        self.window.media_list.setCurrentRow(1)
+        self.window.remove_selected()
+        self.assertFalse(self.window.join_button.isEnabled())
 
 
 if __name__ == "__main__":

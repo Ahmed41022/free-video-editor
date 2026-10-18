@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .core import ConversionCancelled, ConversionError, ConversionJob, MediaInfo, convert
-from .project import OUTPUT_AUDIO, ClipSettings, output_file_for
-from .video import VideoJob, convert_video
+from .project import OUTPUT_AUDIO, ClipSettings, describe, describe_join, output_file_for
+from .video import JoinJob, JoinPart, VideoJob, convert_video, join_clips
 
 
 class JobState(Enum):
@@ -31,6 +31,14 @@ _ids = itertools.count(1)
 
 
 @dataclass
+class Clip:
+    """One file in a joined export."""
+    source: Path
+    settings: ClipSettings
+    info: Optional[MediaInfo] = None
+
+
+@dataclass
 class Job:
     source: Path
     settings: ClipSettings                 # a snapshot; later edits in the UI don't affect it
@@ -44,6 +52,17 @@ class Job:
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
+    # Set for a joined export: every clip in order, starting with `source`.
+    clips: list[Clip] = field(default_factory=list)
+
+    @property
+    def title(self) -> str:
+        more = len(self.clips) - 1
+        return f"{self.source.name} + {more} more" if more > 0 else self.source.name
+
+    @property
+    def summary(self) -> str:
+        return describe_join(self.settings, len(self.clips)) if self.clips else describe(self.settings, self.info.duration if self.info else None)
 
     def remaining_seconds(self, now: Optional[float] = None) -> Optional[float]:
         """Estimated time left, once there's enough progress to guess."""
@@ -59,10 +78,16 @@ Runner = Callable[[str, Job, Callable[[float], None]], Path]
 def run_job(ffmpeg: str, job: Job, on_progress: Callable[[float], None]) -> Path:
     """Export one job with ffmpeg. The output name is chosen now, so queued jobs for
     the same file never collide."""
+    if job.clips:
+        output = output_file_for(job.source, job.settings, job.output_dir, joined=True)
+        parts = [JoinPart(clip.source, clip.settings.edit, clip.info) for clip in job.clips]
+        join = JoinJob(parts, output, job.settings.output == OUTPUT_AUDIO, job.settings.audio_quality)
+        return join_clips(ffmpeg, join, on_progress, job.cancel_event)
     output = output_file_for(job.source, job.settings, job.output_dir)
     edit = job.settings.edit
     if job.settings.output == OUTPUT_AUDIO:
-        audio = ConversionJob(job.source, output, job.settings.audio_quality, edit.start, edit.end)
+        audio = ConversionJob(job.source, output, job.settings.audio_quality, edit.start, edit.end, edit.keep,
+                              edit.speed, edit.reverse, edit.audio_fade_in, edit.audio_fade_out)
         return convert(ffmpeg, audio, on_progress, job.cancel_event)
     return convert_video(ffmpeg, VideoJob(job.source, output, edit), on_progress, job.cancel_event, job.info)
 

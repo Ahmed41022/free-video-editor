@@ -15,16 +15,17 @@ from typing import Optional
 from PySide6.QtCore import QEvent, QObject, QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter,
+    QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter,
     QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .. import __version__
 from ..core import VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_video_file, probe_media
-from ..jobs import Job, JobQueue
+from ..jobs import Clip, Job, JobQueue
 from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
+from ..timing import part_index, remove_part_at, restore_part_at, split_at
 from ..video import plan_geometry, render_frame
 from . import icons, theme
 from .inspector import Inspector
@@ -75,6 +76,23 @@ class SettingsCommand(QUndoCommand):
 
     def undo(self) -> None:
         self.window.apply_settings(self.item, self.before)
+
+
+class MediaList(QListWidget):
+    """The list of files. Dragging an item reorders the list (the order of a joined export);
+    files dragged in from outside are left to the window."""
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.source() is self:
+            super().dragEnterEvent(event)
+        else:
+            event.ignore()
 
 
 class Signals(QObject):
@@ -153,6 +171,11 @@ class MainWindow(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
+        self.join_button = QPushButton("Join into one")
+        self.join_button.setToolTip("Export the files as one video, in list order: the selected files, or all of "
+                                    "them. Drag files in the list to reorder them. (Ctrl+J)")
+        self.join_button.clicked.connect(self.join_clips)
+        toolbar.addWidget(self.join_button)
         self.export_all_button = QPushButton("Export all")
         self.export_all_button.setToolTip("Export every file in the list (Ctrl+Shift+E)")
         self.export_all_button.clicked.connect(self.export_all)
@@ -162,14 +185,15 @@ class MainWindow(QMainWindow):
         self.export_button.clicked.connect(self.export_current)
         toolbar.addWidget(self.export_all_button)
         toolbar.addWidget(self.export_button)
-        for shortcut, slot in (("Ctrl+E", self.export_current), ("Ctrl+Shift+E", self.export_all)):
+        for shortcut, slot in (("Ctrl+E", self.export_current), ("Ctrl+Shift+E", self.export_all),
+                               ("Ctrl+J", self.join_clips)):
             act = QAction(self)
             act.setShortcut(QKeySequence(shortcut))
             act.triggered.connect(slot)
             self.addAction(act)
 
         # media list
-        self.media_list = QListWidget()
+        self.media_list = MediaList()
         self.media_list.setIconSize(QSize(96, 54))
         self.media_list.setMinimumWidth(210)
         self.media_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -206,6 +230,8 @@ class MainWindow(QMainWindow):
         row.addStretch(1)
         self.in_button = tool("mark_in", "Start the trim here (I)", lambda: self.trim_at_playhead("start"))
         self.out_button = tool("mark_out", "End the trim here (O)", lambda: self.trim_at_playhead("end"))
+        self.split_button = tool("split", "Split at the playhead (S)", lambda: self.cut_at("split"))
+        self.cut_button = tool("scissors", "Cut out the part under the playhead (X)", lambda: self.cut_at("remove"))
         self.compare_button = tool("compare", "Show the result (B)", self._compare_toggled, checkable=True)
         self.compare_button.setText("Before / after")
         self.compare_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -239,8 +265,8 @@ class MainWindow(QMainWindow):
         self.refresh_icons()
 
     def _connect(self) -> None:
-        self.media_list.currentRowChanged.connect(
-            lambda row: self.select(self.items[row] if 0 <= row < len(self.items) else None))
+        self.media_list.currentRowChanged.connect(lambda row: self.select(self._item_at(row)))
+        self.media_list.model().rowsMoved.connect(self._rows_moved)
         self.media_list.customContextMenuRequested.connect(self._media_menu)
         self.player.frameReady.connect(self.view.set_frame)
         self.player.positionChanged.connect(self._on_position)
@@ -250,6 +276,9 @@ class MainWindow(QMainWindow):
         self.timeline.seekRequested.connect(self.player.seek)
         self.timeline.trimChanged.connect(self._timeline_trim)
         self.timeline.trimEditFinished.connect(self._edit_finished)
+        self.timeline.keepChanged.connect(self._timeline_keep)
+        self.timeline.keepEditFinished.connect(self._edit_finished)
+        self.timeline.menuRequested.connect(self._timeline_menu)
         self.view.cropMoved.connect(self._crop_moved)
         self.view.zoomChanged.connect(self._zoom_changed)
         self.view.cropEditFinished.connect(self._edit_finished)
@@ -257,6 +286,7 @@ class MainWindow(QMainWindow):
         self.inspector.applyToAllRequested.connect(self.apply_to_all)
         self.inspector.savePresetRequested.connect(self.save_preset)
         self.inspector.playheadRequested.connect(self.trim_at_playhead)
+        self.inspector.cutRequested.connect(self.cut_at)
         self.inspector.outputFolderRequested.connect(self.choose_output_folder)
         self.bridge.jobUpdated.connect(self._job_updated)
 
@@ -341,13 +371,15 @@ class MainWindow(QMainWindow):
                 continue
             known.add(path.resolve())
             item = MediaItem(path)
-            item.list_item = QListWidgetItem(icons.icon("film", size=48), self._item_text(item))
-            item.list_item.setToolTip(str(path))
+            item.list_item = QListWidgetItem(icons.icon("film", size=48), "")
+            self._show_item_text(item)
+            item.list_item.setData(Qt.ItemDataRole.UserRole, id(item))
             self.items.append(item)
             self.media_list.addItem(item.list_item)
             self.loader.submit(self._load_item, item)
             added += 1
         if added:
+            self._update_list_actions()
             self.statusBar().showMessage(f"Added {added} file{'s' if added != 1 else ''}.", 4000)
             if self.current is None:
                 self.media_list.setCurrentRow(len(self.items) - added)
@@ -355,13 +387,34 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("No new video files there.", 4000)
         return added
 
+    def _update_list_actions(self) -> None:
+        """Enable the buttons that work on the whole list."""
+        self.export_all_button.setEnabled(bool(self.items))
+        self.join_button.setEnabled(len(self.items) > 1)
+
+    def _item_at(self, row: int) -> Optional[MediaItem]:
+        """The file shown in list row `row` (the list can be reordered by dragging)."""
+        list_item = self.media_list.item(row)
+        if list_item is None:
+            return None
+        key = list_item.data(Qt.ItemDataRole.UserRole)
+        return next((item for item in self.items if id(item) == key), None)
+
+    def _rows_moved(self, *_args) -> None:
+        """Keep `items` in the same order as the list after a drag."""
+        moved = [self._item_at(row) for row in range(self.media_list.count())]
+        if all(moved) and len(moved) == len(self.items):
+            self.items = moved
+
     def remove_selected(self) -> None:
         row = self.media_list.currentRow()
-        if not 0 <= row < len(self.items):
+        item = self._item_at(row)
+        if item is None:
             return
-        item = self.items.pop(row)
+        self.items.remove(item)
         self.media_list.takeItem(row)
         self.undo_stack.clear()   # undo steps may refer to the removed file
+        self._update_list_actions()
         if item is self.current:
             self.current = None
             self.select(self.items[min(row, len(self.items) - 1)] if self.items else None)
@@ -371,6 +424,10 @@ class MainWindow(QMainWindow):
             return
         menu = QMenu(self)
         menu.addAction("Export", self.export_current)
+        many = len(self.media_list.selectedItems()) > 1
+        join = menu.addAction("Join the selected files into one" if many else "Join all files into one",
+                              self.join_clips)
+        join.setEnabled(len(self.items) > 1)
         menu.addAction("Remove from list", self.remove_selected)
         menu.exec(self.media_list.mapToGlobal(point))
 
@@ -383,7 +440,13 @@ class MainWindow(QMainWindow):
             info = item.info
             size = f" · {info.width}×{info.height}" if info.has_video else " · audio only"
             meta = f"{format_time(info.duration or 0)}{size}"
-        return f"{item.path.name}\n{meta}\n{describe(item.settings)}"
+        return f"{item.path.name}\n{meta}\n{describe(item.settings, item.info.duration if item.info else None)}"
+
+    def _show_item_text(self, item: MediaItem) -> None:
+        # The summary line is often cut short in the list, so the tooltip repeats it in full.
+        text = self._item_text(item)
+        item.list_item.setText(text)
+        item.list_item.setToolTip(f"{item.path}\n{text.splitlines()[-1]}")
 
     def _load_item(self, item: MediaItem) -> None:
         """Background thread: read the file's details, thumbnails and waveform."""
@@ -410,7 +473,7 @@ class MainWindow(QMainWindow):
         if item.list_item is not None:
             if item.thumbs:
                 item.list_item.setIcon(item.thumbs[len(item.thumbs) // 2])
-            item.list_item.setText(self._item_text(item))
+            self._show_item_text(item)
         if item is self.current:
             self.select(item, reload=False)
 
@@ -421,10 +484,10 @@ class MainWindow(QMainWindow):
         self.current = item
         has_file = item is not None
         for widget in (self.export_button, self.back_button, self.play_button, self.forward_button,
-                       self.in_button, self.out_button, self.compare_button):
+                       self.in_button, self.out_button, self.split_button, self.cut_button, self.compare_button):
             widget.setEnabled(has_file)
         self.remove_action.setEnabled(has_file)
-        self.export_all_button.setEnabled(bool(self.items))
+        self._update_list_actions()
         if item is None:
             self.player.load(None)
             self.view.clear("Drop videos here, or click Add files")
@@ -452,7 +515,9 @@ class MainWindow(QMainWindow):
         edit = settings.edit
         video_out = settings.output == OUTPUT_VIDEO
         self.timeline.setTrim(edit.start, edit.end)
-        self.player.set_trim(edit.start, edit.end)
+        self.timeline.setKeep(edit.keep)
+        self.player.set_segments(edit.segments(info.duration if info else None))
+        self.player.set_rate(edit.speed)
         self.compare_button.setEnabled(video_out and bool(info and info.has_video))
         if info is None or not info.has_video:
             self.view.set_crop(None, 1.0)
@@ -472,7 +537,7 @@ class MainWindow(QMainWindow):
         """Set a file's settings and refresh whatever shows them (used by undo/redo too)."""
         item.settings = settings.copy()
         if item.list_item is not None:
-            item.list_item.setText(self._item_text(item))
+            self._show_item_text(item)
         if item is self.current:
             self._show_settings(item)
 
@@ -508,6 +573,59 @@ class MainWindow(QMainWindow):
             new = self.current.settings.copy()
             new.edit.start, new.edit.end = start, end
             self.push_settings(new, "Trim", final=False)
+
+    def _timeline_keep(self, keep: list) -> None:
+        if self.current:
+            new = self.current.settings.copy()
+            new.edit.keep = list(keep)
+            self.push_settings(new, "Cut", final=False)
+
+    def cut_at(self, action: str, t: Optional[float] = None) -> None:
+        """Split, cut out ("remove") or put back ("restore") the part at `t` (default: the
+        playhead), or put back every cut part ("restore_all")."""
+        item = self.current
+        if item is None or item.info is None or not item.info.duration:
+            return
+        duration = item.info.duration
+        t = self.player.position if t is None else t
+        keep = item.settings.edit.keep
+        if action == "split":
+            new_keep, label = split_at(keep, t, duration), "Split"
+            problem = ("This moment is cut out." if part_index(keep, t, duration) is None
+                       else "Too close to the start or end of a part to split there.")
+        elif action == "remove":
+            new_keep, label = remove_part_at(keep, t, duration), "Cut out part"
+            problem = ("This moment is already cut out." if part_index(keep, t, duration) is None
+                       else "Split the video first (S), then remove the part you don't want.")
+        elif action == "restore":
+            new_keep, label, problem = restore_part_at(keep, t, duration), "Put back part", ""
+        else:
+            new_keep, label, problem = [], "Put back all parts", ""
+        if new_keep == keep:
+            if problem:
+                self.statusBar().showMessage(problem, 4000)
+            return
+        new = item.settings.copy()
+        new.edit.keep = new_keep
+        self.push_settings(new, label)
+
+    def _timeline_menu(self, t: float, pos) -> None:
+        item = self.current
+        if item is None or item.info is None or not item.info.duration:
+            return
+        keep, duration = item.settings.edit.keep, item.info.duration
+        menu = QMenu(self)
+        if part_index(keep, t, duration) is None:
+            menu.addAction("Put back this part", lambda: self.cut_at("restore", t))
+        else:
+            split = menu.addAction("Split here", lambda: self.cut_at("split", t))
+            split.setEnabled(split_at(keep, t, duration) != keep)
+            remove = menu.addAction("Cut out this part", lambda: self.cut_at("remove", t))
+            remove.setEnabled(remove_part_at(keep, t, duration) != keep)
+        menu.addSeparator()
+        restore = menu.addAction("Put back all cut parts", lambda: self.cut_at("restore_all"))
+        restore.setEnabled(bool(keep))
+        menu.exec(pos)
 
     def trim_at_playhead(self, which: str) -> None:
         item = self.current
@@ -652,6 +770,33 @@ class MainWindow(QMainWindow):
         if count:
             self.statusBar().showMessage(f"Added {count} export{'s' if count != 1 else ''} to the queue.", 4000)
 
+    def join_clips(self) -> None:
+        """Export the selected files (or all of them, if one or none is selected) as one file,
+        in list order, with the first file's output settings."""
+        selected = {id(self._item_at(self.media_list.row(li))) for li in self.media_list.selectedItems()}
+        chosen = [item for item in self.items if id(item) in selected] if len(selected) > 1 else list(self.items)
+        if len(chosen) < 2:
+            self.statusBar().showMessage("Add two or more files to join them into one.", 4000)
+            return
+        loading = next((item for item in chosen if item.loading), None)
+        if loading is not None:
+            self.statusBar().showMessage(f"{loading.path.name} is still loading; try again in a moment.", 4000)
+            return
+        broken = next((item for item in chosen if item.error), None)
+        if broken is not None:
+            self.statusBar().showMessage(f"Can't join {broken.path.name}: {broken.error}", 6000)
+            return
+        first = chosen[0]
+        audio = first.settings.output == OUTPUT_AUDIO
+        silent = next((item for item in chosen if not audio and not item.info.has_video), None)
+        if silent is not None:
+            self.statusBar().showMessage(f"{silent.path.name} has no picture, so it can only be joined as "
+                                         "MP3: set the first file's output to Audio (MP3).", 6000)
+            return
+        clips = [Clip(item.path, item.settings.copy(), item.info) for item in chosen]
+        self.queue.add(Job(first.path, first.settings.copy(), self.output_dir, first.info, clips=clips))
+        self.statusBar().showMessage(f"Joining {len(chosen)} files into one {'MP3' if audio else 'video'}…", 4000)
+
     def _job_updated(self, job: Job) -> None:
         if job.state.finished and job.state.value == "Failed":
             self.statusBar().showMessage(f"Export failed: {job.source.name}", 6000)
@@ -678,6 +823,8 @@ class MainWindow(QMainWindow):
             Qt.Key.Key_Right: lambda: self.player.step(1 if shift else FRAME_STEP),
             Qt.Key.Key_I: lambda: self.trim_at_playhead("start"),
             Qt.Key.Key_O: lambda: self.trim_at_playhead("end"),
+            Qt.Key.Key_S: lambda: self.cut_at("split"),
+            Qt.Key.Key_X: lambda: self.cut_at("remove"),
             Qt.Key.Key_B: self.compare_button.click,
             Qt.Key.Key_Home: lambda: self.player.seek(self.current.settings.edit.start or 0.0),
         }

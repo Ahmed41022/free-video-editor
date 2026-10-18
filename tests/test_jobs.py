@@ -4,11 +4,12 @@ import tempfile
 import threading
 import time
 import unittest
+from array import array
 from pathlib import Path
 
-from video_converter.core import ConversionCancelled, ConversionError, find_ffmpeg, probe_media
-from video_converter.jobs import Job, JobQueue, JobState
-from video_converter.project import OUTPUT_AUDIO, ClipSettings
+from video_converter.core import ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media
+from video_converter.jobs import Clip, Job, JobQueue, JobState
+from video_converter.project import OUTPUT_AUDIO, ClipSettings, describe, describe_join
 from video_converter.video import VideoEdit
 
 FFMPEG = find_ffmpeg()
@@ -104,6 +105,43 @@ class JobBasicsTests(unittest.TestCase):
         self.assertFalse(JobState.RUNNING.finished)
         for state in (JobState.DONE, JobState.FAILED, JobState.CANCELLED):
             self.assertTrue(state.finished)
+
+    def test_a_single_files_title_and_summary(self):
+        settings = ClipSettings(edit=VideoEdit(speed=2.0))
+        job = Job(Path("folder/clip.mp4"), settings)
+        self.assertEqual(job.title, "clip.mp4")
+        self.assertEqual(job.summary, describe(settings))
+        self.assertIn("2× speed", job.summary)
+
+    def test_a_single_files_summary_counts_cuts_that_reach_the_end(self):
+        settings = ClipSettings(edit=VideoEdit(keep=[(0.0, 1.0)]))
+        self.assertNotIn("cut", Job(Path("clip.mp4"), settings).summary)
+        job = Job(Path("clip.mp4"), settings, info=MediaInfo(duration=4.0, width=640, height=360))
+        self.assertIn("1 cut", job.summary)
+
+    def test_a_joined_jobs_title_and_summary(self):
+        settings = ClipSettings(edit=VideoEdit(aspect=(1, 1)))
+        clips = [Clip(Path(f"folder/{name}.mp4"), settings) for name in ("first", "second", "third")]
+        job = Job(clips[0].source, settings, clips=clips)
+        self.assertEqual(job.title, "first.mp4 + 2 more")
+        self.assertEqual(job.summary, describe_join(settings, 3))
+        self.assertEqual(job.summary, "MP4 · 1:1 · 3 clips joined")
+
+    def test_a_joined_mp3_summary(self):
+        settings = ClipSettings(output=OUTPUT_AUDIO, audio_quality="320 kbps")
+        clips = [Clip(Path("a.mp4"), settings), Clip(Path("b.mp4"), settings)]
+        job = Job(clips[0].source, settings, clips=clips)
+        self.assertEqual(job.title, "a.mp4 + 1 more")
+        self.assertEqual(job.summary, "MP3 · 320 kbps · 2 clips joined")
+
+    def test_a_job_without_other_clips_is_titled_by_its_file(self):
+        job = Job(Path("a.mp4"), ClipSettings(), clips=[])
+        self.assertEqual(job.title, "a.mp4")
+
+    def test_each_job_has_its_own_clip_list(self):
+        a, b = make_job(), make_job()
+        a.clips.append(Clip(Path("x.mp4"), ClipSettings()))
+        self.assertEqual(b.clips, [])
 
     def test_each_job_has_its_own_cancel_event(self):
         a, b = make_job(), make_job()
@@ -750,6 +788,91 @@ class EndToEndTests(unittest.TestCase):
         self.assertTrue(info.has_audio)
         self.assertAlmostEqual(info.duration, 2.0, delta=0.3)
         self.assertTrue(self.source.is_file())
+
+    def test_joined_job_makes_one_file_as_long_as_its_clips(self):
+        out = self.tmp / "joined"
+        other = self.tmp / "other.mp4"
+        subprocess.run(
+            [FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i", "testsrc2=duration=1:size=160x120:rate=10", "-c:v", "libx264",
+             "-pix_fmt", "yuv420p", str(other)], check=True)
+        settings = ClipSettings(edit=VideoEdit(aspect=None))
+        clips = [Clip(self.source, settings.copy()), Clip(other, settings.copy())]
+        job = self.queue.add(Job(self.source, settings.copy(), output_dir=out, clips=clips))
+        self.assertTrue(self.queue.wait(120))
+        self.assertIs(job.state, JobState.DONE, job.error)
+        self.assertEqual(job.output, out / "clip (joined).mp4")
+        self.assertEqual([p.name for p in out.iterdir()], ["clip (joined).mp4"])
+        info = probe_media(FFMPEG, job.output)
+        self.assertAlmostEqual(info.duration, 3.0, delta=0.3)
+        self.assertEqual((info.width, info.height), (320, 180))        # the first clip's size
+        self.assertTrue(info.has_audio)                                # the second clip is silent
+
+    def test_joined_mp3_job(self):
+        out = self.tmp / "joined-mp3"
+        settings = ClipSettings(output=OUTPUT_AUDIO)
+        clips = [Clip(self.source, settings.copy()), Clip(self.source, settings.copy())]
+        job = self.queue.add(Job(self.source, settings.copy(), output_dir=out, clips=clips))
+        self.assertTrue(self.queue.wait(120))
+        self.assertIs(job.state, JobState.DONE, job.error)
+        self.assertEqual(job.output, out / "clip (joined).mp3")
+        self.assertAlmostEqual(probe_media(FFMPEG, job.output).duration, 4.0, delta=0.3)
+
+    def test_two_joined_jobs_of_the_same_files_do_not_collide(self):
+        out = self.tmp / "joined-twice"
+        settings = ClipSettings(output=OUTPUT_AUDIO)
+        jobs = [self.queue.add(Job(self.source, settings.copy(), output_dir=out,
+                                   clips=[Clip(self.source, settings.copy()), Clip(self.source, settings.copy())]))
+                for _ in range(2)]
+        self.assertTrue(self.queue.wait(120))
+        self.assertEqual([j.state for j in jobs], [JobState.DONE, JobState.DONE])
+        self.assertEqual([j.output for j in jobs], [out / "clip (joined).mp3", out / "clip (joined) (1).mp3"])
+
+    def test_a_joined_job_with_a_broken_clip_fails_cleanly(self):
+        out = self.tmp / "joined-broken"
+        settings = ClipSettings(edit=VideoEdit(aspect=None))
+        clips = [Clip(self.source, settings.copy()), Clip(self.tmp / "missing.mp4", settings.copy())]
+        job = self.queue.add(Job(self.source, settings.copy(), output_dir=out, clips=clips))
+        self.assertTrue(self.queue.wait(120))
+        self.assertIs(job.state, JobState.FAILED)
+        self.assertIn("not found", job.error.lower())
+        self.assertFalse(out.exists() and any(out.iterdir()))
+
+    def test_mp3_job_passes_cuts_and_speed_through(self):
+        out = self.tmp / "mp3-edit"
+        edit = VideoEdit(keep=[(0.0, 1.0), (1.5, 2.0)], speed=0.5)     # 1.5 s kept, at half speed
+        job = self.queue.add(Job(self.source, ClipSettings(output=OUTPUT_AUDIO, edit=edit), output_dir=out))
+        self.assertTrue(self.queue.wait(120))
+        self.assertIs(job.state, JobState.DONE, job.error)
+        self.assertAlmostEqual(probe_media(FFMPEG, job.output).duration, 3.0, delta=0.25)
+
+    def test_mp3_job_uses_the_sound_fades_not_the_picture_fades(self):
+        out = self.tmp / "mp3-fade"
+        faded = ClipSettings(output=OUTPUT_AUDIO, edit=VideoEdit(audio_fade_in=1.0))
+        picture_only = ClipSettings(output=OUTPUT_AUDIO, edit=VideoEdit(fade_in=1.0))
+        a = self.queue.add(Job(self.source, faded, output_dir=out))
+        b = self.queue.add(Job(self.source, picture_only, output_dir=out))
+        self.assertTrue(self.queue.wait(120))
+
+        def first_and_middle_peaks(path):
+            data = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-i", str(path), "-vn", "-ac", "1",
+                                   "-ar", "8000", "-f", "s16le", "-"], capture_output=True, check=True).stdout
+            samples = array("h")
+            samples.frombytes(data)
+            return max(abs(s) for s in samples[:800]), max(abs(s) for s in samples[6000:10000])
+
+        start, middle = first_and_middle_peaks(a.output)
+        self.assertLess(start, middle / 4)
+        start, middle = first_and_middle_peaks(b.output)
+        self.assertGreater(start, middle / 2)
+
+    def test_mp4_job_passes_cuts_speed_and_reverse_through(self):
+        out = self.tmp / "mp4-edit"
+        edit = VideoEdit(aspect=None, keep=[(0.0, 1.0), (1.5, 2.0)], speed=2.0, reverse=True)
+        job = self.queue.add(Job(self.source, ClipSettings(edit=edit), output_dir=out))
+        self.assertTrue(self.queue.wait(120))
+        self.assertIs(job.state, JobState.DONE, job.error)
+        self.assertAlmostEqual(probe_media(FFMPEG, job.output).duration, 0.75, delta=0.15)
 
     def test_default_output_is_next_to_the_source(self):
         copy_dir = self.tmp / "next-to"
