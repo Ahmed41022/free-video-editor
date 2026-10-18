@@ -12,21 +12,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QSettings, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap, QUndoCommand, QUndoStack
+from PySide6.QtCore import QByteArray, QEvent, QObject, QSettings, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QImage, QKeySequence, QPixmap, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter,
     QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
-from .. import APP_NAME, __version__
+from .. import APP_NAME, __version__, diagnostics, gpu
 from ..core import (
     AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_media_file, probe_media,
 )
 from ..jobs import Clip, Job, JobQueue
 from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
+from ..proxy import ProxyMaker, needs_proxy
 from ..timing import part_index, remove_part_at, restore_part_at, split_at
 from ..video import REVERSE_WARN_BYTES, format_memory, plan_geometry, render_frame, reverse_memory, reverse_warning
 from . import icons, theme
@@ -50,6 +51,9 @@ class MediaItem:
     list_item: Optional[QListWidgetItem] = None
     loading: bool = True
     error: str = ""
+    proxy: Optional[Path] = None             # the smooth preview copy, once it is ready
+    proxy_progress: Optional[float] = None   # how far along the copy is, while it is being made
+    proxy_failed: bool = False
 
 
 class SettingsCommand(QUndoCommand):
@@ -103,6 +107,9 @@ class Signals(QObject):
     """Results from background threads, delivered on the UI thread."""
     loaded = Signal(object, object, object, object)   # item, info, thumbnail paths, waveform
     afterReady = Signal(int, object)                   # request token, QImage or error text
+    gpuReady = Signal(object)                          # the graphics card's name, or None if there is none
+    proxyProgress = Signal(object, float)              # item, how much of its smooth preview is made
+    proxyDone = Signal(object, object, str)            # item, the preview copy or None, why not
 
 
 class MainWindow(QMainWindow):
@@ -120,10 +127,17 @@ class MainWindow(QMainWindow):
         self.tmpdir = Path(tempfile.mkdtemp(prefix="videoconverter-"))
         self.closed = False
         self.confirm_heavy_exports = True     # ask before an export that needs a lot of memory
+        self.smooth_previews = True           # play a small copy of big videos (View menu)
+        self.gpu_encoders: Optional[tuple[str, ...]] = None     # None until the search has finished
         self.loader = ThreadPoolExecutor(max_workers=2, thread_name_prefix="media-loader")
         self.signals = Signals()
         self.signals.loaded.connect(self._on_loaded)
         self.signals.afterReady.connect(self._on_after_ready)
+        self.signals.gpuReady.connect(self._on_gpu_ready)
+        self.signals.proxyProgress.connect(self._on_proxy_progress)
+        self.signals.proxyDone.connect(self._on_proxy_done)
+        self.proxies = ProxyMaker(ffmpeg, self.tmpdir / "preview", self.signals.proxyProgress.emit,
+                                  self.signals.proxyDone.emit)
         self._after_token = 0
         self._after_timer = QTimer(self, singleShot=True, interval=250, timeout=self._render_after)
 
@@ -140,6 +154,7 @@ class MainWindow(QMainWindow):
         self._connect()
         QApplication.instance().installEventFilter(self)
         self.select(None)
+        threading.Thread(target=self._find_gpu, name="gpu-search", daemon=True).start()
 
     # ----- layout -------------------------------------------------------------
 
@@ -268,8 +283,26 @@ class MainWindow(QMainWindow):
         self.main_split.setSizes([700, 150])
         self.top_split = top
         self.setCentralWidget(self.main_split)
+        self.preview_status = QLabel()      # "Preparing a smooth preview…", while there is one
+        self.statusBar().addPermanentWidget(self.preview_status)
+        self._build_menus()
         self.statusBar().showMessage("Add videos to get started: drop them here or press Ctrl+O.")
         self.refresh_icons()
+
+    def _build_menus(self) -> None:
+        view = self.menuBar().addMenu("&View")
+        self.smooth_action = view.addAction("Smooth previews for large videos")
+        self.smooth_action.setCheckable(True)
+        self.smooth_action.setChecked(self.smooth_previews)
+        self.smooth_action.setToolTip("Play a small copy of 4K and other very large videos, so the preview "
+                                      "doesn't stutter. Exports always use the original.")
+        self.smooth_action.setStatusTip(self.smooth_action.toolTip())
+        self.smooth_action.toggled.connect(self.set_smooth_previews)
+        help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction("Open the log folder", self.open_log_folder)
+        help_menu.addAction("Report a problem…", self.report_problem)
+        help_menu.addSeparator()
+        help_menu.addAction(f"About {APP_NAME}", self.show_about)
 
     def _connect(self) -> None:
         self.media_list.currentRowChanged.connect(lambda row: self.select(self._item_at(row)))
@@ -279,7 +312,7 @@ class MainWindow(QMainWindow):
         self.player.positionChanged.connect(self._on_position)
         self.player.durationChanged.connect(self._on_duration)
         self.player.playingChanged.connect(self._on_playing)
-        self.player.errorOccurred.connect(lambda message: self.statusBar().showMessage(f"Can't play this file: {message}"))
+        self.player.errorOccurred.connect(self._on_player_error)
         self.timeline.seekRequested.connect(self.player.seek)
         self.timeline.trimChanged.connect(self._timeline_trim)
         self.timeline.trimEditFinished.connect(self._edit_finished)
@@ -331,6 +364,8 @@ class MainWindow(QMainWindow):
         except ValueError:
             self.user_presets = {}
         self.inspector.set_presets(self.user_presets)
+        self.smooth_previews = self._saved_bool("smoothPreviews", True)
+        self.smooth_action.setChecked(self.smooth_previews)
         self._show_output_folder()
         self.refresh_icons()
 
@@ -338,6 +373,13 @@ class MainWindow(QMainWindow):
         """A saved text setting. Anything else a damaged settings file holds is ignored."""
         value = self.store.value(key, default)
         return value if isinstance(value, str) else default
+
+    def _saved_bool(self, key: str, default: bool) -> bool:
+        """A saved on/off setting (the settings file may keep it as text)."""
+        value = self.store.value(key, default)
+        if isinstance(value, bool):
+            return value
+        return {"true": True, "false": False}.get(value.strip().lower(), default) if isinstance(value, str) else default
 
     def _saved_bytes(self, key: str) -> Optional[QByteArray]:
         """A saved window layout, or None if there is none or the settings file holds something else."""
@@ -351,6 +393,7 @@ class MainWindow(QMainWindow):
         self.store.setValue("outputDir", str(self.output_dir) if self.output_dir else "")
         self.store.setValue("presets", json.dumps(self.user_presets))
         self.store.setValue("theme", self.theme_mode)
+        self.store.setValue("smoothPreviews", self.smooth_previews)
 
     def toggle_theme(self) -> None:
         self.theme_mode = theme.apply_theme(QApplication.instance(), "light" if self.theme_mode == "dark" else "dark")
@@ -431,6 +474,7 @@ class MainWindow(QMainWindow):
             return
         self.items.remove(item)
         self.media_list.takeItem(row)
+        self._drop_preview_copy(item)
         self.undo_stack.clear()   # undo steps may refer to the removed file
         self._update_list_actions()
         if item is self.current:
@@ -507,8 +551,13 @@ class MainWindow(QMainWindow):
             widget.setEnabled(has_file)
         self.remove_action.setEnabled(has_file)
         self._update_list_actions()
+        if changed:
+            # Don't keep a queue of big copies for files the user has already moved on from.
+            for other in self.proxies.cancel_waiting(keep=item):
+                other.proxy_progress = None
         if item is None:
             self.player.load(None)
+            self._update_preview_status()
             self.view.clear("Drop videos here, or click Add files")
             self.timeline.clear()
             self.inspector.set_settings(None, None)
@@ -519,7 +568,8 @@ class MainWindow(QMainWindow):
         if changed or reload:
             self.view.clear("Loading…")
             self.compare_button.setChecked(False)
-            self.player.load(item.path)
+            copy = self._preview_copy(item)
+            self.player.load(copy or item.path, upright=copy is not None)
         info = item.info
         self.timeline.setDuration(info.duration or 0.0 if info else 0.0)
         self.time_label.setText(f"{format_time(self.player.position)} / {format_time(info.duration or 0 if info else 0)}")
@@ -528,6 +578,7 @@ class MainWindow(QMainWindow):
         if info is not None and not info.has_video:
             self.view.clear(item.error or "Audio only: there's no picture to preview.")
         self._show_settings(item)
+        self._prepare_preview_copy(item)
 
     def _show_settings(self, item: MediaItem) -> None:
         settings, info = item.settings, item.info
@@ -713,6 +764,142 @@ class MainWindow(QMainWindow):
 
     def _show_output_folder(self) -> None:
         self.inspector.set_output_folder(str(self.output_dir) if self.output_dir else "Next to each original file")
+
+    # ----- smooth previews ------------------------------------------------------
+
+    def _preview_copy(self, item: MediaItem) -> Optional[Path]:
+        """The small copy to play instead of `item`'s file, if there is one and it should be used."""
+        if self.smooth_previews and item.proxy is not None and item.proxy.is_file():
+            return item.proxy
+        return None
+
+    def _prepare_preview_copy(self, item: MediaItem) -> None:
+        """Start making a smooth preview copy of `item` if it is a big video and has none yet."""
+        if (self.closed or not self.smooth_previews or item.loading or item.error or item.proxy is not None
+                or item.proxy_failed or item.proxy_progress is not None or not needs_proxy(item.info)):
+            self._update_preview_status()
+            return
+        item.proxy_progress = 0.0
+        if not self.proxies.request(item, item.path, item.info):
+            item.proxy_progress = None
+        self._update_preview_status()
+
+    def _update_preview_status(self) -> None:
+        item = self.current
+        progress = item.proxy_progress if item is not None else None
+        self.preview_status.setText(f"Preparing a smooth preview… {progress:.0%}" if progress is not None else "")
+
+    def _on_proxy_progress(self, item: MediaItem, fraction: float) -> None:
+        if item in self.items and item.proxy_progress is not None:
+            item.proxy_progress = fraction
+            if item is self.current:
+                self._update_preview_status()
+
+    def _on_proxy_done(self, item: MediaItem, path: Optional[Path], error: str) -> None:
+        item.proxy_progress = None
+        if self.closed or item not in self.items:
+            if path is not None:
+                self._delete_soon(path)
+            return
+        if path is None:
+            item.proxy_failed = True
+            if item is self.current:
+                self.statusBar().showMessage("Couldn't prepare a smooth preview, so the original plays instead.", 6000)
+        else:
+            item.proxy = path
+            if item is self.current and self.smooth_previews:
+                self.player.swap_source(path, upright=True)
+                self.statusBar().showMessage("The smooth preview is ready.", 4000)
+        self._update_preview_status()
+
+    def set_smooth_previews(self, on: bool) -> None:
+        """The View menu's switch: play small copies of big videos, or always the originals."""
+        if on == self.smooth_previews:
+            return
+        self.smooth_previews = on
+        self.store.setValue("smoothPreviews", on)
+        item = self.current
+        if not on:
+            self.proxies.cancel_all()
+            for other in self.items:
+                other.proxy_progress = None
+            if item is not None:
+                self.player.swap_source(item.path, upright=False)
+        elif item is not None:
+            copy = self._preview_copy(item)
+            if copy is not None:
+                self.player.swap_source(copy, upright=True)
+            else:
+                self._prepare_preview_copy(item)
+        self._update_preview_status()
+
+    def _drop_preview_copy(self, item: MediaItem) -> None:
+        """Stop making (and delete) the smooth preview of a file that was removed from the list."""
+        self.proxies.cancel(item)
+        item.proxy_progress = None
+        if item.proxy is not None:
+            if self.player.source == item.proxy:
+                self.player.load(None)      # let go of the file first
+            self._delete_soon(item.proxy)
+            item.proxy = None
+
+    def _delete_soon(self, path: Path, attempts: int = 20) -> None:
+        """Delete a file the player may keep open for a moment after being told to let go of it."""
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            if attempts > 0 and not self.closed:
+                QTimer.singleShot(250, lambda: self._delete_soon(path, attempts - 1))
+
+    def _on_player_error(self, message: str) -> None:
+        item = self.current
+        if item is not None and item.proxy is not None and self.player.source == item.proxy:
+            # The copy won't play: forget it and carry on with the original.
+            item.proxy_failed = True
+            item.proxy = None
+            self.player.swap_source(item.path, upright=False)
+            self.statusBar().showMessage("The smooth preview wouldn't play, so the original plays instead.", 6000)
+            return
+        self.statusBar().showMessage(f"Can't play this file: {message}")
+
+    # ----- graphics card and help -----------------------------------------------
+
+    def _find_gpu(self) -> None:
+        """Background thread: find out which hardware encoders work (checked once per run)."""
+        try:
+            found = gpu.detect_encoders(self.ffmpeg)
+            name = gpu.gpu_name(found[0]) if found else None
+        except Exception:      # never let this stop the app
+            found, name = (), None
+        self.signals.gpuReady.emit((found, name))
+
+    def _on_gpu_ready(self, result) -> None:
+        found, name = result
+        self.gpu_encoders = found
+        self.inspector.set_gpu_name(name)
+
+    def open_log_folder(self) -> None:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(diagnostics.log_path().parent)))
+
+    def problem_report_url(self) -> str:
+        """The link that opens a new GitHub issue with this PC's details and the end of the log filled in."""
+        return diagnostics.issue_url(diagnostics.system_lines(self.ffmpeg, self.gpu_encoders),
+                                     diagnostics.recent_log_lines())
+
+    def report_problem(self) -> None:
+        """Open GitHub's new-issue page in the browser, once the user has seen what it will contain."""
+        answer = QMessageBox.question(
+            self, "Report a problem",
+            "This opens GitHub in your browser with a new problem report already filled in: the app and "
+            "Windows versions, and the last lines of the log (which can include the names of files you "
+            "worked on).\n\nNothing is sent until you press Submit there, and you can edit or delete "
+            "anything first. You need a GitHub account to submit it.\n\nOpen it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
+        if answer == QMessageBox.StandardButton.Yes:
+            QDesktopServices.openUrl(QUrl(self.problem_report_url()))
+
+    def show_about(self) -> None:
+        QMessageBox.about(self, f"About {APP_NAME}", diagnostics.about_text())
 
     # ----- playback -----------------------------------------------------------
 
@@ -911,11 +1098,22 @@ class MainWindow(QMainWindow):
         self._save_preferences()
         QApplication.instance().removeEventFilter(self)
         self.queue.shutdown()
-        self.player.load(None)
-        self.loader.shutdown(wait=False, cancel_futures=True)
+        self.player.load(None)          # lets go of the preview copy's file
         self.closed = True
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        self.proxies.shutdown()
+        self.loader.shutdown(wait=False, cancel_futures=True)
+        self._remove_tmpdir()
         event.accept()
+
+    def _remove_tmpdir(self) -> None:
+        """Remove the temp folder. The player lets go of a preview copy a moment after it is told to, and
+        Windows won't delete a file that is still open, so keep trying briefly."""
+        for _ in range(40):
+            shutil.rmtree(self.tmpdir, ignore_errors=True)
+            if not self.tmpdir.exists():
+                return
+            QApplication.processEvents()
+            time.sleep(0.05)
 
     def _remove_tmpdir_if_closed(self) -> None:
         """A background job still running when the window closed may have made its folder again."""

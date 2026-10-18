@@ -58,22 +58,64 @@ class Player(QObject):
         self.media.playbackStateChanged.connect(
             lambda state: self.playingChanged.emit(state == QMediaPlayer.PlaybackState.PlayingState))
         self.media.errorOccurred.connect(lambda _e, message: self.errorOccurred.emit(message))
+        self.media.mediaStatusChanged.connect(self._on_status)
         self.segments: list[Segment] = []      # what the export keeps; [] = everything
+        self.source: Optional[Path] = None
+        # Frames of a preview copy are already upright (ffmpeg turned them when making it), whatever
+        # rotation the original file asks for.
+        self.upright = False
+        self._resume: Optional[tuple[int, bool, bool]] = None    # position (ms), playing, upright: set while swapping
+        self._new_source_loading = False
 
     @property
     def playing(self) -> bool:
+        if self._resume is not None:
+            return self._resume[1]
         return self.media.playbackState() == QMediaPlayer.PlaybackState.PlayingState
 
     @property
     def position(self) -> float:
-        return self.media.position() / 1000
+        return (self._resume[0] if self._resume is not None else self.media.position()) / 1000
 
-    def load(self, path: Optional[Path]) -> None:
+    def load(self, path: Optional[Path], upright: bool = False) -> None:
+        """Open `path`. `upright` says it is a preview copy, whose frames need no turning."""
+        self._resume = None
         self.media.stop()
+        self.source, self.upright = path, upright and path is not None
         self.media.setSource(QUrl.fromLocalFile(str(path)) if path else QUrl())
         if path:
             # Pausing straight away decodes the first frame, so the preview isn't blank.
             self.media.pause()
+
+    def swap_source(self, path: Path, upright: bool) -> None:
+        """Carry on from the same moment in another copy of the same video (the preview copy once it is
+        ready, or the original again), playing if it was playing."""
+        if path == self.source:
+            return
+        if self._resume is not None:        # swapped again before the last one finished
+            self._resume = (self._resume[0], self._resume[1], upright)
+        else:
+            self._resume = (self.media.position(), self.playing, upright)
+        self._new_source_loading = False
+        self.source = path
+        self.media.setSource(QUrl.fromLocalFile(str(path)))
+
+    def _on_status(self, status: QMediaPlayer.MediaStatus) -> None:
+        if self._resume is None:
+            return
+        # The old source still reports "loaded" for a moment; only what comes after the new one starts
+        # loading counts.
+        if status == QMediaPlayer.MediaStatus.LoadingMedia:
+            self._new_source_loading = True
+        elif self._new_source_loading and status in (QMediaPlayer.MediaStatus.LoadedMedia,
+                                                     QMediaPlayer.MediaStatus.BufferedMedia):
+            position, playing, self.upright = self._resume
+            self._resume = None
+            self.media.setPosition(position)
+            if playing:
+                self.media.play()
+            else:
+                self.media.pause()
 
     def set_segments(self, segments: list[Segment]) -> None:
         self.segments = list(segments)
@@ -107,7 +149,11 @@ class Player(QObject):
         self.media.pause()
 
     def seek(self, seconds: float) -> None:
-        self.media.setPosition(int(max(seconds, 0.0) * 1000))
+        ms = int(max(seconds, 0.0) * 1000)
+        if self._resume is not None:        # still swapping: that is where to carry on from
+            self._resume = (ms, self._resume[1], self._resume[2])
+            return
+        self.media.setPosition(ms)
 
     def step(self, seconds: float) -> None:
         self.seek(self.position + seconds)
@@ -116,6 +162,8 @@ class Player(QObject):
         self.audio.setMuted(muted)
 
     def _on_position(self, ms: int) -> None:
+        if self._resume is not None:        # the new source starts at 0 for a moment; not a real position
+            return
         seconds = ms / 1000
         if self.playing and self.segments:
             resume = self.next_play_position(seconds)
@@ -136,7 +184,7 @@ class Player(QObject):
             # toImage() applies the rotation Qt knows about, which it reports either on the
             # frame or (Qt 6.12) on the frame's surface format.
             none = QtVideo.Rotation.None_
-            oriented = frame.rotation() != none or frame.surfaceFormat().rotation() != none
+            oriented = self.upright or frame.rotation() != none or frame.surfaceFormat().rotation() != none
             self.frameReady.emit(image, oriented)
 
 

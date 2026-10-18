@@ -395,6 +395,16 @@ class Inspector(QScrollArea):
         self.crf_box.currentIndexChanged.connect(
             lambda: self._edit(lambda s: setattr(s.edit, "crf", self.crf_box.currentData()), "Quality"))
         self.quality_section.row("Quality", self.crf_box, 1)
+        self.gpu_box = QCheckBox("Use the graphics card when possible")
+        self.gpu_box.setToolTip("Exports much faster on most PCs. The picture quality is about the same; "
+                                "if the graphics card fails, the export runs on the CPU instead.")
+        self.gpu_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "use_gpu", on), "Graphics card"))
+        self.quality_section.grid.addWidget(self.gpu_box, 2, 0, 1, 2)
+        self.gpu_label = QLabel()
+        self.gpu_label.setObjectName("muted")
+        self.gpu_label.setWordWrap(True)
+        self.quality_section.grid.addWidget(self.gpu_label, 3, 0, 1, 2)
+        self.set_gpu_name(None, searching=True)
 
         # Export location (applies to every export, not one file)
         self.export_section = Section("Save to")
@@ -423,6 +433,15 @@ class Inspector(QScrollArea):
 
     def set_output_folder(self, text: str) -> None:
         self.folder_label.setText(text)
+
+    def set_gpu_name(self, name: Optional[str], searching: bool = False) -> None:
+        """Say which graphics card exports will use, or (name None) that there isn't one. While the
+        search is still running (`searching`) the option stays off-limits."""
+        self.gpu_box.setEnabled(bool(name))
+        if searching:
+            self.gpu_label.setText("Looking for a graphics card…")
+        else:
+            self.gpu_label.setText(name or "No supported graphics card found")
 
     def set_reverse_warning(self, text: str) -> None:
         """Show (or, with "", hide) the note about how much memory playing the clip backwards needs."""
@@ -494,6 +513,7 @@ class Inspector(QScrollArea):
             self.mp3_box.setCurrentText(settings.audio_quality)
             self.size_box.setCurrentIndex(max(self.size_box.findData(edit.resolution), 0))
             self.crf_box.setCurrentIndex(max(self.crf_box.findData(edit.crf), 0))
+            self.gpu_box.setChecked(edit.use_gpu)
             self.preset_box.setCurrentIndex(0)
         finally:
             self._updating = False

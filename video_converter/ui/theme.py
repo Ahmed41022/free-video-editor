@@ -61,6 +61,9 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
         QMainWindow, QDialog {{ background: {c['window']}; }}
         QToolBar {{ background: {c['panel']}; border: none; border-bottom: 1px solid {c['border']};
                     padding: 4px; spacing: 4px; }}
+        QMenuBar {{ background: {c['panel']}; color: {c['text']}; border-bottom: 1px solid {c['border']}; }}
+        QMenuBar::item {{ background: transparent; padding: 4px 10px; border-radius: 4px; }}
+        QMenuBar::item:selected {{ background: {c['raised']}; }}
         QToolButton {{ border: 1px solid transparent; border-radius: 6px; padding: 5px 8px; color: {c['text']}; }}
         QToolButton:hover {{ background: {c['raised']}; border-color: {c['border']}; }}
         QToolButton:checked {{ background: {c['selection']}; border-color: {c['accent']}; }}
