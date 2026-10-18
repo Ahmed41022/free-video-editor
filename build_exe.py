@@ -7,10 +7,15 @@ The exe bundles its own copy of ffmpeg and the Qt libraries, so it runs on PCs w
     .venv\\Scripts\\python build_exe.py
 
 Set FFMPEG_PATH to bundle a specific ffmpeg.exe instead of the one from imageio-ffmpeg.
+
+Add --installer to also build dist/FreeVideoEditor-Setup-<version>.exe with Inno Setup 6 (ISCC.exe on PATH, in
+its usual install folder, or named by the ISCC environment variable). Use --installer-only to skip the exe
+build and package an exe that is already in dist/.
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -59,10 +64,42 @@ def write_version_file(path: Path) -> None:
     )
 
 
-def main() -> None:
-    if sys.platform != "win32":
-        sys.exit("build_exe.py builds a Windows .exe; run it on Windows.")
+def locate_iscc() -> Path | None:
+    """Find Inno Setup's command-line compiler, or None when Inno Setup isn't installed."""
+    if os.environ.get("ISCC"):
+        path = Path(os.environ["ISCC"])
+        return path if path.is_file() else None
+    found = shutil.which("ISCC")
+    if found:
+        return Path(found)
+    for var in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"):
+        base = os.environ.get(var)
+        if not base:
+            continue
+        for folder in (Path(base) / "Inno Setup 6", Path(base) / "Programs" / "Inno Setup 6"):
+            if (folder / "ISCC.exe").is_file():
+                return folder / "ISCC.exe"
+    return None
 
+
+def build_installer() -> Path:
+    exe = ROOT / "dist" / f"{APP_NAME}.exe"
+    if not exe.is_file():
+        sys.exit(f"{exe} not found; build the exe first (run without --installer-only).")
+    iscc = locate_iscc()
+    if not iscc:
+        sys.exit("Inno Setup 6 (ISCC.exe) not found. Install it from https://jrsoftware.org/isdl.php "
+                 "(or: choco install innosetup), or set the ISCC environment variable to ISCC.exe.")
+    subprocess.run([str(iscc), "/Qp", f"/DAppVersion={__version__}", str(ROOT / "installer" / "FreeVideoEditor.iss")],
+                   check=True)
+    setup = ROOT / "dist" / f"FreeVideoEditor-Setup-{__version__}.exe"
+    if not setup.is_file():
+        sys.exit(f"Inno Setup finished but {setup} was not created.")
+    print(f"Built {setup} ({setup.stat().st_size / 1e6:.0f} MB)")
+    return setup
+
+
+def build_exe() -> None:
     ffmpeg = locate_ffmpeg()
     if not ffmpeg.is_file():
         sys.exit(f"ffmpeg not found at {ffmpeg}")
