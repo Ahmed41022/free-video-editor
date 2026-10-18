@@ -139,5 +139,20 @@ def build_exe() -> None:
     print(f"\nBuilt {exe} ({exe.stat().st_size / 1e6:.0f} MB)")
 
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description=f"Build {APP_NAME} for Windows.")
+    parser.add_argument("--installer", action="store_true",
+                        help="also build the Inno Setup installer (needs Inno Setup 6)")
+    parser.add_argument("--installer-only", action="store_true",
+                        help="only build the installer from the exe already in dist/")
+    args = parser.parse_args()
+    if sys.platform != "win32":
+        sys.exit("build_exe.py builds a Windows .exe; run it on Windows.")
+    if not args.installer_only:
+        build_exe()
+    if args.installer or args.installer_only:
+        build_installer()
+
+
 if __name__ == "__main__":
     main()
