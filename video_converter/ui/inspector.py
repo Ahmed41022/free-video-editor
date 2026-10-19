@@ -70,6 +70,7 @@ class Inspector(QScrollArea):
     savePresetRequested = Signal()
     playheadRequested = Signal(str)          # "start" or "end": use the current playhead time
     cutRequested = Signal(str)               # "split" or "remove": at the current playhead
+    removeSilencesRequested = Signal()
     outputFolderRequested = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -299,6 +300,10 @@ class Inspector(QScrollArea):
         self.restore_button = QPushButton("Put back the cut parts")
         self.restore_button.clicked.connect(lambda: self._edit(self._clear_cuts, "Restore cuts"))
         self.trim_section.grid.addWidget(self.restore_button, 7, 1)
+        self.silence_button = QPushButton("Remove silences…")
+        self.silence_button.clicked.connect(self.removeSilencesRequested.emit)
+        self.trim_section.grid.addWidget(self.silence_button, 8, 1)
+        self.set_has_sound(True)
 
         # Speed
         self.speed_section = Section("Speed")
@@ -463,6 +468,12 @@ class Inspector(QScrollArea):
         """Show (or, with "", hide) the note under Frame rate about a source that may not play on a phone."""
         self.rate_hint.setText(text)
         self.rate_hint.setVisible(bool(text))
+
+    def set_has_sound(self, has_sound: bool) -> None:
+        """Remove silences needs a sound track to listen to."""
+        self.silence_button.setEnabled(has_sound)
+        self.silence_button.setToolTip("Find the pauses in the sound and cut them out" if has_sound
+                                       else "This file has no sound, so there are no silences to remove")
 
     def set_reverse_warning(self, text: str) -> None:
         """Show (or, with "", hide) the note about how much memory playing the clip backwards needs."""

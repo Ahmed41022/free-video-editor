@@ -5,6 +5,7 @@
     python -m video_converter video.mp4 --video phone  # export an edited MP4 instead
     python -m video_converter a.mp4 b.mp4 --video original --join   # one MP4 made of both
     python -m video_converter clip.mp4 --video original --fps 60    # a copy that plays on a phone
+    python -m video_converter talk.mp4 --remove-silences            # an MP3 without the pauses
 """
 
 from __future__ import annotations
@@ -27,6 +28,9 @@ from .core import (
     probe_media,
 )
 from .gpu import choose_encoder
+from .silence import (
+    DB_RANGE, DEFAULT_DB, DEFAULT_MIN, DEFAULT_PAD, MIN_RANGE, PAD_RANGE, detect_silences, plan_silence_removal,
+)
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, cut_range
 from .video import (
     ADJUSTMENTS, DEFAULT_FPS, LOOKS, STABILIZE, UP_TO_1080, VIDEO_QUALITY, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video,
@@ -123,6 +127,21 @@ def _with_cuts(edit: VideoEdit, cuts: list[tuple[float, float]], duration: float
     return edit
 
 
+def _without_silences(edit: VideoEdit, ffmpeg: str, source: Path, info, args, note) -> VideoEdit:
+    """A copy of `edit` with the silences of `source` cut out (inside its trim, next to any cuts it has)."""
+    if not info.duration:
+        raise ConversionError("Can't remove silences: this file's length is unknown.")
+    if not info.has_audio:
+        raise ConversionError("This file has no sound, so there are no silences to remove.")
+    silences = detect_silences(ffmpeg, source, args.silence_db, args.silence_min, info.duration)
+    plan = plan_silence_removal(edit.keep, silences, edit.start, edit.end, info.duration, args.silence_pad)
+    note(f"{source.name}: cut out {len(plan.cuts)} {'pause' if len(plan.cuts) == 1 else 'pauses'}, "
+         f"{plan.removed:.1f} s in total")
+    edit = copy.deepcopy(edit)
+    edit.keep = plan.keep
+    return edit
+
+
 def run_cli(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="video_converter", description="Convert videos to MP3, or export edited MP4s.")
     parser.add_argument("files", nargs="+", type=Path, help="video files to convert")
@@ -170,6 +189,17 @@ def run_cli(argv: list[str]) -> int:
                         help="fade in from black and silence")
     timing.add_argument("--fade-out", type=_seconds, default=0.0, metavar="SECONDS",
                         help="fade out to black and silence")
+    timing.add_argument("--remove-silences", action="store_true",
+                        help="cut out the pauses (stretches with no sound), keeping a little silence around the speech")
+    timing.add_argument("--silence-db", type=_between("--silence-db", *DB_RANGE), default=None, metavar="DB",
+                        help=f"sound quieter than this is silence, {DB_RANGE[0]:g} to {DB_RANGE[1]:g} "
+                             f"(default: {DEFAULT_DB:g})")
+    timing.add_argument("--silence-min", type=_between("--silence-min", *MIN_RANGE), default=None, metavar="SECONDS",
+                        help=f"only cut pauses at least this long, {MIN_RANGE[0]:g} to {MIN_RANGE[1]:g} "
+                             f"(default: {DEFAULT_MIN:g})")
+    timing.add_argument("--silence-pad", type=_between("--silence-pad", *PAD_RANGE), default=None, metavar="SECONDS",
+                        help=f"silence to leave on each side of the speech, {PAD_RANGE[0]:g} to {PAD_RANGE[1]:g} "
+                             f"(default: {DEFAULT_PAD:g})")
     timing.add_argument("--join", action="store_true", help="make one file of all the inputs, in order")
 
     picture = parser.add_argument_group("picture (with --video)")
@@ -188,6 +218,11 @@ def run_cli(argv: list[str]) -> int:
     if args.join and len(args.files) < 2:
         parser.error("--join needs at least two files")
     picture_values = {name: getattr(args, name) for name in (*ADJUSTMENTS, "look", "stabilize")}
+    if not args.remove_silences and any(v is not None for v in (args.silence_db, args.silence_min, args.silence_pad)):
+        parser.error("--silence-db, --silence-min and --silence-pad need --remove-silences")
+    args.silence_db = DEFAULT_DB if args.silence_db is None else args.silence_db
+    args.silence_min = DEFAULT_MIN if args.silence_min is None else args.silence_min
+    args.silence_pad = DEFAULT_PAD if args.silence_pad is None else args.silence_pad
     if not args.video and args.fps != "source":
         parser.error("--fps needs --video")
     if not args.video and picture_values != {name: getattr(VideoEdit(), name) for name in picture_values}:
@@ -228,7 +263,10 @@ def run_cli(argv: list[str]) -> int:
                 if not source.is_file():
                     raise ConversionError(f"File not found: {source}")
                 info = probe_media(ffmpeg, source)
-                parts.append(JoinPart(source, _with_cuts(edit, args.cut, info.duration), info))
+                part_edit = _with_cuts(edit, args.cut, info.duration)
+                if args.remove_silences:
+                    part_edit = _without_silences(part_edit, ffmpeg, source, info, args, note)
+                parts.append(JoinPart(source, part_edit, info))
             for part in parts:
                 _warn_reverse(part.source.name, part.edit, part.info, not args.video, parts[0].info.fps or DEFAULT_FPS)
             job = JoinJob(parts, target, audio_only=not args.video, quality=quality)
@@ -245,8 +283,10 @@ def run_cli(argv: list[str]) -> int:
         try:
             if not source.is_file():
                 raise ConversionError(f"File not found: {source}")
-            info = probe_media(ffmpeg, source) if args.cut or args.reverse else None
+            info = probe_media(ffmpeg, source) if args.cut or args.reverse or args.remove_silences else None
             file_edit = _with_cuts(edit, args.cut, info.duration) if args.cut else edit
+            if args.remove_silences:
+                file_edit = _without_silences(file_edit, ffmpeg, source, info, args, note)
             if args.reverse:
                 _warn_reverse(source.name, file_edit, info, not args.video)
             if not args.video:

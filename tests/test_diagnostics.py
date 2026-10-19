@@ -311,7 +311,7 @@ class AboutTests(unittest.TestCase):
         self.assertIn("Qt", text)
 
     def test_the_version_is_2_4_0(self):
-        self.assertEqual(__version__, "2.5.0")
+        self.assertEqual(__version__, "2.6.0")
 
 
 class SystemInfoTests(unittest.TestCase):

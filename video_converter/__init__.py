@@ -2,7 +2,7 @@
 
 import logging
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 APP_NAME = "Free Video Editor"
 REPO_URL = "https://github.com/Ahmed41022/free-video-editor"
 

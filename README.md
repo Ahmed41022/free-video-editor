@@ -30,6 +30,7 @@ Everything the app needs is built in either way.
 - Video player with a timeline: thumbnails, audio waveform, and drag handles to trim
 - Cut sections out of the middle: split at the playhead, remove the parts you don't want, and drag the edges
   of a cut on the timeline to adjust it (right-click the timeline for more). Playback skips the cut parts
+- Remove silences with one click: find the pauses in a talk or commentary, see how much shorter the video gets, and turn them into cuts you can still adjust
 - Join several files into one video, in list order: drag files in the list to reorder them
 - Crop box right on the video: drag it to choose what to keep, drag a corner (or scroll) to zoom
 - Before / after view that renders exactly what the export will look like, adjustments and looks included
@@ -148,6 +149,8 @@ python -m video_converter "Game clip.mp4" --video original --fps 60 --size up108
 | `--fps` | `60` or `30` for a steady frame rate with phone-safe H.264 and AAC (a slower video keeps its own rate), or `source` (default) to leave it alone. `--video original --fps 60` makes a copy that plays on a phone, saved as `name (phone-ready).mp4` |
 | `--video-quality` | `high`, `balanced` (default), or `small` |
 | `--cut START-END` | Remove a section, e.g. `--cut 0:05-0:12`; repeat it to remove more |
+| `--remove-silences` | Cut out the pauses (stretches with no sound), keeping a little silence around the speech. Works with MP3 and `--video` exports |
+| `--silence-db`, `--silence-min`, `--silence-pad` | With `--remove-silences`: how quiet counts as silence, `-60` to `-20` dB (default `-35`); the shortest pause to cut, `0.3` to `3` seconds (default `0.6`); the silence left on each side of the speech, `0` to `0.5` seconds (default `0.15`) |
 | `--speed` | `0.25` to `4`, e.g. `2` for twice as fast (default `1`) |
 | `--reverse` | Play backwards (holds every frame in memory, so a long clip prints a warning) |
 | `--fade-in`, `--fade-out` | Fade the picture and sound in from / out to black and silence, in seconds |

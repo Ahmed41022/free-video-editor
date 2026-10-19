@@ -36,6 +36,7 @@ from . import icons, theme
 from .inspector import Inspector
 from .player import Player, VideoView
 from .queue_panel import QueueBridge, QueuePanel
+from .silence_dialog import SilenceDialog
 from .timeline import Timeline
 
 FRAME_STEP = 1 / 30
@@ -329,6 +330,7 @@ class MainWindow(QMainWindow):
         self.inspector.savePresetRequested.connect(self.save_preset)
         self.inspector.playheadRequested.connect(self.trim_at_playhead)
         self.inspector.cutRequested.connect(self.cut_at)
+        self.inspector.removeSilencesRequested.connect(self.remove_silences)
         self.inspector.outputFolderRequested.connect(self.choose_output_folder)
         self.bridge.jobUpdated.connect(self._job_updated)
 
@@ -590,6 +592,7 @@ class MainWindow(QMainWindow):
         video_out = settings.output == OUTPUT_VIDEO
         self.inspector.set_reverse_warning(
             reverse_warning(reverse_memory(edit, info, sound_only=not video_out)) if info else "")
+        self.inspector.set_has_sound(bool(info and info.has_audio))
         self.inspector.set_frame_rate_hint(frame_rate_hint(info) if info and edit.frame_rate is None else "")
         self.timeline.setTrim(edit.start, edit.end)
         self.timeline.setKeep(edit.keep)
@@ -685,6 +688,23 @@ class MainWindow(QMainWindow):
         new = item.settings.copy()
         new.edit.keep = new_keep
         self.push_settings(new, label)
+
+    def remove_silences(self) -> None:
+        """Ask how quiet and how long a pause is, then cut the pauses out as one undoable change."""
+        item = self.current
+        if item is None or item.info is None or not item.info.duration:
+            return
+        if not item.info.has_audio:
+            self.statusBar().showMessage("This file has no sound, so there are no silences to remove.", 4000)
+            return
+        edit = item.settings.edit
+        dialog = SilenceDialog(self.ffmpeg, item.path, item.info.duration, edit.keep, edit.start, edit.end, self)
+        accepted = dialog.exec() == SilenceDialog.DialogCode.Accepted
+        dialog.deleteLater()
+        if accepted and item is self.current:
+            new = item.settings.copy()
+            new.edit.keep = dialog.keep
+            self.push_settings(new, "Remove silences")
 
     def _timeline_menu(self, t: float, pos) -> None:
         item = self.current
