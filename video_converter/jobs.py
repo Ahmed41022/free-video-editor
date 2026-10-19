@@ -108,7 +108,7 @@ def run_job(ffmpeg: str, job: Job, on_progress: Callable[[float], None]) -> Path
     edit = job.settings.edit
     if job.settings.output == OUTPUT_AUDIO:
         audio = ConversionJob(job.source, output, job.settings.audio_quality, edit.start, edit.end, edit.keep,
-                              edit.speed, edit.reverse, edit.audio_fade_in, edit.audio_fade_out)
+                              edit.speed, edit.reverse, edit.audio_fade_in, edit.audio_fade_out, edit.sound)
         return convert(ffmpeg, audio, on_progress, job.cancel_event)
     return convert_video(ffmpeg, VideoJob(job.source, output, edit), on_progress, job.cancel_event, job.info,
                          choose_encoder(ffmpeg, edit.use_gpu), note)

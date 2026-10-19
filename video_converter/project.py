@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .core import DEFAULT_QUALITY, QUALITY_PRESETS, output_path_for
+from .sound import AUDIO_DENOISE, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, normalize_keep, removed_parts
 from .video import (
     ADJUSTMENTS, FIT_MODES, FRAME_RATES, LOOKS, RESOLUTIONS, STABILIZE, UP_TO_1080, VIDEO_QUALITY, VideoEdit,
@@ -92,6 +93,14 @@ class ClipSettings:
                 continue
             if name == "stabilize" and not (_is_str(value) and value in STABILIZE):
                 continue
+            if name == "audio_denoise" and not (_is_str(value) and value in AUDIO_DENOISE):
+                continue
+            if name == "volume" and not (_number(value) and VOLUME_MIN <= value <= VOLUME_MAX):
+                continue
+            if name == "music_volume" and not (_number(value) and MUSIC_VOLUME_MIN <= value <= MUSIC_VOLUME_MAX):
+                continue
+            if name == "music" and not (_is_str(value) and len(value) <= MAX_PATH_LENGTH):
+                continue
             default = getattr(defaults, name)
             if _compatible(default, value):
                 setattr(settings.edit, name, float(value) if isinstance(default, float) else value)
@@ -100,6 +109,7 @@ class ClipSettings:
 
 FADE_FIELDS = ("fade_in", "fade_out", "audio_fade_in", "audio_fade_out")
 MAX_KEPT_RANGES = 1000
+MAX_PATH_LENGTH = 1024
 
 
 def _is_str(value: Any) -> bool:
@@ -239,12 +249,28 @@ def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
         parts.append(f"{cuts} cut{'s' if cuts != 1 else ''}")
     if edit.speed != 1.0:
         parts.append(f"{edit.speed:g}× speed")
+    if not (settings.output == OUTPUT_VIDEO and edit.mute):      # with the sound removed, none of this is heard
+        parts += sound_words(edit)
     if edit.reverse:
         parts.append("reversed")
     video_fades = settings.output != OUTPUT_AUDIO and (edit.fade_in or edit.fade_out)
     if video_fades or edit.audio_fade_in or edit.audio_fade_out:
         parts.append("fades")
     return " · ".join(parts)
+
+
+def sound_words(edit: VideoEdit) -> list[str]:
+    """What is done to the sound, for the summary: "+3 dB", "even loudness", "less noise", "music"."""
+    words = []
+    if edit.volume:
+        words.append(f"{edit.volume:+g} dB")
+    if edit.normalize:
+        words.append("even loudness")
+    if AUDIO_DENOISE.get(edit.audio_denoise):
+        words.append("less noise")
+    if edit.music:
+        words.append("music")
+    return words
 
 
 def describe_join(settings: ClipSettings, count: int) -> str:
