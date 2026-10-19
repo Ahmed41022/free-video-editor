@@ -2,27 +2,40 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QScrollArea, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
 )
 
-from ..core import QUALITY_PRESETS, format_time, parse_time
+from ..core import AUDIO_EXTENSIONS, QUALITY_PRESETS, format_time, parse_time
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, PRESETS, ClipSettings
+from ..sound import AUDIO_DENOISE, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
 from ..timing import FADE_MAX, SPEED_MAX, SPEED_MIN, output_duration, removed_parts
 from ..video import ADJUSTMENTS, FIT_MODES, FRAME_RATES, LOOKS, RESOLUTIONS, STABILIZE, VIDEO_QUALITY
 
 ADJUST_LABELS = {"brightness": "Brightness", "contrast": "Contrast", "saturation": "Saturation",
                  "gamma": "Gamma", "sharpen": "Sharpen", "denoise": "Denoise"}
 STABILIZE_LABELS = {"off": "Off", "light": "Light", "strong": "Strong"}
+NOISE_LABELS = {"off": "Off", "light": "Light", "strong": "Strong"}
+assert set(NOISE_LABELS) == set(AUDIO_DENOISE)
 LOOK_CHIPS = {"bw": "B&W", "contrast": "Contrast"}      # short names that fit the panel
 
 SHAPES = [("Original", None), ("9:16", (9, 16)), ("1:1", (1, 1)), ("4:5", (4, 5)), ("16:9", (16, 9))]
 SHAPE_HINTS = {None: "Keep the video's own shape", (9, 16): "Phone: Stories, Reels, TikTok, Shorts",
                (1, 1): "Square post", (4, 5): "Portrait post", (16, 9): "Widescreen, YouTube"}
+
+
+def _db_text(value: float) -> str:
+    return f"{value:+g} dB".replace("-", "−") if value else "0 dB"
+
+
+def _short_name(name: str, longest: int = 24) -> str:
+    """A file name that fits the panel: the start and the end of a long one, with … between."""
+    return name if len(name) <= longest else f"{name[:longest // 2 - 1]}…{name[-(longest // 2):]}"
 
 
 class Section(QFrame):
@@ -382,6 +395,92 @@ class Inspector(QScrollArea):
         self.audio_section.grid.addWidget(self.mp3_label, 1, 0)
         self.audio_section.grid.addWidget(self.mp3_box, 1, 1)
 
+        self.volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.volume_slider.setRange(round(VOLUME_MIN), round(VOLUME_MAX))
+        self.volume_slider.setToolTip("Make the sound louder or quieter. +6 dB doubles its strength, −6 dB halves it.")
+        self.volume_label = QLabel("0 dB")
+        self.volume_label.setMinimumWidth(48)
+        self.volume_slider.valueChanged.connect(
+            lambda v: self._edit(lambda s: setattr(s.edit, "volume", float(v)), "Volume",
+                                 final=not self.volume_slider.isSliderDown()))
+        self.volume_slider.sliderReleased.connect(
+            lambda: self._edit(lambda s: setattr(s.edit, "volume", float(self.volume_slider.value())), "Volume"))
+        self.volume_slider.valueChanged.connect(lambda v: self.volume_label.setText(_db_text(v)))
+        self.volume_holder = self._slider_row(self.volume_slider, self.volume_label)
+        self.audio_section.row("Volume", self.volume_holder, 2)
+
+        self.normalize_box = QCheckBox("Make the loudness even (−14 LUFS)")
+        self.normalize_box.setToolTip(
+            "Sets the whole sound to the loudness YouTube and Spotify play at, so it isn't too quiet or too "
+            "loud next to other videos. It measures the sound first, so exporting takes a little longer.")
+        self.normalize_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "normalize", on),
+                                                                 "Even loudness"))
+        self.audio_section.grid.addWidget(self.normalize_box, 3, 0, 1, 2)
+
+        self.noise_box = QComboBox()
+        for key, label in NOISE_LABELS.items():
+            self.noise_box.addItem(label, key)
+        self.noise_box.setToolTip("Takes out steady background noise, like hiss or a fan. Light keeps voices "
+                                  "natural; Strong removes more but can make them sound thin.")
+        self.noise_box.currentIndexChanged.connect(
+            lambda: self._edit(lambda s: setattr(s.edit, "audio_denoise", self.noise_box.currentData()),
+                               "Noise reduction"))
+        self.audio_section.row("Noise reduction", self.noise_box, 4)
+
+        music_line = QHBoxLayout()
+        music_line.setContentsMargins(0, 0, 0, 0)
+        music_line.setSpacing(4)
+        self.music_name = QLabel()
+        self.music_name.setObjectName("muted")
+        self.music_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.music_choose = QPushButton("Choose…")
+        self.music_choose.setToolTip("Pick a song or sound to play behind the video")
+        self.music_choose.clicked.connect(self._choose_music)
+        self.music_remove = QPushButton("Remove")
+        self.music_remove.setToolTip("Take the background music away")
+        self.music_remove.clicked.connect(lambda: self._edit(lambda s: setattr(s.edit, "music", ""), "Remove music"))
+        music_line.addWidget(self.music_name, 1)
+        music_line.addWidget(self.music_choose)
+        music_line.addWidget(self.music_remove)
+        music_holder = QWidget()
+        music_holder.setLayout(music_line)
+        self.audio_section.row("Music", music_holder, 5)
+        self.music_missing = QLabel("The music file can't be found. Choose it again.")
+        self.music_missing.setObjectName("error")
+        self.music_missing.setWordWrap(True)
+        self.music_missing.hide()
+        self.audio_section.grid.addWidget(self.music_missing, 6, 1)
+
+        self.music_slider = QSlider(Qt.Orientation.Horizontal)
+        self.music_slider.setRange(round(MUSIC_VOLUME_MIN), round(MUSIC_VOLUME_MAX))
+        self.music_slider.setToolTip(
+            "How loud the music is next to the video's own sound. A video with no sound of its own plays "
+            "the music at full volume.")
+        self.music_label = QLabel()
+        self.music_label.setMinimumWidth(48)
+        self.music_slider.valueChanged.connect(
+            lambda v: self._edit(lambda s: setattr(s.edit, "music_volume", float(v)), "Music volume",
+                                 final=not self.music_slider.isSliderDown()))
+        self.music_slider.sliderReleased.connect(
+            lambda: self._edit(lambda s: setattr(s.edit, "music_volume", float(self.music_slider.value())),
+                               "Music volume"))
+        self.music_slider.valueChanged.connect(lambda v: self.music_label.setText(_db_text(v)))
+        self.music_holder = self._slider_row(self.music_slider, self.music_label)
+        self.audio_section.row("Music volume", self.music_holder, 7)
+        self.duck_box = QCheckBox("Lower the music when people talk")
+        self.duck_box.setToolTip("The music dips whenever the video's own sound is playing, and comes back "
+                                 "up in the quiet parts.")
+        self.duck_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "music_duck", on),
+                                                            "Music ducking"))
+        self.audio_section.grid.addWidget(self.duck_box, 8, 0, 1, 2)
+        music_hint = QLabel("The music plays over the whole result, starts again if it is shorter, and fades out "
+                            "over the last 2 seconds.")
+        music_hint.setObjectName("muted")
+        music_hint.setWordWrap(True)
+        self.audio_section.grid.addWidget(music_hint, 9, 0, 1, 2)
+        # Everything under Remove the sound: with the sound removed none of it is heard.
+        self.sound_options = [self.volume_holder, self.normalize_box, self.noise_box, music_holder]
+
         # Quality
         self.quality_section = Section("Video quality")
         self.size_box = QComboBox()
@@ -543,6 +642,7 @@ class Inspector(QScrollArea):
                 widget.setVisible(video)
             self.mute_box.setChecked(edit.mute)
             self.mp3_box.setCurrentText(settings.audio_quality)
+            self._show_sound(settings)
             self.size_box.setCurrentIndex(max(self.size_box.findData(edit.resolution), 0))
             self.rate_box.setCurrentIndex(max(self.rate_box.findData(edit.frame_rate), 0))
             self.crf_box.setCurrentIndex(max(self.crf_box.findData(edit.crf), 0))
@@ -582,6 +682,47 @@ class Inspector(QScrollArea):
     @staticmethod
     def _clear_cuts(s: ClipSettings) -> None:
         s.edit.keep = []
+
+    def _show_sound(self, settings: ClipSettings) -> None:
+        edit = settings.edit
+        muted = settings.output == OUTPUT_VIDEO and edit.mute      # Mute wins over everything below
+        if not self.volume_slider.isSliderDown():
+            self.volume_slider.setValue(round(edit.volume))
+        self.volume_label.setText(_db_text(round(edit.volume)))
+        self.normalize_box.setChecked(edit.normalize)
+        self.noise_box.setCurrentIndex(max(self.noise_box.findData(edit.audio_denoise), 0))
+        if not self.music_slider.isSliderDown():
+            self.music_slider.setValue(round(edit.music_volume))
+        self.music_label.setText(_db_text(round(edit.music_volume)))
+        self.duck_box.setChecked(edit.music_duck)
+        name = Path(edit.music).name if edit.music else ""
+        self.music_name.setText(_short_name(name) if name else "None")
+        self.music_name.setToolTip(edit.music)
+        self.music_remove.setEnabled(bool(edit.music))
+        self.music_missing.setVisible(bool(edit.music) and not Path(edit.music).is_file())
+        for widget in self.sound_options:
+            widget.setEnabled(not muted)
+        for widget in (self.music_holder, self.duck_box):
+            widget.setEnabled(not muted and bool(edit.music))
+
+    @staticmethod
+    def _slider_row(slider: QSlider, label: QLabel) -> QWidget:
+        line = QHBoxLayout()
+        line.setContentsMargins(0, 0, 0, 0)
+        line.addWidget(slider)
+        line.addWidget(label)
+        holder = QWidget()
+        holder.setLayout(line)
+        return holder
+
+    def _choose_music(self) -> None:
+        current = self.settings.edit.music if self.settings else ""
+        patterns = " ".join(f"*{extension}" for extension in AUDIO_EXTENSIONS)
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose background music", str(Path(current).parent) if current else "",
+            f"Sound files ({patterns});;All files (*)")
+        if path:
+            self._edit(lambda s: setattr(s.edit, "music", str(Path(path))), "Choose music")
 
     def _show_trim(self) -> None:
         edit = self.settings.edit

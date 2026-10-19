@@ -61,6 +61,13 @@ Everything the app needs is built in either way.
 - Trim to any range, e.g. from `0:15` to `1:02:30`, and cut out as many sections as you like
 - Speed from 0.25× to 4× with natural-sounding audio (the pitch stays the same), and play backwards
 - Fade in and out, with separate lengths for the picture and the sound
+- Sound tools, per file: make it louder or quieter (−20 to +20 dB), make the loudness even (−14 LUFS, like
+  YouTube and Spotify; it measures first and then applies, so it takes a little longer), and reduce background
+  noise (light or strong)
+- Background music from any audio file: set how loud it is next to the video's own sound, let it lower itself
+  when people talk, and have it repeat if it is shorter than the video. It is laid over the finished result, so
+  it follows your cuts, speed changes and joins, and fades out over the last 2 seconds. A video with no sound of
+  its own just gets the music. Removing the sound removes the music too
 - Never overwrites anything: edits are saved as `name (phone).mp4`, `name (square).mp4`, …,
   and existing names get a number (`file.mp3` becomes `file (1).mp3`)
 - Accepts MP4, MOV, MKV, AVI, WEBM, M4V and other common video formats, and audio files (MP3, M4A, AAC, WAV,
@@ -69,13 +76,14 @@ Everything the app needs is built in either way.
 ## How to use
 
 1. Click **Add files** or **Add folder**, or drop videos onto the window (or onto the exe)
-2. Pick a file, then choose a preset or set the shape, crop, picture, trim, cuts, speed and fades on the right
+2. Pick a file, then choose a preset or set the shape, crop, picture, trim, cuts, speed, fades and sound on the right
 3. Click **Export** (or **Export all**); exports run in the queue at the bottom while you keep working
 
 To make one video from several files, put them in the order you want (drag them in the list), select the
 ones to join (or none, to join them all) and click **Join into one**. Each clip keeps its own crop, cuts,
-speed and fades; the result takes its size, frame rate and quality from the first clip, and clips of
-another shape get black bars. If the first clip is set to MP3, you get one MP3 instead.
+speed, fades, volume and noise reduction; the result takes its size, frame rate, quality, even loudness and
+background music from the first clip, and clips of another shape get black bars. If the first clip is set to
+MP3, you get one MP3 instead.
 
 ### Videos that won't play on your phone
 
@@ -155,6 +163,12 @@ python -m video_converter "Game clip.mp4" --video original --fps 60 --size up108
 | `--reverse` | Play backwards (holds every frame in memory, so a long clip prints a warning) |
 | `--fade-in`, `--fade-out` | Fade the picture and sound in from / out to black and silence, in seconds |
 | `--join` | Make one file of all the inputs, in the order given (an MP4 with `--video`, else an MP3) |
+| `--volume DB` | Louder or quieter, `-20` to `20` dB (default `0`) |
+| `--normalize` | Make the loudness even at −14 LUFS, like YouTube and Spotify (measures first, then applies) |
+| `--denoise-audio` | Reduce background noise: `light` or `strong` |
+| `--music FILE` | Lay this music under the whole result: it repeats if it is shorter and fades out over the last 2 seconds. Works with `--join`, cuts and `--speed`; with `--mute` there is no sound at all |
+| `--music-volume DB` | The music's volume, `-40` to `0` dB (default `-18`); needs `--music` |
+| `--duck` | Lower the music while the video's own sound plays; needs `--music` |
 | `--brightness`, `--contrast`, `--saturation`, `--gamma` | Adjust the picture, e.g. `--contrast 1.2` (`--help` lists the ranges) |
 | `--sharpen`, `--denoise` | Sharpen (`0` to `1.5`) or reduce noise (`0` to `10`) |
 | `--look` | `bw`, `warm`, `cool`, `vintage`, or `contrast` |

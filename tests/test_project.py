@@ -30,7 +30,9 @@ def custom_settings() -> ClipSettings:
                        resolution=720, crf=18, use_gpu=False, mute=True, start=1.5, end=9.25,
                        keep=[(1.0, 3.0), (5.0, 8.0)], speed=1.5, reverse=True, fade_in=0.5, fade_out=1.0,
                        audio_fade_in=0.25, audio_fade_out=2.0, brightness=0.2, contrast=1.3, saturation=0.5,
-                       gamma=1.4, sharpen=0.6, denoise=4.0, look="vintage", stabilize="strong", frame_rate=30),
+                       gamma=1.4, sharpen=0.6, denoise=4.0, look="vintage", stabilize="strong", frame_rate=30,
+                       volume=-4.5, normalize=True, audio_denoise="strong", music="/music/song.mp3",
+                       music_volume=-12.0, music_duck=True),
         audio_quality="320 kbps",
     )
 

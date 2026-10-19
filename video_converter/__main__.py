@@ -6,6 +6,7 @@
     python -m video_converter a.mp4 b.mp4 --video original --join   # one MP4 made of both
     python -m video_converter clip.mp4 --video original --fps 60    # a copy that plays on a phone
     python -m video_converter talk.mp4 --remove-silences            # an MP3 without the pauses
+    python -m video_converter talk.mp4 --normalize --music song.mp3 --duck    # even loudness, music under it
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from .gpu import choose_encoder
 from .silence import (
     DB_RANGE, DEFAULT_DB, DEFAULT_MIN, DEFAULT_PAD, MIN_RANGE, PAD_RANGE, detect_silences, plan_silence_removal,
 )
+from .sound import AUDIO_DENOISE, DEFAULT_MUSIC_VOLUME, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, cut_range
 from .video import (
     ADJUSTMENTS, DEFAULT_FPS, LOOKS, STABILIZE, UP_TO_1080, VIDEO_QUALITY, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video,
@@ -202,6 +204,22 @@ def run_cli(argv: list[str]) -> int:
                              f"(default: {DEFAULT_PAD:g})")
     timing.add_argument("--join", action="store_true", help="make one file of all the inputs, in order")
 
+    sound = parser.add_argument_group("sound (MP3 or MP4)")
+    sound.add_argument("--volume", type=_between("--volume", VOLUME_MIN, VOLUME_MAX), default=0.0, metavar="DB",
+                       help=f"louder or quieter, {VOLUME_MIN:g} to {VOLUME_MAX:g} dB (default: 0)")
+    sound.add_argument("--normalize", action="store_true",
+                       help="make the loudness even, at -14 LUFS like YouTube and Spotify (takes two passes)")
+    sound.add_argument("--denoise-audio", choices=[k for k in AUDIO_DENOISE if k != "off"], default="off",
+                       metavar="light|strong", help="reduce background noise in the sound")
+    sound.add_argument("--music", type=Path, metavar="FILE",
+                       help="lay this music under the whole result (it repeats if shorter and fades out over "
+                            "the last 2 seconds)")
+    sound.add_argument("--music-volume", type=_between("--music-volume", MUSIC_VOLUME_MIN, MUSIC_VOLUME_MAX),
+                       default=DEFAULT_MUSIC_VOLUME, metavar="DB",
+                       help=f"the music's volume, {MUSIC_VOLUME_MIN:g} to {MUSIC_VOLUME_MAX:g} dB "
+                            f"(default: {DEFAULT_MUSIC_VOLUME:g})")
+    sound.add_argument("--duck", action="store_true", help="lower the music while the video's own sound plays")
+
     picture = parser.add_argument_group("picture (with --video)")
     hints = {"brightness": "0 = unchanged", "contrast": "1 = unchanged", "saturation": "1 = unchanged, 0 = grey",
              "gamma": "1 = unchanged", "sharpen": "0 = off", "denoise": "0 = off"}
@@ -223,6 +241,8 @@ def run_cli(argv: list[str]) -> int:
     args.silence_db = DEFAULT_DB if args.silence_db is None else args.silence_db
     args.silence_min = DEFAULT_MIN if args.silence_min is None else args.silence_min
     args.silence_pad = DEFAULT_PAD if args.silence_pad is None else args.silence_pad
+    if not args.music and (args.duck or args.music_volume != DEFAULT_MUSIC_VOLUME):
+        parser.error("--music-volume and --duck need --music")
     if not args.video and args.fps != "source":
         parser.error("--fps needs --video")
     if not args.video and picture_values != {name: getattr(VideoEdit(), name) for name in picture_values}:
@@ -234,7 +254,9 @@ def run_cli(argv: list[str]) -> int:
         return 2
 
     timing = dict(start=args.start, end=args.end, speed=args.speed, reverse=args.reverse, fade_in=args.fade_in,
-                  fade_out=args.fade_out, audio_fade_in=args.fade_in, audio_fade_out=args.fade_out)
+                  fade_out=args.fade_out, audio_fade_in=args.fade_in, audio_fade_out=args.fade_out,
+                  volume=args.volume, normalize=args.normalize, audio_denoise=args.denoise_audio,
+                  music=str(args.music) if args.music else "", music_volume=args.music_volume, music_duck=args.duck)
     edit = VideoEdit(**timing)
     if args.video:
         edit = VideoEdit(
@@ -292,7 +314,7 @@ def run_cli(argv: list[str]) -> int:
             if not args.video:
                 target = output_path_for(source, args.output_dir, args.overwrite)
                 job = ConversionJob(source, target, quality, args.start, args.end, file_edit.keep, args.speed,
-                                    args.reverse, args.fade_in, args.fade_out)
+                                    args.reverse, args.fade_in, args.fade_out, file_edit.sound)
                 output = convert(ffmpeg, job, on_progress=lambda f, n=source.name: show(f, n))
             else:
                 target = output_path_for(source, args.output_dir, args.overwrite, ".mp4", f" ({output_tag(edit)})")

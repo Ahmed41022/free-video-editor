@@ -16,21 +16,35 @@ from typing import Callable, Optional
 from .core import (
     _NO_WINDOW,
     DEFAULT_QUALITY,
+    LOUDNESS_SHARE,
+    LOUDNESS_SHARE_AUDIO,
     QUALITY_PRESETS,
     ConversionCancelled,
     ConversionError,
     MediaInfo,
+    check_music,
     check_trim,
+    measure_loudness,
+    music_length_error,
     no_segments_error,
     probe_media,
     run_ffmpeg,
+    scaled,
     trim_args,
 )
 from .gpu import CPU_FALLBACK_NOTE, encoder_args
+from .sound import (
+    DEFAULT_MUSIC_VOLUME,
+    STEREO_48K,
+    Loudness,
+    Sound,
+    master_filters,
+    music_args,
+    voice_filters,
+)
 from .timing import (
     Range,
     Segment,
-    audio_filters,
     clamp_speed,
     fade_filters,
     frame_margin,
@@ -138,6 +152,16 @@ class VideoEdit:
     look: str = "none"        # a LOOKS key
     stabilize: str = "off"    # a STABILIZE key; applied when exporting only
     frame_rate: Optional[int] = None   # a FRAME_RATES value: a steady, phone-safe export; None = as source
+    volume: float = 0.0       # sound, see sound.py: the volume in dB
+    normalize: bool = False   # even out the loudness (-14 LUFS), in two passes
+    audio_denoise: str = "off"      # an AUDIO_DENOISE key
+    music: str = ""           # background music file; "" = none
+    music_volume: float = DEFAULT_MUSIC_VOLUME      # dB, next to the video's own sound
+    music_duck: bool = False  # lower the music while the video's sound plays
+
+    @property
+    def sound(self) -> Sound:
+        return Sound(self.volume, self.normalize, self.audio_denoise, self.music, self.music_volume, self.music_duck)
 
     @property
     def crops(self) -> bool:
@@ -399,9 +423,11 @@ class ClipGraph:
 def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segment], *,
                video: bool = True, audio: bool = True, frame: Optional[tuple[int, int]] = None,
                fps: Optional[float | Fraction] = None, v_out: str = "[v]", a_out: str = "[a]",
-               transforms: Optional[str] = None) -> ClipGraph:
+               transforms: Optional[str] = None, picture: bool = True) -> ClipGraph:
     """Filters that take input `index` through cuts, stabilization, speed, reframing, picture
-    adjustments, reverse and fades.
+    adjustments, reverse and fades; the sound goes through its cuts, speed, reverse, fades, noise
+    reduction and volume. With `picture` off (the loudness pass) only the sound is built, though a
+    muted video export still has none.
 
     The input must start at the first segment (see `input_args`), and `segments` should come from
     `edit.segments(duration, fps)` so their edges sit on whole frames. `frame` and `fps` force the
@@ -414,7 +440,7 @@ def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segm
     speed = clamp_speed(edit.speed)
     duration = output_duration(rel, speed)
     filters: list[str] = []
-    if video:
+    if video and picture:
         timed = f"[t{tag}]"
         filters += select_filters(f"[{index}:v:0]", timed, rel, audio=False, tag=tag,
                                  margin=frame_margin(info.fps))
@@ -445,7 +471,7 @@ def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segm
         filters.append(f"{framed}{','.join(post) or 'null'}{v_out}")
     has_audio = audio and info.has_audio and not (video and edit.mute)
     if has_audio:
-        filters.append(audio_filters(f"[{index}:a:0]", a_out, segments, speed, edit.reverse,
+        filters.append(voice_filters(f"[{index}:a:0]", a_out, segments, edit.sound, speed, edit.reverse,
                                      edit.audio_fade_in, edit.audio_fade_out, tag=tag, always=True))
     return ClipGraph(filters, duration, has_audio)
 
@@ -471,6 +497,7 @@ class VideoJob:
 
 
 _HEAD = ["-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
+_HEAD_INFO = ["-hide_banner", "-nostdin", "-loglevel", "info", "-y"]       # loudnorm prints its result at this level
 _TAIL = ["-progress", "pipe:1", "-nostats"]
 _X264 = ["-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p"]
 _FASTSTART = ["-movflags", "+faststart"]
@@ -491,17 +518,38 @@ def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[floa
     return [*codec, *_FASTSTART]
 
 
+def music_path(edit: VideoEdit, video: bool = True) -> Optional[str]:
+    """The background music to lay under an export of `edit`, as a full path, or None. A video export
+    that removes the sound has no music either: Mute wins over everything."""
+    if not edit.music or (video and edit.mute):
+        return None
+    return str(Path(edit.music).resolve())      # ffmpeg may run in another folder
+
+
 def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None,
-                  encoder: Optional[str] = None) -> list[str]:
+                  encoder: Optional[str] = None, loudness: Optional[Loudness] = None) -> list[str]:
+    """The export command. `loudness` is what the first loudness pass measured (see `measure_command`);
+    with it, and `edit.normalize`, the sound is evened out."""
     edit = job.edit
     segments = edit.segments(info.duration, info.fps)
     if not segments:
         raise no_segments_error()
     rate = edit_rate(edit, info)
-    graph = clip_graph(0, edit, info, segments, fps=rate, transforms=transforms)
-    cmd = [ffmpeg, *_HEAD, *input_args(segments, job.source),
-           "-filter_complex", ";".join(graph.filters), "-map", "[v]"]
-    cmd += ["-map", "[a]", *(_AAC_PHONE if rate else _AAC)] if graph.has_audio else ["-an"]
+    music = music_path(edit)
+    has_voice = info.has_audio and not edit.mute
+    # The sound goes on to the final mix when there is music or a loudness to apply to it.
+    mastered = (has_voice or bool(music)) and (bool(music) or (edit.normalize and loudness is not None))
+    graph = clip_graph(0, edit, info, segments, fps=rate, transforms=transforms,
+                       a_out="[voice]" if mastered else "[a]")
+    filters = list(graph.filters)
+    if music and graph.duration is None:
+        raise music_length_error()
+    if mastered:
+        filters += master_filters(edit.sound, "[voice]" if graph.has_audio else None, 1 if music else None,
+                                  graph.duration, "[a]", loudness)
+    cmd = [ffmpeg, *_HEAD, *input_args(segments, job.source), *(music_args(music) if music else []),
+           "-filter_complex", ";".join(filters), "-map", "[v]"]
+    cmd += ["-map", "[a]", *(_AAC_PHONE if rate else _AAC)] if graph.has_audio or music else ["-an"]
     level = None
     if rate:
         geometry = plan_geometry(info.width, info.height, edit)
@@ -509,6 +557,29 @@ def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optio
     cmd += [*video_codec_args(edit.crf, encoder, float(rate) if rate else info.fps, level),
             "-map_metadata", "0", *_TAIL, str(job.output.resolve())]
     return cmd
+
+
+def wants_loudness_pass(edit: VideoEdit, info: MediaInfo) -> bool:
+    """Whether exporting `info` with `edit` evens out the loudness, which takes a first pass.
+    There is nothing to even out in a file without sound, and nothing at all with the sound removed."""
+    return edit.normalize and ((info.has_audio and not edit.mute) or bool(music_path(edit)))
+
+
+def measure_command(ffmpeg: str, job: VideoJob, info: MediaInfo) -> list[str]:
+    """The first loudness pass: the sound of the export, music included, measured by loudnorm and
+    thrown away. It prints what it measured as JSON, which `sound.parse_loudness` reads."""
+    edit = job.edit
+    segments = edit.segments(info.duration, info.fps)
+    if not segments:
+        raise no_segments_error()
+    music = music_path(edit)
+    graph = clip_graph(0, edit, info, segments, picture=False, a_out="[voice]")
+    if music and graph.duration is None:
+        raise music_length_error()
+    filters = graph.filters + master_filters(edit.sound, "[voice]" if graph.has_audio else None,
+                                             1 if music else None, graph.duration, "[a]", measure=True)
+    return [ffmpeg, *_HEAD_INFO, *input_args(segments, job.source), *(music_args(music) if music else []),
+            "-filter_complex", ";".join(filters), "-map", "[a]", "-f", "null", *_TAIL, "-"]
 
 
 def detect_command(ffmpeg: str, source: Path, edit: VideoEdit, segments: list[Segment], transforms: str,
@@ -546,41 +617,50 @@ def _encode(command: Callable[[Optional[str]], list[str]], encoder: Optional[str
 
 
 def _run_export(ffmpeg: str, clips: list[tuple[Path, VideoEdit, list[Segment], Optional[float]]],
-                command: Callable[[dict[int, str], Optional[str]], list[str]], output: Path,
+                command: Callable[[dict[int, str], Optional[str], Optional[Loudness]], list[str]], output: Path,
                 duration: Optional[float], on_progress: Optional[Callable[[float], None]],
                 cancel_event: Optional[threading.Event], encoder: Optional[str] = None,
-                on_note: Optional[Callable[[str], None]] = None) -> Path:
-    """Run an export, first running the stabilizer's detect pass for every clip that asks for it.
+                on_note: Optional[Callable[[str], None]] = None, measure: Optional[list[str]] = None,
+                measure_share: float = LOUDNESS_SHARE) -> Path:
+    """Run an export, first running the stabilizer's detect pass for every clip that asks for it, and
+    the loudness pass (the command `measure`) when the loudness is to be evened out.
 
-    Each clip is (source, edit, kept segments, frame rate). `command(transforms, encoder)` builds the
-    export command given {clip index: transforms file name} and the hardware encoder to use (None =
-    the CPU). The transforms files live in a temporary folder that is ffmpeg's working folder."""
+    Each clip is (source, edit, kept segments, frame rate). `command(transforms, encoder, loudness)`
+    builds the export command given {clip index: transforms file name}, the hardware encoder to use
+    (None = the CPU) and what the loudness pass measured (None = nothing to apply). The transforms
+    files live in a temporary folder that is ffmpeg's working folder. The passes come first and take
+    their share of the progress bar; cancelling stops whichever one is running."""
     shaky = [i for i, (_, edit, _, _) in enumerate(clips) if STABILIZE.get(edit.stabilize)]
-    if not shaky:
-        return _encode(lambda enc: command({}, enc), encoder, output, duration, on_progress, cancel_event,
+    if not shaky and measure is None:
+        return _encode(lambda enc: command({}, enc, None), encoder, output, duration, on_progress, cancel_event,
                        on_note=on_note)
-    with tempfile.TemporaryDirectory(prefix="fve-stabilize-") as folder:
+    with tempfile.TemporaryDirectory(prefix="fve-export-") as folder:
         folder = Path(folder)
-        lengths = {i: segments_length(clips[i][2]) or 0.0 for i in shaky}
-        total = sum(lengths.values()) or 1.0
-        done, transforms = 0.0, {}
-        for i in shaky:
-            source, edit, segments, fps = clips[i]
-            name = f"shake{i}.trf"
+        used = 0.0
+        transforms: dict[int, str] = {}
+        if shaky:
+            lengths = {i: segments_length(clips[i][2]) or 0.0 for i in shaky}
+            total = sum(lengths.values()) or 1.0
+            done = 0.0
+            for i in shaky:
+                source, edit, segments, fps = clips[i]
+                name = f"shake{i}.trf"
 
-            def detect_progress(fraction: float, done: float = done, length: float = lengths[i]) -> None:
-                on_progress(DETECT_SHARE * min((done + fraction * length) / total, 1.0))
+                def detect_progress(fraction: float, done: float = done, length: float = lengths[i]) -> None:
+                    on_progress(DETECT_SHARE * min((done + fraction * length) / total, 1.0))
 
-            run_ffmpeg(detect_command(ffmpeg, source, edit, segments, name, fps), folder / name, lengths[i] or None,
-                       detect_progress if on_progress else None, cancel_event, cwd=folder)
-            done += lengths[i]
-            transforms[i] = name
-
-        def export_progress(fraction: float) -> None:
-            on_progress(DETECT_SHARE + (1 - DETECT_SHARE) * fraction)
-
-        return _encode(lambda enc: command(transforms, enc), encoder, output, duration,
-                       export_progress if on_progress else None, cancel_event, cwd=folder, on_note=on_note)
+                run_ffmpeg(detect_command(ffmpeg, source, edit, segments, name, fps), folder / name,
+                           lengths[i] or None, detect_progress if on_progress else None, cancel_event, cwd=folder)
+                done += lengths[i]
+                transforms[i] = name
+            used = DETECT_SHARE
+        loudness = None
+        if measure is not None:
+            loudness = measure_loudness(measure, folder / "loudness", duration, scaled(on_progress, used, measure_share),
+                                        cancel_event, folder)
+            used += measure_share
+        return _encode(lambda enc: command(transforms, enc, loudness), encoder, output, duration,
+                       scaled(on_progress, used, 1 - used), cancel_event, cwd=folder, on_note=on_note)
 
 
 def convert_video(
@@ -602,19 +682,22 @@ def convert_video(
     info = info or probe_media(ffmpeg, job.source)
     if not info.has_video:
         raise ConversionError("This file has no video track.")
+    check_music(ffmpeg, job.edit.sound, job.edit.mute)
 
     job = VideoJob(job.source.resolve(), job.output, job.edit)   # ffmpeg may run in another folder
     video_command(ffmpeg, job, info)                               # fail early on bad settings
     segments = job.edit.segments(info.duration, info.fps)
     duration = output_duration(segments, job.edit.speed)
+    measure = measure_command(ffmpeg, job, info) if wants_loudness_pass(job.edit, info) else None
     return _run_export(ffmpeg, [(job.source, job.edit, segments, info.fps)],
-                       lambda transforms, enc: video_command(ffmpeg, job, info, transforms.get(0), enc),
-                       job.output, duration, on_progress, cancel_event, encoder, on_note)
+                       lambda transforms, enc, loudness: video_command(ffmpeg, job, info, transforms.get(0), enc,
+                                                                      loudness),
+                       job.output, duration, on_progress, cancel_event, encoder, on_note, measure)
 
 
 # ----- joining clips ------------------------------------------------------------
 
-JOIN_AUDIO = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
+JOIN_AUDIO = STEREO_48K
 
 
 @dataclass
@@ -632,19 +715,31 @@ class JoinJob:
     quality: str = DEFAULT_QUALITY     # MP3 quality
 
 
+def _join_sound(job: JoinJob) -> tuple[bool, Optional[str]]:
+    """Whether any clip of a join has sound to play, and the background music laid over the whole result.
+    The music is the first clip's, like the video quality; the first clip removing the sound removes it."""
+    video = not job.audio_only
+    any_audio = any(p.info.has_audio and not (video and p.edit.mute) for p in job.parts)
+    return any_audio, music_path(job.parts[0].edit, video)
+
+
 def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]] = None,
-                 encoder: Optional[str] = None) -> tuple[list[str], float]:
+                 encoder: Optional[str] = None, loudness: Optional[Loudness] = None,
+                 measure: bool = False) -> tuple[list[str], float]:
     """The ffmpeg command that plays every part back to back, and the result's length.
 
     Each clip is cut, sped up, reframed and faded with its own settings, then fitted into
     the first clip's frame size and frame rate. The video quality is the first clip's, and so is the
     steady frame rate if it has one: then the result is phone-safe at that rate (the fastest of the
-    clips' own rates when none is above it), whatever rate the first clip has."""
+    clips' own rates when none is above it), whatever rate the first clip has. Each clip keeps its own
+    volume and noise reduction; the loudness and the background music are the first clip's, applied to
+    the joined sound. With `measure` it is the first loudness pass instead (see `measure_command`)."""
     parts, video = job.parts, not job.audio_only
+    picture = video and not measure
     first = parts[0]
     frame = fps = level = None
     steady = None
-    if video:
+    if picture:
         geometry = plan_geometry(first.info.width, first.info.height, first.edit)
         frame = (geometry.out_width, geometry.out_height)
         rates = [p.info.fps * clamp_speed(p.edit.speed) for p in parts if p.info.fps]
@@ -652,23 +747,27 @@ def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]]
         fps = steady or first.info.fps or 30.0
         if steady:
             level = h264_level(*frame, float(steady))
-    any_audio = any(p.info.has_audio and not (video and p.edit.mute) for p in parts)
-    if not video and not any_audio:
+    any_audio, music = _join_sound(job)
+    if not video and not any_audio and not music:
         raise ConversionError("None of these files have sound.")
+    sound = first.edit.sound
+    mastered = (any_audio or bool(music)) and (bool(music) or (sound.normalize and loudness is not None))
+    voice = "[voice]" if mastered else "[a]"
 
     inputs, filters, labels, total = [], [], [], 0.0
     for i, part in enumerate(parts):
-        segments = part.edit.segments(part.info.duration, part.info.fps if video else None)
+        segments = part.edit.segments(part.info.duration, part.info.fps if picture else None)
         if not segments:
             raise ConversionError(f"Nothing is left of {part.source.name}: the trim and cuts remove all of it.")
         graph = clip_graph(i, part.edit, part.info, segments, video=video, audio=any_audio, frame=frame,
-                           fps=fps, v_out=f"[v{i}]", a_out=f"[sound{i}]", transforms=(transforms or {}).get(i))
+                           fps=fps, v_out=f"[v{i}]", a_out=f"[sound{i}]", transforms=(transforms or {}).get(i),
+                           picture=picture)
         if graph.duration is None:
             raise ConversionError(f"Couldn't read the length of {part.source.name}.")
         inputs += input_args(segments, part.source)
         filters += graph.filters
         total += graph.duration
-        label = f"[v{i}]" if video else ""
+        label = f"[v{i}]" if picture else ""
         if any_audio:
             if graph.has_audio:
                 filters.append(f"[sound{i}]{JOIN_AUDIO}[a{i}]")
@@ -676,12 +775,20 @@ def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]]
                 filters.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={graph.duration:.3f},{JOIN_AUDIO}[a{i}]")
             label += f"[a{i}]"
         labels.append(label)
-    outputs = ("[v]" if video else "") + ("[a]" if any_audio else "")
-    filters.append(f"{''.join(labels)}concat=n={len(parts)}:v={int(video)}:a={int(any_audio)}{outputs}")
+    outputs = ("[v]" if picture else "") + (voice if any_audio else "")
+    if outputs:
+        filters.append(f"{''.join(labels)}concat=n={len(parts)}:v={int(picture)}:a={int(any_audio)}{outputs}")
+    if mastered:
+        filters += master_filters(sound, voice if any_audio else None, len(parts) if music else None, total, "[a]",
+                                  loudness, measure)
 
-    cmd = [ffmpeg, *_HEAD, *inputs, "-filter_complex", ";".join(filters)]
+    cmd = [ffmpeg, *(_HEAD_INFO if measure else _HEAD), *inputs, *(music_args(music) if music else []),
+           "-filter_complex", ";".join(filters)]
+    if measure:
+        return [*cmd, "-map", "[a]", "-f", "null", *_TAIL, "-"], total
     if video:
-        cmd += ["-map", "[v]", *(["-map", "[a]", *(_AAC_PHONE if steady else _AAC)] if any_audio else ["-an"]),
+        sounds = any_audio or bool(music)
+        cmd += ["-map", "[v]", *(["-map", "[a]", *(_AAC_PHONE if steady else _AAC)] if sounds else ["-an"]),
                 *video_codec_args(first.edit.crf, encoder, float(fps), level)]
     else:
         cmd += ["-map", "[a]", "-vn", "-c:a", "libmp3lame", *QUALITY_PRESETS[job.quality]]
@@ -709,11 +816,17 @@ def join_clips(
         if not job.audio_only and not part.info.has_video:
             raise ConversionError(f"{part.source.name} has no video track.")
         part.source = part.source.resolve()     # ffmpeg may run in another folder
+    first = job.parts[0].edit
+    check_music(ffmpeg, first.sound, first.mute and not job.audio_only)
     _, duration = join_command(ffmpeg, job)     # fail early on bad settings
+    any_audio, music = _join_sound(job)
+    measure = join_command(ffmpeg, job, measure=True)[0] if first.normalize and (any_audio or music) else None
     clips = [] if job.audio_only else [(p.source, p.edit, p.edit.segments(p.info.duration, p.info.fps), p.info.fps)
                                        for p in job.parts]
-    return _run_export(ffmpeg, clips, lambda transforms, enc: join_command(ffmpeg, job, transforms, enc)[0],
-                       job.output, duration, on_progress, cancel_event, None if job.audio_only else encoder, on_note)
+    return _run_export(ffmpeg, clips,
+                       lambda transforms, enc, loudness: join_command(ffmpeg, job, transforms, enc, loudness)[0],
+                       job.output, duration, on_progress, cancel_event, None if job.audio_only else encoder, on_note,
+                       measure, LOUDNESS_SHARE_AUDIO if job.audio_only else LOUDNESS_SHARE)
 
 
 # ----- preview ------------------------------------------------------------------

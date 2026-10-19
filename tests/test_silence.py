@@ -308,6 +308,33 @@ class RealAudioTests(unittest.TestCase):
         self.assertEqual(self.pauses(result), [])
         self.assertTrue(info.has_video and info.has_audio)
 
+    def test_music_and_a_volume_change_fit_the_shortened_mp3(self):
+        music = self.tmp / "song.mp3"
+        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                        "sine=frequency=220:duration=20", str(music)], check=True)
+        out = self.tmp / "music-out"
+        out.mkdir(exist_ok=True)
+        code, _, err = run(self.talk, "-o", out, "--remove-silences", "--volume", "-6", "--normalize",
+                           "--music", music, "--overwrite")
+        self.assertEqual(code, 0, err)
+        result = probe_media(FFMPEG, out / "talk.mp3")
+        # the music is longer than the talk, so it is cut to the shortened length (about 6.6 s), not 10 or 20
+        self.assertAlmostEqual(result.duration, 6.6, delta=0.4)
+
+    def test_music_is_cut_to_the_shortened_video(self):
+        music = self.tmp / "song2.mp3"
+        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                        "sine=frequency=220:duration=20", str(music)], check=True)
+        out = self.tmp / "music-video-out"
+        out.mkdir(exist_ok=True)
+        code, _, err = run(self.talk, "-o", out, "--video", "original", "--remove-silences", "--silence-pad", "0",
+                           "--silence-min", "1", "--music", music, "--duck", "--overwrite")
+        self.assertEqual(code, 0, err)
+        (result,) = out.glob("*.mp4")
+        info = probe_media(FFMPEG, result)
+        self.assertAlmostEqual(info.duration, 6.0, delta=0.4)
+        self.assertTrue(info.has_video and info.has_audio)
+
     def test_a_trim_and_the_users_cuts_are_respected_in_the_export(self):
         out = self.tmp / "trim-out"
         out.mkdir(exist_ok=True)
@@ -415,6 +442,30 @@ class CommandLineTests(unittest.TestCase):
             code, _, err = run("a.mp4", "b.mp4", "--join", "--remove-silences", "--silence-pad", "0")
         self.assertEqual(code, 0, err)
         self.assertEqual([p.edit.keep for p in jobs[0].parts], [[(0.0, 2.0), (4.0, 10.0)]] * 2)
+
+    def test_the_sound_options_reach_an_mp3_export_that_also_loses_its_pauses(self):
+        code, err, _, jobs = self.run_with("--remove-silences", "--silence-pad", "0", "--volume", "3", "--normalize",
+                                           "--denoise-audio", "light", "--music", "song.mp3", "--duck")
+        self.assertEqual(code, 0, err)
+        job = jobs[0]
+        self.assertEqual(job.keep, [(0.0, 2.0), (4.0, 6.0), (8.0, 10.0)])
+        self.assertEqual((job.sound.volume, job.sound.normalize, job.sound.denoise, job.sound.duck),
+                         (3.0, True, "light", True))
+        self.assertTrue(job.sound.music.endswith("song.mp3"))
+
+    def test_the_sound_options_reach_a_video_export_and_a_join_that_lose_their_pauses(self):
+        code, err, _, jobs = self.run_with("--video", "original", "--remove-silences", "--silence-pad", "0",
+                                           "--volume", "-4", "--music", "song.mp3")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(jobs[0].edit.keep, [(0.0, 2.0), (4.0, 6.0), (8.0, 10.0)])
+        self.assertEqual(jobs[0].edit.volume, -4.0)
+        self.assertTrue(jobs[0].edit.music.endswith("song.mp3"))
+        joined = []
+        with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"),                 mock.patch.object(cli, "probe_media", return_value=self.INFO),                 mock.patch.object(cli, "detect_silences", return_value=[(2.0, 4.0)]),                 mock.patch.object(cli, "join_clips", side_effect=lambda ffmpeg, job, **kw: joined.append(job) or Path("j.mp3")),                 mock.patch.object(cli, "choose_encoder", return_value=None),                 mock.patch.object(Path, "is_file", return_value=True):
+            code, _, err = run("a.mp4", "b.mp4", "--join", "--remove-silences", "--silence-pad", "0", "--normalize")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([p.edit.keep for p in joined[0].parts], [[(0.0, 2.0), (4.0, 10.0)]] * 2)
+        self.assertTrue(all(p.edit.normalize for p in joined[0].parts))
 
 
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")
