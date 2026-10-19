@@ -72,16 +72,17 @@ def detect_silences(ffmpeg: str, source: Path, noise_db: float = DEFAULT_DB, min
     reader = threading.Thread(target=lambda: lines.extend(proc.stderr), daemon=True)
     reader.start()
     while True:
+        if cancel_event is not None and cancel_event.is_set():
+            stop_process(proc)
+            proc.wait()
+            reader.join(timeout=2)
+            proc.stderr.close()
+            raise ConversionCancelled()
         try:
             proc.wait(timeout=0.05)
             break
         except subprocess.TimeoutExpired:
-            if cancel_event is not None and cancel_event.is_set():
-                stop_process(proc)
-                proc.wait()
-                reader.join(timeout=2)
-                proc.stderr.close()
-                raise ConversionCancelled()
+            pass
     reader.join(timeout=5)
     proc.stderr.close()
     text = "".join(lines)
