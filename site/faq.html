@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FAQ: Free Video Editor</title>
+<meta name="description" content="Answers to common questions about Free Video Editor: is it free, is it safe, why Windows shows a warning, what it needs, and how to report a problem.">
+<meta name="theme-color" content="#4f8cff">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="favicon-64.png" alt="" width="32" height="32"> Free Video Editor</a>
+    <nav class="nav" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="guides.html">How-to guides</a>
+      <a href="faq.html" aria-current="page">FAQ</a>
+      <a href="https://github.com/Ahmed41022/free-video-editor">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap">
+    <div class="page-title">
+      <h1>Frequently asked questions</h1>
+      <p>Can't find your answer? <a href="https://github.com/Ahmed41022/free-video-editor/issues">Report a problem or ask a question on GitHub</a>.</p>
+    </div>
+
+    <details open>
+      <summary>Is it really free?</summary>
+      <div class="answer"><p>Yes. There is no trial, watermark, account or paid version. It is open source under the MIT License.</p></div>
+    </details>
+
+    <details>
+      <summary>Is it safe? Why does Windows say "Windows protected your PC"?</summary>
+      <div class="answer">
+        <p>Windows SmartScreen warns about apps it doesn't recognize, and about files that aren't code-signed. This app isn't code-signed, so you will probably see the warning the first time. To continue, click <b>More info</b>, then <b>Run anyway</b>.</p>
+        <p>The source code is public on <a href="https://github.com/Ahmed41022/free-video-editor">GitHub</a>, the downloads are built there by an automated workflow, and each release lists SHA-256 checksums so you can check your download.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Are my videos uploaded anywhere?</summary>
+      <div class="answer"><p>No. Everything runs on your computer. The app has no accounts, ads or tracking, and it doesn't send your files anywhere.</p></div>
+    </details>
+
+    <details>
+      <summary>Do I need to install anything else, like FFmpeg?</summary>
+      <div class="answer"><p>No. The FFmpeg engine and everything else the app needs are built in, in both the installer and the portable version.</p></div>
+    </details>
+
+    <details>
+      <summary>Installer or portable version?</summary>
+      <div class="answer">
+        <p>The <b>installer</b> installs just for you (no administrator rights needed, or choose all users), adds a Start menu entry, optionally a desktop shortcut, and an "Open with Free Video Editor" entry for video and audio files. It doesn't change which app opens your files by default. Remove it in Windows <b>Settings → Apps</b>.</p>
+        <p>The <b>portable version</b> is a single file, <code>FreeVideoEditor.exe</code>. Double-click it; nothing is installed.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Will it change or overwrite my original videos?</summary>
+      <div class="answer"><p>Never. Results are saved as new files next to the originals, like <code>name (phone).mp4</code>, and if a name is already taken the new file gets a number, like <code>file (1).mp3</code>. You can also pick a different folder in the <b>Save to</b> section.</p></div>
+    </details>
+
+    <details>
+      <summary>Which video formats work?</summary>
+      <div class="answer"><p>MP4, MOV, MKV, AVI, WEBM, M4V and other common video formats. It also opens audio files (MP3, M4A, AAC, WAV, FLAC, OGG, OPUS) so you can trim, cut or save them as MP3. Videos are exported as MP4, and audio as MP3.</p></div>
+    </details>
+
+    <details>
+      <summary>My video won't play on my phone. Can this fix it?</summary>
+      <div class="answer"><p>Often, yes. Game recordings and screen captures commonly have a frame rate that keeps changing, which some phones refuse to play. Choose the <b>Play on phone (keeps the whole picture)</b> preset and click <b>Export</b>. See the <a href="guides.html#phone-fix">step-by-step guide</a>.</p></div>
+    </details>
+
+    <details>
+      <summary>Why does stabilizing take so long?</summary>
+      <div class="answer"><p>Stabilizing runs while exporting, in two passes: it first studies how the camera moved and then smooths it. That takes longer than a normal export, and the preview doesn't show the effect.</p></div>
+    </details>
+
+    <details>
+      <summary>Can I use it from the command line?</summary>
+      <div class="answer"><p>Yes. When you run it from source, you can pass files to convert them without opening the window. The options are listed in the <a href="https://github.com/Ahmed41022/free-video-editor#command-line">README</a>.</p></div>
+    </details>
+
+    <details>
+      <summary>How do I report a problem or suggest something?</summary>
+      <div class="answer">
+        <p>Open an issue on <a href="https://github.com/Ahmed41022/free-video-editor/issues">GitHub</a>. In the app, <b>Help → Report a problem…</b> can take you there, and if an export failed, the <b>Details</b> button shows what went wrong. The app also writes a log file that you can attach; <b>Help → Open the log folder</b> opens it.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>What licenses does it use?</summary>
+      <div class="answer"><p>Free Video Editor is under the <a href="https://github.com/Ahmed41022/free-video-editor/blob/main/LICENSE">MIT License</a>. The Windows app bundles FFmpeg (GPLv3) and Qt for Python (LGPLv3); the notices are in the <a href="https://github.com/Ahmed41022/free-video-editor/tree/main/licenses">licenses folder</a>.</p></div>
+    </details>
+
+    <p style="margin-block:2rem"><a class="btn" href="https://github.com/Ahmed41022/free-video-editor/releases/latest" data-download="installer"><span class="btn-text">Download for Windows <small data-note="installer">Opens the download page</small></span></a></p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <h2>Free Video Editor</h2>
+        <p>Made by Ahmed Ragab. Free, offline, for Windows.</p>
+        <p>This page keeps no cookies and has no trackers. The only outside request is one to GitHub to look up the newest version for the download buttons.</p>
+      </div>
+      <div>
+        <h2>Links</h2>
+        <ul>
+          <li><a href="https://github.com/Ahmed41022/free-video-editor">Source code on GitHub</a></li>
+          <li><a href="https://github.com/Ahmed41022/free-video-editor/releases">All releases</a></li>
+          <li><a href="https://github.com/Ahmed41022/free-video-editor/issues">Report a problem</a></li>
+          <li><a href="guides.html">How-to guides</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>License</h2>
+        <p>Free Video Editor is released under the <a href="https://github.com/Ahmed41022/free-video-editor/blob/main/LICENSE">MIT License</a>.</p>
+        <p>The Windows app bundles FFmpeg (GPLv3) and Qt for Python (LGPLv3). See the <a href="https://github.com/Ahmed41022/free-video-editor/tree/main/licenses">licenses folder</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

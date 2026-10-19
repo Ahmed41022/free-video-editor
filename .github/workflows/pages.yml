@@ -1,0 +1,54 @@
+# Publishes the website in site/ to GitHub Pages.
+#
+# One-time setup (the owner does this): repo Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+# Or run:  gh api -X POST repos/Ahmed41022/free-video-editor/pages -f build_type=workflow
+# Until Pages is enabled, the run finishes green but skips the upload and deploy, and says why.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
+
+      - name: Pages is not enabled yet
+        if: steps.pages.outcome != 'success'
+        run: |
+          echo "::warning::GitHub Pages is not enabled for this repository, so nothing was published."
+          echo "Enable it in Settings -> Pages -> Source: GitHub Actions, then re-run this workflow."
+
+      - name: Upload site
+        if: steps.pages.outcome == 'success'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        if: steps.pages.outcome == 'success'
+        uses: actions/deploy-pages@v4

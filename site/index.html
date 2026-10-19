@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Free Video Editor: a free, offline video editor for Windows</title>
+<meta name="description" content="A free video editor for Windows. Make videos for TikTok, Reels and Shorts, fix videos that won't play on your phone, and more. Everything stays on your computer.">
+<meta name="theme-color" content="#4f8cff">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Free Video Editor">
+<meta property="og:description" content="A free video editor for Windows. Everything stays on your computer.">
+<meta property="og:image" content="https://ahmed41022.github.io/free-video-editor/icon-256.png">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="favicon-64.png" alt="" width="32" height="32"> Free Video Editor</a>
+    <nav class="nav" aria-label="Main">
+      <a href="index.html" aria-current="page">Home</a>
+      <a href="guides.html">How-to guides</a>
+      <a href="faq.html">FAQ</a>
+      <a href="https://github.com/Ahmed41022/free-video-editor">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="hero">
+    <div class="wrap">
+      <img class="logo" src="icon-256.png" alt="Free Video Editor app icon" width="88" height="88">
+      <h1>Free Video Editor</h1>
+      <p class="lead">A free video editor for Windows. Make videos for TikTok, Reels and Shorts, fix videos that won't play on your phone, and more. Everything stays on your computer.</p>
+      <div class="cta">
+        <a class="btn" id="download" href="https://github.com/Ahmed41022/free-video-editor/releases/latest" data-download="installer">
+          <span class="btn-text">Download for Windows <small data-note="installer">Installer (opens the download page)</small></span>
+        </a>
+        <a class="btn secondary" href="https://github.com/Ahmed41022/free-video-editor/releases/latest/download/FreeVideoEditor.exe">
+          <span class="btn-text">Portable version <small data-note="portable">Single file, no install</small></span>
+        </a>
+      </div>
+      <p class="fineprint">Free and open source (MIT). No account, no ads, no uploads. Windows may show a warning the first time: <a href="#safe">here is why</a>.</p>
+
+      <figure class="shot">
+        <img src="screenshot.png" width="1334" height="877" alt="The Free Video Editor window: a file list on the left, a landscape video with a crop box in the middle, the timeline underneath, and settings for presets, output, frame and trim on the right.">
+        <figcaption>Turning a landscape video into a 9:16 phone video: drag the crop box to choose what to keep.</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>What it does</h2>
+      <p class="section-intro">Add your videos, pick a preset, click <span class="ui">Export</span>. Your originals are never changed: results are saved next to them as new files, like <code>name (phone).mp4</code>.</p>
+      <div class="grid">
+        <div class="card">
+          <h3>Editor</h3>
+          <ul>
+            <li>Video player with a timeline: thumbnails, audio waveform and drag handles to trim</li>
+            <li>Cut sections out of the middle; playback skips the cut parts</li>
+            <li>Join several files into one video, in the order you choose</li>
+            <li>A crop box right on the video: drag to choose what to keep, scroll to zoom</li>
+            <li>Before / after view that shows exactly what the export will look like</li>
+            <li>Undo and redo for every change, dark and light themes, drag and drop</li>
+            <li>Export queue that runs in the background with progress and time left</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Video (MP4)</h3>
+          <ul>
+            <li>Reshape for phones (9:16), square posts (1:1), portrait posts (4:5) or widescreen (16:9)</li>
+            <li>Crop to fill the frame, or fit the whole video with a blurred background or black bars</li>
+            <li>Rotate, mirror, remove the sound; pick the size, frame rate and quality</li>
+            <li>Brightness, contrast, saturation, sharpen, noise reduction, and one-click looks</li>
+            <li>Stabilize shaky phone footage</li>
+            <li>One click for <b>Play on phone</b>, TikTok / Reels / Shorts, Instagram, YouTube and WhatsApp status</li>
+            <li>Phone recordings stored sideways are shown the right way up</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Audio (MP3)</h3>
+          <ul>
+            <li>Turn any video into an MP3: 128, 192, 256 or 320 kbps, or variable bitrate</li>
+            <li>Keeps title and artist details</li>
+            <li>Also works on audio files (MP3, M4A, AAC, WAV, FLAC, OGG, OPUS) to trim, cut or convert</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Speed, fades and trimming</h3>
+          <ul>
+            <li>Trim to any range, and cut out as many sections as you like</li>
+            <li>Speed from 0.25× to 4× with natural-sounding audio, or play backwards</li>
+            <li>Fade in and out, with separate lengths for picture and sound</li>
+            <li>Never overwrites anything: existing names get a number, like <code>file (1).mp3</code></li>
+            <li>Opens MP4, MOV, MKV, AVI, WEBM, M4V and other common formats</li>
+          </ul>
+        </div>
+      </div>
+      <p style="margin-block-start:1.5rem"><a class="btn secondary" href="guides.html">See the how-to guides</a></p>
+    </div>
+  </section>
+
+  <section class="alt" id="phone">
+    <div class="wrap">
+      <h2>Video won't play on your phone?</h2>
+      <p class="section-intro">Game recordings and screen captures often have a frame rate that keeps changing, and some phones just say the video is unsupported. The <b>Play on phone</b> preset gives the video a steady frame rate with phone-safe settings, keeping the whole picture and the sound. Convert a whole folder at once with <span class="ui">Export all</span>.</p>
+      <a class="btn secondary" href="guides.html#phone-fix">Step-by-step guide</a>
+    </div>
+  </section>
+
+  <section id="safe">
+    <div class="wrap">
+      <h2>Is it safe? Why does Windows warn me?</h2>
+      <div class="callout">
+        <h3>The short answer: yes, and here is how you can check.</h3>
+        <p><b>Windows SmartScreen</b> may say "Windows protected your PC" the first time you run the app. That happens to any program that is new or not code-signed, because code-signing certificates cost money and this project is free. It does not mean a virus was found. To continue, click <span class="ui">More info</span>, then <span class="ui">Run anyway</span>.</p>
+        <p><b>It is open source.</b> The whole source code is public on <a href="https://github.com/Ahmed41022/free-video-editor">GitHub</a>, and the downloads are built there by an automated workflow. Each release lists SHA-256 checksums so you can confirm that your file is the one that was published.</p>
+        <p><b>Nothing is uploaded.</b> All the work happens on your computer, using the FFmpeg engine built into the app. It does not need an internet connection, and it has no accounts, ads or tracking.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt">
+    <div class="wrap">
+      <h2>Get it</h2>
+      <p class="section-intro">The installer adds a Start menu entry, and can add a desktop shortcut and an "Open with Free Video Editor" entry for video and audio files. It installs just for you, with no administrator rights needed. The portable version is one file: double-click it. Everything the app needs is built in either way.</p>
+      <div class="cta" style="justify-content:flex-start">
+        <a class="btn" href="https://github.com/Ahmed41022/free-video-editor/releases/latest" data-download="installer">
+          <span class="btn-text">Download the installer <small data-note="installer">Opens the download page</small></span>
+        </a>
+        <a class="btn secondary" href="https://github.com/Ahmed41022/free-video-editor/releases/latest/download/FreeVideoEditor.exe">
+          <span class="btn-text">Download the portable version <small data-note="portable">Single file, no install</small></span>
+        </a>
+      </div>
+      <p class="fineprint">Latest version: <span data-version>see the release page</span>. To remove the installed version, use Windows <b>Settings → Apps</b>.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <h2>Free Video Editor</h2>
+        <p>Made by Ahmed Ragab. Free, offline, for Windows.</p>
+        <p>This page keeps no cookies and has no trackers. The only outside request is one to GitHub to look up the newest version for the download buttons.</p>
+      </div>
+      <div>
+        <h2>Links</h2>
+        <ul>
+          <li><a href="https://github.com/Ahmed41022/free-video-editor">Source code on GitHub</a></li>
+          <li><a href="https://github.com/Ahmed41022/free-video-editor/releases">All releases</a></li>
+          <li><a href="https://github.com/Ahmed41022/free-video-editor/issues">Report a problem</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>License</h2>
+        <p>Free Video Editor is released under the <a href="https://github.com/Ahmed41022/free-video-editor/blob/main/LICENSE">MIT License</a>.</p>
+        <p>The Windows app bundles FFmpeg (GPLv3) and Qt for Python (LGPLv3). See the <a href="https://github.com/Ahmed41022/free-video-editor/tree/main/licenses">licenses folder</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

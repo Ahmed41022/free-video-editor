@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How-to guides: Free Video Editor</title>
+<meta name="description" content="Step-by-step guides for Free Video Editor: make a TikTok, Reels or Shorts video, fix a video that won't play on your phone, trim and cut, make an MP3, stabilize shaky footage, and change speed.">
+<meta name="theme-color" content="#4f8cff">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="favicon-64.png" alt="" width="32" height="32"> Free Video Editor</a>
+    <nav class="nav" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="guides.html" aria-current="page">How-to guides</a>
+      <a href="faq.html">FAQ</a>
+      <a href="https://github.com/Ahmed41022/free-video-editor">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap">
+    <div class="page-title">
+      <h1>How-to guides</h1>
+      <p>Short steps for the things people ask about most. Buttons and settings are written the way they appear in the app. Your original files are never changed.</p>
+      <ul class="toc" aria-label="Guides">
+        <li><a href="#tiktok">TikTok, Reels and Shorts</a></li>
+        <li><a href="#phone-fix">Video won't play on phone</a></li>
+        <li><a href="#trim-cut">Trim and cut</a></li>
+        <li><a href="#mp3">MP3 from a video</a></li>
+        <li><a href="#stabilize">Stabilize shaky footage</a></li>
+        <li><a href="#speed">Speed up or slow down</a></li>
+      </ul>
+    </div>
+
+    <article class="guide" id="tiktok">
+      <h2>Make a TikTok, Reels or Shorts video from a landscape clip</h2>
+      <p class="about">Phone apps want a tall 9:16 video. This turns a wide clip into one, and you choose which part of the picture to keep.</p>
+      <ol class="steps">
+        <li>Click <b class="ui">Add files</b> (or drop the video onto the window) and click the video in the list on the left.</li>
+        <li>Under <b class="ui">Presets</b>, open the menu that says <b class="ui">Choose a preset…</b> and pick <b class="ui">TikTok, Reels, Shorts</b>. This sets the frame to <b class="ui">9:16</b>, crops to fill it, and uses 1080p and high quality.</li>
+        <li>A crop box appears on the video. Drag it left or right to choose what stays in the picture. Drag a corner, or scroll, to zoom in. <b class="ui">Center the crop</b> puts it back in the middle.</li>
+        <li>Want to keep the whole picture instead? Under <b class="ui">Frame</b>, change <b class="ui">Fit</b> to <b class="ui">Fit inside, blurred background</b> (or <b class="ui">Fit inside, black bars</b>).</li>
+        <li>To use only part of the clip, set the <b class="ui">Start</b> and <b class="ui">End</b> under <b class="ui">Trim and cut</b>, or see the <a href="#trim-cut">trim guide</a>.</li>
+        <li>Press <b class="ui">B</b> for the <b class="ui">Before / after</b> view if you want to see exactly what the result will look like.</li>
+        <li>Click <b class="ui">Export</b>. The video is saved next to the original as <code>name (phone).mp4</code>, and you can follow it in the export queue at the bottom.</li>
+      </ol>
+      <div class="tip"><p>Several clips at once? Set up one, click <b class="ui">Apply to all files</b>, then <b class="ui">Export all</b>. Each clip keeps its own crop and trim.</p></div>
+    </article>
+
+    <article class="guide" id="phone-fix">
+      <h2>Fix a video that won't play on your phone</h2>
+      <p class="about">Game recordings and screen captures often have a frame rate that changes from moment to moment, and some phones say the video is unsupported. This makes a copy that plays.</p>
+      <ol class="steps">
+        <li>Click <b class="ui">Add files</b> and pick the video in the list. If its frame rate is the problem, a note under <b class="ui">Frame rate</b> in <b class="ui">Video quality</b> says so.</li>
+        <li>Under <b class="ui">Presets</b>, choose <b class="ui">Play on phone (keeps the whole picture)</b>. It keeps the video's shape and sound, makes it no bigger than 1080p, and gives it a steady 60 fps. Want 30 fps instead? Change <b class="ui">Frame rate</b> to <b class="ui">Steady 30 fps</b>.</li>
+        <li>Click <b class="ui">Export</b>. The fixed copy is saved next to the original as <code>name (phone-ready).mp4</code>.</li>
+      </ol>
+      <h3 style="margin-block-start:1.5rem">A whole folder at once</h3>
+      <ol class="steps">
+        <li>Click <b class="ui">Add folder</b> and choose the folder with your recordings.</li>
+        <li>Pick one video, then choose the <b class="ui">Play on phone (keeps the whole picture)</b> preset.</li>
+        <li>Click <b class="ui">Apply to all files</b>, then <b class="ui">Export all</b>.</li>
+      </ol>
+      <div class="tip"><p>A video that is already slower than the rate you choose keeps its own rate, so a 30 fps video stays at 30 fps with <b class="ui">Steady 60 fps</b>. The original is never changed.</p></div>
+    </article>
+
+    <article class="guide" id="trim-cut">
+      <h2>Trim the ends and cut out the middle</h2>
+      <p class="about">Trimming keeps one range of the video. Cutting removes parts from the middle, and you can remove as many as you like.</p>
+      <ol class="steps">
+        <li>Add the video and pick it in the list. Play it with <kbd>Space</kbd>, or click the timeline to move the playhead.</li>
+        <li><b>To trim:</b> move the playhead to where the video should start and click <b class="ui">Use playhead</b> next to <b class="ui">Start</b> (or press <kbd>I</kbd>). Do the same for <b class="ui">End</b> (or press <kbd>O</kbd>). You can also type a time such as <code>0:15</code> or <code>1:02:30</code>, or drag the handles on the timeline. <b class="ui">Clear the trim</b> undoes it.</li>
+        <li><b>To cut out a part:</b> move the playhead to where the unwanted part begins and click <b class="ui">Split</b> (or press <kbd>S</kbd>). Split again where it ends. Put the playhead between the two splits and click <b class="ui">Remove part</b> (or press <kbd>X</kbd>). You can also right-click the timeline and choose <b class="ui">Cut out this part</b>.</li>
+        <li>Playback now skips the cut parts. Drag the edges of a cut on the timeline to adjust it. <b class="ui">Put back the cut parts</b> restores everything, and <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes the last change.</li>
+        <li>Click <b class="ui">Export</b>.</li>
+      </ol>
+      <div class="tip"><p>To make one video from several files, drag them into the order you want in the list and click <b class="ui">Join into one</b>.</p></div>
+    </article>
+
+    <article class="guide" id="mp3">
+      <h2>Make an MP3 from a video</h2>
+      <p class="about">Pull the sound out of a video, or out of an audio file, and save it as an MP3.</p>
+      <ol class="steps">
+        <li>Click <b class="ui">Add files</b> and pick the video.</li>
+        <li>Under <b class="ui">Output</b>, click <b class="ui">Audio (MP3)</b>. (Or choose the <b class="ui">MP3 audio</b> preset.)</li>
+        <li>Choose <b class="ui">MP3 quality</b>: <b class="ui">128 kbps</b>, <b class="ui">192 kbps</b> (the default), <b class="ui">256 kbps</b>, <b class="ui">320 kbps</b>, or variable bitrate (<b class="ui">VBR (high quality)</b> or <b class="ui">VBR (standard)</b>).</li>
+        <li>If you only want part of it, set <b class="ui">Start</b> and <b class="ui">End</b> in <b class="ui">Trim and cut</b>.</li>
+        <li>Click <b class="ui">Export</b>. The MP3 is saved next to the video. If a file with that name already exists, yours becomes <code>name (1).mp3</code>.</li>
+      </ol>
+    </article>
+
+    <article class="guide" id="stabilize">
+      <h2>Stabilize shaky footage</h2>
+      <p class="about">Smooths out the wobble in handheld phone videos.</p>
+      <ol class="steps">
+        <li>Add the video and make sure <b class="ui">Video (MP4)</b> is selected under <b class="ui">Output</b>.</li>
+        <li>In the <b class="ui">Adjust</b> section, change <b class="ui">Stabilize</b> from <b class="ui">Off</b> to <b class="ui">Light</b> or <b class="ui">Strong</b>. Start with <b class="ui">Light</b>; try <b class="ui">Strong</b> if the footage is very shaky.</li>
+        <li>Click <b class="ui">Export</b>.</li>
+      </ol>
+      <div class="tip"><p>Stabilizing happens while exporting, in two passes, so it takes longer than a normal export. The preview does not show it, so judge the result from the exported file. The <b class="ui">Reset the picture</b> button in the same section puts the adjustments and look back to normal.</p></div>
+    </article>
+
+    <article class="guide" id="speed">
+      <h2>Speed up or slow down a video</h2>
+      <p class="about">Make a clip faster or slower, or play it backwards. The sound keeps its natural pitch.</p>
+      <ol class="steps">
+        <li>Add the video and pick it in the list.</li>
+        <li>In the <b class="ui">Speed</b> section, click <b class="ui">2×</b> for twice as fast or <b class="ui">0.5×</b> for half speed, or type any value from 0.25× (four times slower) to 4× (four times faster). <b class="ui">1×</b> is normal speed.</li>
+        <li>Tick <b class="ui">Play backwards</b> to reverse the clip. This holds the whole clip in memory, so it suits short clips best.</li>
+        <li>Click <b class="ui">Export</b>.</li>
+      </ol>
+    </article>
+
+    <p style="margin-block:2rem">Something not covered here? Check the <a href="faq.html">FAQ</a>, or <a href="https://github.com/Ahmed41022/free-video-editor/issues">report a problem</a>.</p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <h2>Free Video Editor</h2>
+        <p>Made by Ahmed Ragab. Free, offline, for Windows.</p>
+        <p>This page keeps no cookies and has no trackers. The only outside request is one to GitHub to look up the newest version for the download buttons.</p>
+      </div>
+      <div>
+        <h2>Links</h2>
+        <ul>
+          <li><a href="https://github.com/Ahmed41022/free-video-editor">Source code on GitHub</a></li>
+          <li><a href="https://github.com/Ahmed41022/free-video-editor/releases">All releases</a></li>
+          <li><a href="https://github.com/Ahmed41022/free-video-editor/issues">Report a problem</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>License</h2>
+        <p>Free Video Editor is released under the <a href="https://github.com/Ahmed41022/free-video-editor/blob/main/LICENSE">MIT License</a>.</p>
+        <p>The Windows app bundles FFmpeg (GPLv3) and Qt for Python (LGPLv3). See the <a href="https://github.com/Ahmed41022/free-video-editor/tree/main/licenses">licenses folder</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
