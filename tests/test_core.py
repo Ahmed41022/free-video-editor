@@ -138,5 +138,29 @@ class ConvertTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
 
+class StopProcessTests(unittest.TestCase):
+    def test_stopping_a_launcher_stops_what_it_started(self):
+        """An ffmpeg found through a launcher (a Chocolatey shim) is only the launcher; the real one must stop too."""
+        import sys
+        from video_converter.core import remove_file, stop_process
+        folder = Path(tempfile.mkdtemp())
+        marker = folder / "child-alive.txt"
+        child = "import sys,time; f = open(sys.argv[1], 'w'); f.write('x'); f.flush(); time.sleep(60)"
+        parent = ("import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', %r, sys.argv[1]]); "
+                  "time.sleep(60)" % child)
+        proc = subprocess.Popen([sys.executable, "-c", parent, str(marker)])
+        for _ in range(200):
+            if marker.exists():
+                break
+            threading.Event().wait(0.05)
+        self.assertTrue(marker.exists(), "the child never started")
+        stop_process(proc)
+        proc.wait(10)
+        # The child keeps the marker open while it lives, and Windows won't delete an open file.
+        remove_file(marker)
+        remove_file(marker)        # a file that is already gone is fine
+        self.assertFalse(marker.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

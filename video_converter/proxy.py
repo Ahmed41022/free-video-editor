@@ -13,7 +13,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Hashable, Optional
 
-from .core import ConversionCancelled, ConversionError, MediaInfo, run_ffmpeg
+from .core import ConversionCancelled, ConversionError, MediaInfo, remove_file, run_ffmpeg
 
 log = logging.getLogger(__name__)
 
@@ -132,14 +132,14 @@ class ProxyMaker:
             log.info("Making a smooth preview of %s (%sx%s)", source.name, info.width, info.height)
             run_ffmpeg(proxy_command(self.ffmpeg, source, part, info), part, info.duration, progress, cancel)
             if cancel.is_set():
-                part.unlink(missing_ok=True)
+                remove_file(part)
                 return
             os.replace(part, target)
         except ConversionCancelled:
-            part.unlink(missing_ok=True)
+            remove_file(part)
             return
         except (ConversionError, OSError) as exc:
-            part.unlink(missing_ok=True)
+            remove_file(part)
             log.warning("Couldn't make a smooth preview of %s: %s", source.name, exc)
             self._finished(key, cancel)
             if not cancel.is_set():
@@ -147,7 +147,7 @@ class ProxyMaker:
             return
         self._finished(key, cancel)
         if cancel.is_set():
-            target.unlink(missing_ok=True)
+            remove_file(target)
             return
         log.info("Smooth preview of %s is ready", source.name)
         self.on_done(key, target, "")

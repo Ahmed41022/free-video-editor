@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -252,6 +253,35 @@ def trim_args(start: Optional[float], end: Optional[float]) -> list[str]:
     return args
 
 
+def stop_process(proc: subprocess.Popen) -> None:
+    """Stop `proc` and anything it started. An ffmpeg found through a launcher (a Chocolatey or
+    Scoop shim, say) is only the launcher: ending it alone leaves the real ffmpeg running with its
+    files open, so on Windows the whole tree is ended."""
+    if sys.platform == "win32":
+        try:
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True,
+                           stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if proc.poll() is None:
+        proc.terminate()
+
+
+def remove_file(path: Path, seconds: float = 2.0) -> None:
+    """Delete `path` if it exists. Windows refuses while ffmpeg, a virus scanner or the indexer still
+    has the file open, so keep trying for a moment; a file that stays locked is left behind."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                log.warning("Couldn't delete %s: it is still in use", path)
+                return
+            time.sleep(0.05)
+
+
 def run_ffmpeg(
     cmd: list[str],
     output: Path,
@@ -285,11 +315,25 @@ def run_ffmpeg(
     stderr_reader = threading.Thread(target=lambda: errors.extend(proc.stderr), daemon=True)
     stderr_reader.start()
 
-    cancelled = False
+    # ffmpeg only prints progress every so often, and a slow encode can go seconds between lines, so
+    # a cancel is acted on by a watcher instead of waiting for the next line. Windows won't delete
+    # (or replace) a file ffmpeg still has open, so the stop has to be prompt.
+    stopped = threading.Event()
+    finished = threading.Event()
+
+    def watch_for_cancel() -> None:
+        while not finished.is_set():
+            if cancel_event.wait(0.05):
+                if proc.poll() is None:
+                    stopped.set()
+                    stop_process(proc)
+                return
+
+    if cancel_event is not None:
+        threading.Thread(target=watch_for_cancel, daemon=True).start()
+
     for line in proc.stdout:
-        if cancel_event is not None and cancel_event.is_set():
-            cancelled = True
-            proc.terminate()
+        if stopped.is_set():
             break
         key, _, value = line.strip().partition("=")
         # Despite its name, out_time_ms is in microseconds.
@@ -297,16 +341,18 @@ def run_ffmpeg(
             on_progress(min(int(value) / 1_000_000 / duration, 1.0))
 
     proc.wait()
+    finished.set()
+    cancelled = stopped.is_set()
     stderr_reader.join(timeout=2)
     proc.stdout.close()
     proc.stderr.close()
 
     if cancelled:
-        output.unlink(missing_ok=True)
+        remove_file(output)
         log.info("ffmpeg was stopped on request")
         raise ConversionCancelled()
     if proc.returncode != 0:
-        output.unlink(missing_ok=True)
+        remove_file(output)
         message = "".join(errors).strip() or f"ffmpeg exited with code {proc.returncode}"
         log.error("ffmpeg exited with code %s. Last lines of its output: %s", proc.returncode, message)
         if "matches no streams" in message:
