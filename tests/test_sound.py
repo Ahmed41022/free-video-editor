@@ -885,7 +885,9 @@ class TwoPassTests(unittest.TestCase):
                 run(make_job(name), progress, cancel)
         _, calls = self.recorded(action, spawned=spawned)
         self.assertEqual(len(calls), passes_started)
-        self.assertTrue(spawned and all(p.poll() is not None for p in spawned), "an ffmpeg is still running")
+        # taskkill, which stops the whole ffmpeg tree on Windows, may still be exiting a moment after ffmpeg has
+        ffmpegs = [p for p in spawned if Path(str(p.args[0])).stem.lower() != "taskkill"]
+        self.assertTrue(ffmpegs and all(p.poll() is not None for p in ffmpegs), "an ffmpeg is still running")
         self.assertFalse(calls[0][1].exists(), "the temporary folder is still there")
         self.assertEqual(sorted(p.name for p in self.tmp.iterdir() if p.name.startswith(name)), [])
 
