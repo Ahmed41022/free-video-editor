@@ -29,7 +29,9 @@ from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
 from ..proxy import ProxyMaker, needs_proxy
 from ..timing import part_index, remove_part_at, restore_part_at, split_at
-from ..video import REVERSE_WARN_BYTES, format_memory, plan_geometry, render_frame, reverse_memory, reverse_warning
+from ..video import (
+    REVERSE_WARN_BYTES, format_memory, frame_rate_hint, plan_geometry, render_frame, reverse_memory, reverse_warning,
+)
 from . import icons, theme
 from .inspector import Inspector
 from .player import Player, VideoView
@@ -562,6 +564,7 @@ class MainWindow(QMainWindow):
             self.timeline.clear()
             self.inspector.set_settings(None, None)
             self.inspector.set_reverse_warning("")
+            self.inspector.set_frame_rate_hint("")
             self.setWindowTitle(f"{APP_NAME} {__version__}")
             return
         self.setWindowTitle(f"{item.path.name} · {APP_NAME} {__version__}")
@@ -587,6 +590,7 @@ class MainWindow(QMainWindow):
         video_out = settings.output == OUTPUT_VIDEO
         self.inspector.set_reverse_warning(
             reverse_warning(reverse_memory(edit, info, sound_only=not video_out)) if info else "")
+        self.inspector.set_frame_rate_hint(frame_rate_hint(info) if info and edit.frame_rate is None else "")
         self.timeline.setTrim(edit.start, edit.end)
         self.timeline.setKeep(edit.keep)
         self.player.set_segments(edit.segments(info.duration if info else None))

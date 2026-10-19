@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 from ..core import QUALITY_PRESETS, format_time, parse_time
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, PRESETS, ClipSettings
 from ..timing import FADE_MAX, SPEED_MAX, SPEED_MIN, output_duration, removed_parts
-from ..video import ADJUSTMENTS, FIT_MODES, LOOKS, RESOLUTIONS, STABILIZE, VIDEO_QUALITY
+from ..video import ADJUSTMENTS, FIT_MODES, FRAME_RATES, LOOKS, RESOLUTIONS, STABILIZE, VIDEO_QUALITY
 
 ADJUST_LABELS = {"brightness": "Brightness", "contrast": "Contrast", "saturation": "Saturation",
                  "gamma": "Gamma", "sharpen": "Sharpen", "denoise": "Denoise"}
@@ -385,25 +385,41 @@ class Inspector(QScrollArea):
         self.size_box.setToolTip(
             "Same as source matches the source's short side, so 1080p makes a 1080x1920 phone video. Phone, "
             "portrait and square videos are capped at 1080 pixels on the short side, so 4K doesn't make huge "
-            "files. 1080p, 720p and 480p set the short side.")
+            "files. Up to 1080p does the same for any shape, and never makes a smaller video bigger. "
+            "1080p, 720p and 480p set the short side.")
         self.size_box.currentIndexChanged.connect(
             lambda: self._edit(lambda s: setattr(s.edit, "resolution", self.size_box.currentData()), "Size"))
         self.quality_section.row("Size", self.size_box, 0)
+        self.rate_box = QComboBox()
+        for label, value in FRAME_RATES.items():
+            self.rate_box.addItem(label, value)
+        self.rate_box.setToolTip(
+            "Steady makes every frame the same distance apart, which phones need. A steady export is also "
+            "made phone-safe (H.264 High, AAC sound). A video that is slower than the rate you choose keeps "
+            "its own rate, so Steady 60 never makes a 30 fps video bigger.")
+        self.rate_box.currentIndexChanged.connect(
+            lambda: self._edit(lambda s: setattr(s.edit, "frame_rate", self.rate_box.currentData()), "Frame rate"))
+        self.quality_section.row("Frame rate", self.rate_box, 1)
+        self.rate_hint = QLabel()
+        self.rate_hint.setObjectName("muted")
+        self.rate_hint.setWordWrap(True)
+        self.rate_hint.hide()
+        self.quality_section.grid.addWidget(self.rate_hint, 2, 1)
         self.crf_box = QComboBox()
         for label, value in VIDEO_QUALITY.items():
             self.crf_box.addItem(label, value)
         self.crf_box.currentIndexChanged.connect(
             lambda: self._edit(lambda s: setattr(s.edit, "crf", self.crf_box.currentData()), "Quality"))
-        self.quality_section.row("Quality", self.crf_box, 1)
+        self.quality_section.row("Quality", self.crf_box, 3)
         self.gpu_box = QCheckBox("Use the graphics card when possible")
         self.gpu_box.setToolTip("Exports much faster on most PCs. The picture quality is about the same; "
                                 "if the graphics card fails, the export runs on the CPU instead.")
         self.gpu_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "use_gpu", on), "Graphics card"))
-        self.quality_section.grid.addWidget(self.gpu_box, 2, 0, 1, 2)
+        self.quality_section.grid.addWidget(self.gpu_box, 4, 0, 1, 2)
         self.gpu_label = QLabel()
         self.gpu_label.setObjectName("muted")
         self.gpu_label.setWordWrap(True)
-        self.quality_section.grid.addWidget(self.gpu_label, 3, 0, 1, 2)
+        self.quality_section.grid.addWidget(self.gpu_label, 5, 0, 1, 2)
         self.set_gpu_name(None, searching=True)
 
         # Export location (applies to every export, not one file)
@@ -442,6 +458,11 @@ class Inspector(QScrollArea):
             self.gpu_label.setText("Looking for a graphics card…")
         else:
             self.gpu_label.setText(name or "No supported graphics card found")
+
+    def set_frame_rate_hint(self, text: str) -> None:
+        """Show (or, with "", hide) the note under Frame rate about a source that may not play on a phone."""
+        self.rate_hint.setText(text)
+        self.rate_hint.setVisible(bool(text))
 
     def set_reverse_warning(self, text: str) -> None:
         """Show (or, with "", hide) the note about how much memory playing the clip backwards needs."""
@@ -512,6 +533,7 @@ class Inspector(QScrollArea):
             self.mute_box.setChecked(edit.mute)
             self.mp3_box.setCurrentText(settings.audio_quality)
             self.size_box.setCurrentIndex(max(self.size_box.findData(edit.resolution), 0))
+            self.rate_box.setCurrentIndex(max(self.rate_box.findData(edit.frame_rate), 0))
             self.crf_box.setCurrentIndex(max(self.crf_box.findData(edit.crf), 0))
             self.gpu_box.setChecked(edit.use_gpu)
             self.preset_box.setCurrentIndex(0)

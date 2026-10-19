@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover - depends on the environment
 
 from video_converter.core import MediaInfo, find_ffmpeg, probe_media
 from video_converter.project import OUTPUT_AUDIO, ClipSettings
-from video_converter.video import VideoEdit
+from video_converter.video import UP_TO_1080, VideoEdit
 
 FFMPEG = find_ffmpeg()
 TIMEOUT = 30
@@ -694,6 +694,69 @@ class ReverseWarningInspectorTests(unittest.TestCase):
         self.assertIn("1080", tip)
 
 
+class FrameRateInspectorTests(unittest.TestCase):
+    PHONE = "Play on phone (keeps the whole picture)"
+
+    def setUp(self):
+        from video_converter.ui.inspector import Inspector
+        self.inspector = Inspector()
+        self.inspector.set_settings(ClipSettings(), 10.0)
+        self.edits = []
+        self.inspector.settingsEdited.connect(lambda s, label, final: self.edits.append((s, label, final)))
+        self.addCleanup(self.inspector.close)
+
+    def test_the_combo_offers_the_three_choices_under_size(self):
+        box = self.inspector.rate_box
+        self.assertEqual([box.itemText(i) for i in range(box.count())],
+                         ["Same as source", "Steady 60 fps", "Steady 30 fps"])
+        self.assertEqual(box.currentData(), None)
+        self.assertIs(box.parentWidget(), self.inspector.size_box.parentWidget())
+
+    def test_choosing_a_rate_edits_the_settings(self):
+        self.inspector.rate_box.setCurrentIndex(1)
+        settings, label, final = self.edits[-1]
+        self.assertEqual((settings.edit.frame_rate, label, final), (60, "Frame rate", True))
+        self.inspector.rate_box.setCurrentIndex(2)
+        self.assertEqual(self.edits[-1][0].edit.frame_rate, 30)
+        self.inspector.rate_box.setCurrentIndex(0)
+        self.assertIsNone(self.edits[-1][0].edit.frame_rate)
+
+    def test_showing_settings_selects_the_rate_without_reporting(self):
+        settings = ClipSettings()
+        settings.edit.frame_rate = 30
+        self.inspector.set_settings(settings, 10.0)
+        self.assertEqual(self.inspector.rate_box.currentData(), 30)
+        self.assertEqual(self.edits, [])
+
+    def test_the_hint_shows_and_hides(self):
+        self.assertTrue(self.inspector.rate_hint.isHidden())
+        self.inspector.set_frame_rate_hint("Choose Steady 60 fps.")
+        self.assertFalse(self.inspector.rate_hint.isHidden())
+        self.assertEqual(self.inspector.rate_hint.text(), "Choose Steady 60 fps.")
+        self.assertIs(self.inspector.rate_hint.parentWidget(), self.inspector.rate_box.parentWidget())
+        self.inspector.set_frame_rate_hint("")
+        self.assertTrue(self.inspector.rate_hint.isHidden())
+
+    def test_up_to_1080p_is_a_size_choice(self):
+        box = self.inspector.size_box
+        self.assertEqual([box.itemText(i) for i in range(box.count())][:2], ["Same as source", "Up to 1080p"])
+        box.setCurrentIndex(1)
+        self.assertEqual(self.edits[-1][0].edit.resolution, UP_TO_1080)
+
+    def test_the_play_on_phone_preset_is_first_and_sets_everything(self):
+        box = self.inspector.preset_box
+        self.assertEqual(box.itemText(1), self.PHONE)
+        settings = ClipSettings(edit=VideoEdit(aspect=(9, 16), mute=True, crf=28))
+        self.inspector.set_settings(settings, 10.0)
+        box.setCurrentIndex(1)
+        new, label, _ = self.edits[-1]
+        self.assertEqual(label, f"Preset: {self.PHONE}")
+        edit = new.edit
+        self.assertEqual((new.output, edit.aspect, edit.resolution, edit.frame_rate, edit.crf, edit.mute),
+                         ("video", None, UP_TO_1080, 60, 18, False))
+        self.assertEqual(self.inspector.preset_box.currentIndex(), 0)
+
+
 class AdjustSectionTests(unittest.TestCase):
     def setUp(self):
         from video_converter.ui.inspector import Inspector
@@ -1333,6 +1396,65 @@ class MainWindowTests(unittest.TestCase):
         self.window.media_list.setCurrentRow(1)
         self.window.remove_selected()
         self.assertFalse(self.window.join_button.isEnabled())
+
+
+    def game_recording(self):
+        """Make the open file look like a variable-rate game recording to the editor."""
+        item = self.window.current
+        item.info = MediaInfo(duration=3.0, width=320, height=180, has_audio=True, fps=57.97, max_fps=120.0)
+        self.window._show_settings(item)
+        return item
+
+    def test_the_frame_rate_combo_edits_the_file_and_can_be_undone(self):
+        self.load(self.landscape)
+        item = self.window.current
+        self.window.inspector.rate_box.setCurrentIndex(1)
+        self.assertEqual(item.settings.edit.frame_rate, 60)
+        self.window.undo_stack.undo()
+        self.assertIsNone(item.settings.edit.frame_rate)
+        self.assertEqual(self.window.inspector.rate_box.currentData(), None)
+        self.window.undo_stack.redo()
+        self.assertEqual(item.settings.edit.frame_rate, 60)
+        self.assertEqual(self.window.inspector.rate_box.currentData(), 60)
+
+    def test_a_variable_rate_video_shows_the_hint_until_a_steady_rate_is_chosen(self):
+        self.load(self.landscape)
+        hint = self.window.inspector.rate_hint
+        self.assertTrue(hint.isHidden())                       # an ordinary 15 fps video
+        self.game_recording()
+        self.assertFalse(hint.isHidden())
+        self.assertEqual(hint.text(), "This video's frame rate changes (up to 120 fps), which some phones can't "
+                                      "play. Choose Steady 60 fps.")
+        self.window.inspector.rate_box.setCurrentIndex(1)
+        self.assertTrue(hint.isHidden())
+        self.window.undo_stack.undo()
+        self.assertFalse(hint.isHidden())
+        self.window.inspector.rate_box.setCurrentIndex(2)       # Steady 30 fps is a steady rate too
+        self.assertTrue(hint.isHidden())
+
+    def test_the_hint_follows_the_selected_file(self):
+        self.load(self.landscape)
+        self.game_recording()
+        self.load(self.third)
+        self.window.media_list.setCurrentRow(1)
+        self.assertTrue(self.window.inspector.rate_hint.isHidden())
+        self.window.media_list.setCurrentRow(0)
+        self.assertFalse(self.window.inspector.rate_hint.isHidden())
+
+    def test_the_play_on_phone_preset_sets_the_file_up(self):
+        self.load(self.landscape)
+        self.game_recording()
+        item = self.window.current
+        self.window.inspector.preset_box.setCurrentIndex(1)
+        edit = item.settings.edit
+        self.assertEqual((edit.aspect, edit.resolution, edit.frame_rate, edit.crf, edit.mute),
+                         (None, UP_TO_1080, 60, 18, False))
+        self.assertTrue(self.window.inspector.rate_hint.isHidden())
+        self.assertEqual(self.window.inspector.rate_box.currentData(), 60)
+        self.assertEqual(self.window.inspector.size_box.currentData(), UP_TO_1080)
+        self.window.undo_stack.undo()
+        self.assertEqual(item.settings.edit.aspect, (9, 16))
+        self.assertIsNone(item.settings.edit.frame_rate)
 
 
 if __name__ == "__main__":
