@@ -4,6 +4,7 @@
     python -m video_converter video.mp4 [...]          # convert to MP3 from the command line
     python -m video_converter video.mp4 --video phone  # export an edited MP4 instead
     python -m video_converter a.mp4 b.mp4 --video original --join   # one MP4 made of both
+    python -m video_converter clip.mp4 --video original --fps 60    # a copy that plays on a phone
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from .core import (
 from .gpu import choose_encoder
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, cut_range
 from .video import (
-    ADJUSTMENTS, DEFAULT_FPS, LOOKS, STABILIZE, VIDEO_QUALITY, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video,
+    ADJUSTMENTS, DEFAULT_FPS, LOOKS, STABILIZE, UP_TO_1080, VIDEO_QUALITY, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video,
     join_clips, output_tag, reverse_memory, reverse_warning,
 )
 
@@ -44,6 +45,8 @@ CLI_QUALITY = {
 assert set(CLI_QUALITY.values()) == set(QUALITY_PRESETS)
 
 CLI_SHAPES = {"phone": (9, 16), "square": (1, 1), "portrait": (4, 5), "widescreen": (16, 9), "original": None}
+CLI_SIZES = {"up1080": UP_TO_1080, "1080": 1080, "720": 720, "480": 480}
+CLI_FPS = {"source": None, "60": 60, "30": 30}
 CLI_VIDEO_QUALITY = {"high": "High", "balanced": "Balanced", "small": "Smaller file"}
 
 
@@ -145,7 +148,13 @@ def run_cli(argv: list[str]) -> int:
                        help="crop tighter, 1.0 to 3.0 (default: 1.0)")
     video.add_argument("--rotate", type=int, choices=(0, 90, 180, 270), default=0, help="degrees clockwise")
     video.add_argument("--mirror", action="store_true", help="flip left-right")
-    video.add_argument("--size", type=int, choices=(1080, 720, 480), help="short side in pixels (default: as source)")
+    video.add_argument("--size", choices=CLI_SIZES,
+                       help="short side in pixels, or up1080 = as source but at most 1080, never enlarged "
+                            "(default: as source)")
+    video.add_argument("--fps", choices=CLI_FPS, default="source",
+                       help="30 or 60 = a steady frame rate that phones can play, with phone-safe H.264 and AAC "
+                            "(a slower video keeps its own rate); source = leave it as it is (default: source). "
+                            "--video original --fps 60 makes a copy that plays on a phone")
     video.add_argument("--video-quality", choices=CLI_VIDEO_QUALITY, default="balanced")
     video.add_argument("--mute", action="store_true", help="remove the sound")
     video.add_argument("--gpu", choices=("auto", "off"), default="auto",
@@ -179,6 +188,8 @@ def run_cli(argv: list[str]) -> int:
     if args.join and len(args.files) < 2:
         parser.error("--join needs at least two files")
     picture_values = {name: getattr(args, name) for name in (*ADJUSTMENTS, "look", "stabilize")}
+    if not args.video and args.fps != "source":
+        parser.error("--fps needs --video")
     if not args.video and picture_values != {name: getattr(VideoEdit(), name) for name in picture_values}:
         parser.error("the picture options need --video")
 
@@ -193,7 +204,8 @@ def run_cli(argv: list[str]) -> int:
     if args.video:
         edit = VideoEdit(
             aspect=CLI_SHAPES[args.video], fit=args.fit, pos_x=args.position[0], pos_y=args.position[1],
-            zoom=args.zoom, rotate=args.rotate, flip=args.mirror, resolution=args.size,
+            zoom=args.zoom, rotate=args.rotate, flip=args.mirror, resolution=CLI_SIZES.get(args.size),
+            frame_rate=CLI_FPS[args.fps],
             crf=VIDEO_QUALITY[CLI_VIDEO_QUALITY[args.video_quality]], use_gpu=args.gpu == "auto",
             mute=args.mute, **timing,
             **picture_values,

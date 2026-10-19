@@ -41,6 +41,9 @@ _BITRATE_RE = re.compile(r"bitrate:\s*(\d+)\s*kb/s")
 _ROTATION_RE = re.compile(r"rotation of (-?\d+(?:\.\d+)?) degrees")
 _FPS_RE = re.compile(r"(\d+(?:\.\d+)?) fps")
 _TBR_RE = re.compile(r"(\d+(?:\.\d+)?)(k?) tbr")
+# A declared rate this many times the average means the frame rate changes; see MediaInfo.variable_frame_rate.
+VARIABLE_RATIO = 1.25
+STANDARD_RATES = (24000 / 1001, 24.0, 25.0, 30000 / 1001, 30.0, 50.0, 60000 / 1001, 60.0)
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
@@ -150,12 +153,24 @@ class MediaInfo:
     # Clockwise turn (0, 90, 180, 270) that rotation metadata asks players to apply to
     # the stored frames. ffmpeg applies it automatically; a raw decoder may not.
     display_rotation: int = 0
-    fps: Optional[float] = None    # frames per second of the first video stream
+    fps: Optional[float] = None    # frames per second of the first video stream (the average)
     bitrate: Optional[int] = None  # whole file, in kilobits per second, when ffmpeg says
+    max_fps: Optional[float] = None    # the highest rate the stream declares ("tbr"), when ffmpeg says
 
     @property
     def has_video(self) -> bool:
         return bool(self.width and self.height)
+
+    @property
+    def variable_frame_rate(self) -> bool:
+        """Whether the picture's frame rate changes: the average is well below the highest rate the
+        stream declares, like the 57.97 fps average of a game recording that declares 120.
+
+        Constant videos sometimes declare exactly twice their rate (25 fps, 50 tbr: the fields of an
+        interlaced picture), so a standard average rate is never counted as variable."""
+        if not self.fps or not self.max_fps or self.max_fps < self.fps * VARIABLE_RATIO:
+            return False
+        return not any(abs(self.fps - rate) <= 0.02 for rate in STANDARD_RATES)
 
 
 def _ffmpeg_info_text(ffmpeg: str, source: Path) -> str:
@@ -206,12 +221,15 @@ def parse_media_info(text: str) -> MediaInfo:
         rate = _FPS_RE.search(line)
         if rate:
             info.fps = float(rate.group(1))
-        else:
-            rate = _TBR_RE.search(line)
-            if rate:
-                info.fps = float(rate.group(1)) * (1000 if rate.group(2) else 1)
+        tbr = _TBR_RE.search(line)
+        if tbr:
+            info.max_fps = float(tbr.group(1)) * (1000 if tbr.group(2) else 1)
+            if info.fps is None:
+                info.fps = info.max_fps
         if info.fps is not None and not 0 < info.fps <= 1000:
             info.fps = None
+        if info.max_fps is not None and not 0 < info.max_fps <= 1000:
+            info.max_fps = None
     return info
 
 

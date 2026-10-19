@@ -4,10 +4,12 @@ adjust the picture, stabilize, join clips, and export MP4."""
 from __future__ import annotations
 
 import logging
+import math
 import subprocess
 import tempfile
 import threading
 from dataclasses import dataclass, field
+from fractions import Fraction
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -64,9 +66,15 @@ FIT_MODES = {
 
 ROTATIONS = {"None": 0, "90° clockwise": 90, "180°": 180, "90° counter-clockwise": 270}
 
+# "Up to 1080p" is stored as minus 1080: a size that is a limit, not a target.
+UP_TO_1080 = -1080
+
 # Length of the short side of the output. None = as large as the picture being exported, never
-# enlarged: see plan_geometry.
-RESOLUTIONS = {"Same as source": None, "1080p": 1080, "720p": 720, "480p": 480}
+# enlarged: see plan_geometry. UP_TO_1080 = the same, but never above 1080.
+RESOLUTIONS = {"Same as source": None, "Up to 1080p": UP_TO_1080, "1080p": 1080, "720p": 720, "480p": 480}
+
+# Steady frame rates the user can ask for; None keeps the source's own (which may vary).
+FRAME_RATES = {"Same as source": None, "Steady 60 fps": 60, "Steady 30 fps": 30}
 
 # With "Same as source", phone, portrait and square videos are not made bigger than this (short side).
 SHORT_SIDE_CAP = 1080
@@ -129,6 +137,7 @@ class VideoEdit:
     denoise: float = 0.0
     look: str = "none"        # a LOOKS key
     stabilize: str = "off"    # a STABILIZE key; applied when exporting only
+    frame_rate: Optional[int] = None   # a FRAME_RATES value: a steady, phone-safe export; None = as source
 
     @property
     def crops(self) -> bool:
@@ -164,7 +173,8 @@ def oriented_size(width: int, height: int, rotate: int) -> tuple[int, int]:
 def plan_geometry(width: int, height: int, edit: VideoEdit) -> Geometry:
     """Work out the output size and crop box for a `width` x `height` source.
 
-    The output's short side is `edit.resolution` when that is set. Otherwise it is the source's
+    The output's short side is `edit.resolution` when that is set (a negative one, UP_TO_1080, is a
+    limit: smaller pictures keep their size). Otherwise it is the source's
     short side, so a 1080p video makes a standard 1080x1920 phone video, and phone, portrait and
     square videos stop at SHORT_SIDE_CAP, so a 4K source doesn't turn into a huge 2160x3840 file."""
     w, h = oriented_size(width, height, edit.rotate)
@@ -184,11 +194,15 @@ def plan_geometry(width: int, height: int, edit: VideoEdit) -> Geometry:
         y = round((h - crop_h) * min(max(edit.pos_y, 0.0), 1.0))
         crop = (crop_w, crop_h, x, y)
 
-    if not edit.resolution and edit.aspect is None:
+    resolution = edit.resolution
+    if resolution and resolution < 0:
+        # "Up to": the source's own size, unless its short side is above the limit.
+        resolution = -resolution if min(w, h) > -resolution else None
+    if not resolution and edit.aspect is None:
         # The original shape at "same as source" is exactly the source size (made even).
         return Geometry(w, h, _even_floor(w), _even_floor(h), crop)
-    if edit.resolution:
-        short = edit.resolution
+    if resolution:
+        short = resolution
     else:
         short = min(w, h)
         if edit.aspect and ratio <= 1:
@@ -200,6 +214,78 @@ def plan_geometry(width: int, height: int, edit: VideoEdit) -> Geometry:
     else:
         out_w, out_h = _even(short * aw / ah), short
     return Geometry(w, h, out_w, out_h, crop)
+
+
+# ----- steady frame rate and phone-safe encoding ---------------------------------
+
+FAST_FRAME_RATE = 60.5      # above this (59.94 and 60 are fine) some phones give up
+# A source this much slower than the chosen steady rate keeps its own rate, not the chosen one.
+SLOW_SOURCE = 0.9
+# Rates with a fraction (NTSC) that a plain 29.97 would only approximate.
+_NTSC_RATES = (Fraction(24000, 1001), Fraction(30000, 1001), Fraction(60000, 1001))
+
+
+def _source_rate(fps: float) -> Fraction:
+    """A source's frame rate as an exact rate: 23.98 -> 24000/1001, 25 -> 25, 24.7 -> 25."""
+    for rate in _NTSC_RATES:
+        if abs(fps - float(rate)) <= 0.02:
+            return rate
+    return Fraction(max(round(fps), 1))
+
+
+def steady_rate(chosen: Optional[int], source_fps: Optional[float]) -> Optional[Fraction]:
+    """The constant frame rate to export at, or None when the export keeps the source's own.
+
+    `chosen` is the user's Steady 60 / Steady 30 (a VideoEdit.frame_rate) and `source_fps` the
+    picture's frame rate as it will arrive at the end of the edit (after any speed change). The
+    result is never above `chosen`, and a source that is clearly slower than `chosen` (more than
+    10% below it, so a 58 fps game recording still counts as 60) keeps its own rate instead of
+    having frames repeated: a 25 fps video stays at 25 fps, steady."""
+    if not chosen:
+        return None
+    if not source_fps or source_fps >= chosen * SLOW_SOURCE:
+        return Fraction(chosen)
+    return min(_source_rate(source_fps), Fraction(chosen))
+
+
+def edit_rate(edit: VideoEdit, info: MediaInfo) -> Optional[Fraction]:
+    """The steady rate for exporting `info` with `edit`, or None (see `steady_rate`)."""
+    return steady_rate(edit.frame_rate, info.fps * clamp_speed(edit.speed) if info.fps else None)
+
+
+def _rate_text(rate: float | Fraction) -> str:
+    """A frame rate as ffmpeg takes it: 30, 24000/1001, or (a plain number) 29.97."""
+    if isinstance(rate, Fraction):
+        return str(rate.numerator) if rate.denominator == 1 else f"{rate.numerator}/{rate.denominator}"
+    return f"{rate:.6g}"
+
+
+# H.264 levels from 4.1 up: (name, biggest picture in 16x16 blocks, most blocks a second). Phones that
+# play 1080p60 want 4.2; 4.1 is 1080p30. Smaller pictures also say 4.1, which every phone plays.
+_H264_LEVELS = (
+    ("4.1", 8192, 245760), ("4.2", 8192, 522240), ("5.0", 22080, 589824), ("5.1", 36864, 983040),
+    ("5.2", 36864, 2073600), ("6.0", 139264, 4177920), ("6.1", 139264, 8355840), ("6.2", 139264, 16711680),
+)
+
+
+def h264_level(width: int, height: int, fps: float) -> str:
+    """The lowest H.264 level (from 4.1) that a `width` x `height` picture at `fps` fits, like "4.2"."""
+    blocks = math.ceil(width / 16) * math.ceil(height / 16)
+    for name, frame_limit, rate_limit in _H264_LEVELS:
+        if blocks <= frame_limit and blocks * fps <= rate_limit:
+            return name
+    return _H264_LEVELS[-1][0]
+
+
+def frame_rate_hint(info: MediaInfo) -> str:
+    """What to tell the user about a source whose frame rate may not play on a phone, or "" when
+    there is nothing to say. Shown while the frame rate is left at "Same as source"."""
+    if info.variable_frame_rate and info.max_fps:
+        return (f"This video's frame rate changes (up to {info.max_fps:g} fps), which some phones can't play. "
+                "Choose Steady 60 fps.")
+    if info.fps and info.fps > FAST_FRAME_RATE:
+        return f"This video runs at {info.fps:g} fps, which some phones can't play. Choose Steady 60 fps."
+    return ""
 
 
 # ----- memory for reverse -------------------------------------------------------
@@ -228,7 +314,8 @@ def reverse_memory(edit: VideoEdit, info: MediaInfo, fps: Optional[float] = None
     if not info.has_video:
         return 0
     geometry = plan_geometry(info.width, info.height, edit)
-    rate = fps or info.fps
+    steady = edit_rate(edit, info)
+    rate = fps or (float(steady) if steady else info.fps)
     frames = seconds * rate if rate else length * DEFAULT_FPS
     return int(frames * geometry.out_width * geometry.out_height * 1.5)
 
@@ -311,16 +398,17 @@ class ClipGraph:
 
 def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segment], *,
                video: bool = True, audio: bool = True, frame: Optional[tuple[int, int]] = None,
-               fps: Optional[float] = None, v_out: str = "[v]", a_out: str = "[a]",
+               fps: Optional[float | Fraction] = None, v_out: str = "[v]", a_out: str = "[a]",
                transforms: Optional[str] = None) -> ClipGraph:
     """Filters that take input `index` through cuts, stabilization, speed, reframing, picture
     adjustments, reverse and fades.
 
     The input must start at the first segment (see `input_args`), and `segments` should come from
     `edit.segments(duration, fps)` so their edges sit on whole frames. `frame` and `fps` force the
-    output size and frame rate, for joining clips: a clip whose shape differs is fitted inside
-    that frame with black bars. `transforms` names the file from the stabilizer's detect pass,
-    relative to ffmpeg's working folder."""
+    output size and frame rate, for joining clips (and `fps` for a steady frame rate): a clip whose
+    shape differs is fitted inside that frame with black bars. The `fps` filter comes after the cuts
+    and the speed change, so every frame the export keeps lands on the steady grid in its final time.
+    `transforms` names the file from the stabilizer's detect pass, relative to ffmpeg's working folder."""
     tag = str(index)
     rel = relative(segments)
     speed = clamp_speed(edit.speed)
@@ -340,7 +428,7 @@ def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segm
         # A faster clip would otherwise have more frames per second than its source.
         rate = fps or (info.fps if speed != 1.0 else None)
         if rate:
-            tempo.append(f"fps={rate:.6g}")
+            tempo.append(f"fps={_rate_text(rate)}")
         if tempo:
             filters.append(f"{timed}{','.join(tempo)}[tempo{tag}]")
             timed = f"[tempo{tag}]"
@@ -368,6 +456,10 @@ def input_args(segments: list[Segment], source: Path) -> list[str]:
 
 
 def output_tag(edit: VideoEdit) -> str:
+    """The word in the output's file name: "clip (phone).mp4". The original shape at a steady frame
+    rate is the "make it play on my phone" export, so it says so."""
+    if edit.aspect is None and edit.frame_rate:
+        return "phone-ready"
     return FORMAT_TAGS.get(edit.aspect, "edited")
 
 
@@ -383,12 +475,19 @@ _TAIL = ["-progress", "pipe:1", "-nostats"]
 _X264 = ["-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p"]
 _FASTSTART = ["-movflags", "+faststart"]
 _AAC = ["-c:a", "aac", "-b:a", "192k"]
+# What every phone plays: AAC LC at 48 kHz in stereo (more channels are mixed down).
+_AAC_PHONE = [*_AAC, "-ar", "48000", "-ac", "2"]
 
 
-def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[float] = None) -> list[str]:
+def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[float] = None,
+                     level: Optional[str] = None) -> list[str]:
     """How to encode the picture at quality `crf`: with the hardware `encoder`, or on the CPU (x264).
-    `fps` is the frame rate of the result, when known."""
-    codec = encoder_args(encoder, crf, fps or DEFAULT_FPS) if encoder else [*_X264, "-crf", str(crf)]
+    `fps` is the frame rate of the result, when known. With a `level` (see `h264_level`) the video is
+    H.264 High profile at that level, which is how a phone-safe export says what it needs."""
+    if encoder:
+        codec = encoder_args(encoder, crf, fps or DEFAULT_FPS, level)
+    else:
+        codec = [*_X264, "-crf", str(crf)] + (["-profile:v", "high", "-level", level] if level else [])
     return [*codec, *_FASTSTART]
 
 
@@ -398,11 +497,17 @@ def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optio
     segments = edit.segments(info.duration, info.fps)
     if not segments:
         raise no_segments_error()
-    graph = clip_graph(0, edit, info, segments, transforms=transforms)
+    rate = edit_rate(edit, info)
+    graph = clip_graph(0, edit, info, segments, fps=rate, transforms=transforms)
     cmd = [ffmpeg, *_HEAD, *input_args(segments, job.source),
            "-filter_complex", ";".join(graph.filters), "-map", "[v]"]
-    cmd += ["-map", "[a]", *_AAC] if graph.has_audio else ["-an"]
-    cmd += [*video_codec_args(edit.crf, encoder, info.fps), "-map_metadata", "0", *_TAIL, str(job.output.resolve())]
+    cmd += ["-map", "[a]", *(_AAC_PHONE if rate else _AAC)] if graph.has_audio else ["-an"]
+    level = None
+    if rate:
+        geometry = plan_geometry(info.width, info.height, edit)
+        level = h264_level(geometry.out_width, geometry.out_height, float(rate))
+    cmd += [*video_codec_args(edit.crf, encoder, float(rate) if rate else info.fps, level),
+            "-map_metadata", "0", *_TAIL, str(job.output.resolve())]
     return cmd
 
 
@@ -532,14 +637,21 @@ def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]]
     """The ffmpeg command that plays every part back to back, and the result's length.
 
     Each clip is cut, sped up, reframed and faded with its own settings, then fitted into
-    the first clip's frame size and frame rate. The video quality is the first clip's."""
+    the first clip's frame size and frame rate. The video quality is the first clip's, and so is the
+    steady frame rate if it has one: then the result is phone-safe at that rate (the fastest of the
+    clips' own rates when none is above it), whatever rate the first clip has."""
     parts, video = job.parts, not job.audio_only
     first = parts[0]
-    frame = fps = None
+    frame = fps = level = None
+    steady = None
     if video:
         geometry = plan_geometry(first.info.width, first.info.height, first.edit)
         frame = (geometry.out_width, geometry.out_height)
-        fps = first.info.fps or 30.0
+        rates = [p.info.fps * clamp_speed(p.edit.speed) for p in parts if p.info.fps]
+        steady = steady_rate(first.edit.frame_rate, max(rates, default=None))
+        fps = steady or first.info.fps or 30.0
+        if steady:
+            level = h264_level(*frame, float(steady))
     any_audio = any(p.info.has_audio and not (video and p.edit.mute) for p in parts)
     if not video and not any_audio:
         raise ConversionError("None of these files have sound.")
@@ -569,8 +681,8 @@ def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]]
 
     cmd = [ffmpeg, *_HEAD, *inputs, "-filter_complex", ";".join(filters)]
     if video:
-        cmd += ["-map", "[v]", *(["-map", "[a]", *_AAC] if any_audio else ["-an"]),
-                *video_codec_args(first.edit.crf, encoder, fps)]
+        cmd += ["-map", "[v]", *(["-map", "[a]", *(_AAC_PHONE if steady else _AAC)] if any_audio else ["-an"]),
+                *video_codec_args(first.edit.crf, encoder, float(fps), level)]
     else:
         cmd += ["-map", "[a]", "-vn", "-c:a", "libmp3lame", *QUALITY_PRESETS[job.quality]]
     cmd += ["-map_metadata", "0", *_TAIL, str(job.output.resolve())]

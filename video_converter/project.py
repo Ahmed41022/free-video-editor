@@ -11,7 +11,8 @@ from typing import Any, Optional
 from .core import DEFAULT_QUALITY, QUALITY_PRESETS, output_path_for
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, normalize_keep, removed_parts
 from .video import (
-    ADJUSTMENTS, FIT_MODES, LOOKS, RESOLUTIONS, STABILIZE, VIDEO_QUALITY, VideoEdit, output_tag,
+    ADJUSTMENTS, FIT_MODES, FRAME_RATES, LOOKS, RESOLUTIONS, STABILIZE, UP_TO_1080, VIDEO_QUALITY, VideoEdit,
+    output_tag,
 )
 
 OUTPUT_VIDEO = "video"
@@ -67,6 +68,10 @@ class ClipSettings:
             if name == "rotate" and (isinstance(value, bool) or value not in (0, 90, 180, 270)):
                 continue
             if name == "resolution" and (isinstance(value, bool) or value not in RESOLUTIONS.values()):
+                continue
+            if name == "frame_rate":
+                if not isinstance(value, bool) and value in FRAME_RATES.values():
+                    settings.edit.frame_rate = None if value is None else int(value)
                 continue
             if name == "keep":
                 keep = _load_keep(value)
@@ -155,6 +160,10 @@ def apply_to(target: ClipSettings, source: ClipSettings, include_framing: bool =
 
 # Preset name -> settings it changes. Presets only touch these fields.
 PRESETS: dict[str, dict[str, Any]] = {
+    # For a video that won't play on a phone: the whole picture, no bigger than 1080p, at a steady 60 fps.
+    "Play on phone (keeps the whole picture)": {
+        "output": OUTPUT_VIDEO, "aspect": None, "resolution": UP_TO_1080, "frame_rate": 60,
+        "crf": VIDEO_QUALITY["High"], "mute": False},
     "TikTok, Reels, Shorts": {"output": OUTPUT_VIDEO, "aspect": (9, 16), "fit": "crop", "resolution": 1080,
                               "crf": VIDEO_QUALITY["High"]},
     "Instagram post (4:5)": {"output": OUTPUT_VIDEO, "aspect": (4, 5), "fit": "crop", "resolution": 1080,
@@ -208,6 +217,8 @@ def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
         parts = ["MP4", f"{edit.aspect[0]}:{edit.aspect[1]}" if edit.aspect else "original shape"]
         if edit.aspect:
             parts.append({"crop": "crop", "blur": "blurred fit", "bars": "black bars"}[edit.fit])
+        if edit.frame_rate:
+            parts.append(f"steady {edit.frame_rate} fps")
         if edit.rotate:
             parts.append(f"rotated {edit.rotate}°")
         if edit.mute:

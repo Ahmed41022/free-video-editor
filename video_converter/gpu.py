@@ -36,9 +36,14 @@ PROBE_SECONDS = 15        # a graphics card that wakes up slowly still gets a fa
 CPU_FALLBACK_NOTE = "Exported on the CPU because the graphics card failed"
 
 
-def encoder_args(encoder: str, crf: int, fps: float) -> list[str]:
-    """The ffmpeg video options for `encoder` at quality `crf`, for a video at `fps` frames a second."""
-    return ENCODERS[encoder](crf, fps)
+def encoder_args(encoder: str, crf: int, fps: float, level: Optional[str] = None) -> list[str]:
+    """The ffmpeg video options for `encoder` at quality `crf`, for a video at `fps` frames a second.
+    With a `level` such as "4.2" the video is H.264 High profile at that level (a phone-safe export);
+    all three encoders take the level as its number, 42."""
+    args = ENCODERS[encoder](crf, fps)
+    if level:
+        args += ["-profile:v", "high", "-level", str(round(float(level) * 10))]
+    return args
 
 
 def _encoder_works(ffmpeg: str, encoder: str) -> bool:
