@@ -41,12 +41,16 @@ Everything the app needs is built in either way.
 **Video (MP4)**
 - Reshape for phones (9:16), square posts (1:1), portrait posts (4:5) or widescreen (16:9)
 - Crop to fill the frame, or fit the whole video with a blurred background or black bars
-- Rotate, mirror, remove the sound, and pick the size (1080p, 720p, 480p) and quality
+- Rotate, mirror, remove the sound, and pick the size (up to 1080p, 1080p, 720p, 480p), frame rate and quality
 - Adjust brightness, contrast, saturation and gamma, sharpen, and reduce noise
 - One-click color looks: black and white, warm, cool, vintage and high contrast, on top of the adjustments
 - Stabilize shaky phone footage (light or strong). It runs when exporting, in two passes, so it takes longer
   and the preview doesn't show it
-- One-click presets for TikTok / Reels / Shorts, Instagram, YouTube and WhatsApp status, plus your own saved presets
+- Make videos play on your phone: a steady 60 or 30 fps frame rate (game recordings and screen captures often
+  vary, which some phones refuse to play) with phone-safe H.264 and AAC, in one click with the
+  **Play on phone** preset
+- One-click presets for Play on phone, TikTok / Reels / Shorts, Instagram, YouTube and WhatsApp status, plus
+  your own saved presets
 - Phone recordings that are stored sideways are detected and shown the right way up
 
 **Audio (MP3)**
@@ -71,6 +75,22 @@ To make one video from several files, put them in the order you want (drag them 
 ones to join (or none, to join them all) and click **Join into one**. Each clip keeps its own crop, cuts,
 speed and fades; the result takes its size, frame rate and quality from the first clip, and clips of
 another shape get black bars. If the first clip is set to MP3, you get one MP3 instead.
+
+### Videos that won't play on your phone
+
+Game recordings and screen captures often have a frame rate that changes from moment to moment (and says it
+could be 120 fps), and some phones just say the video is unsupported. To fix one:
+
+1. Add the video and pick it in the list. If its frame rate is the problem, a note under **Frame rate** in
+   **Video quality** says so.
+2. Choose the **Play on phone (keeps the whole picture)** preset. It keeps the video's shape and sound, makes it
+   no bigger than 1080p, and gives it a steady 60 fps. To use 30 fps instead, change **Frame rate** to
+   **Steady 30 fps**.
+3. Click **Export**. The result is saved next to the original as `name (phone-ready).mp4`.
+
+To convert a whole folder, add the folder, choose the preset for one file, click **Apply to all files**, then
+**Export all**. A video that is slower than the rate you choose keeps its own rate (a 30 fps video stays at 30 fps
+with Steady 60), and the original is never changed.
 
 ### Keyboard shortcuts
 
@@ -109,6 +129,7 @@ python -m video_converter "My video.mp4" another.mp4 -q 320 -o converted
 python -m video_converter "My video.mp4" --video phone --fit blur --start 0:10 --end 0:40
 python -m video_converter "My video.mp4" --video original --cut 0:05-0:12 --cut 1:00-1:10 --speed 1.5
 python -m video_converter intro.mp4 main.mp4 --video widescreen --fade-in 1 --fade-out 2 --join
+python -m video_converter "Game clip.mp4" --video original --fps 60 --size up1080   # plays on a phone
 ```
 
 | Option | Description |
@@ -123,7 +144,8 @@ python -m video_converter intro.mp4 main.mp4 --video widescreen --fade-in 1 --fa
 | `--zoom` | Crop tighter, `1.0` to `3.0` (other values are refused) |
 | `--rotate` | `90`, `180`, or `270` degrees clockwise |
 | `--mirror`, `--mute` | Flip left-right; remove the sound |
-| `--size` | Short side in pixels: `1080`, `720`, or `480` (default: the source's short side; phone, portrait and square stop at `1080`) |
+| `--size` | Short side in pixels: `1080`, `720`, or `480`, or `up1080` for the source's size but at most 1080 (never enlarged). Default: the source's short side; phone, portrait and square stop at `1080` |
+| `--fps` | `60` or `30` for a steady frame rate with phone-safe H.264 and AAC (a slower video keeps its own rate), or `source` (default) to leave it alone. `--video original --fps 60` makes a copy that plays on a phone, saved as `name (phone-ready).mp4` |
 | `--video-quality` | `high`, `balanced` (default), or `small` |
 | `--cut START-END` | Remove a section, e.g. `--cut 0:05-0:12`; repeat it to remove more |
 | `--speed` | `0.25` to `4`, e.g. `2` for twice as fast (default `1`) |
