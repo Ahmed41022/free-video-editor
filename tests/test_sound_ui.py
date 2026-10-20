@@ -12,6 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
+    import shiboken6
     from PySide6.QtCore import QEvent, QSettings
     from PySide6.QtWidgets import QApplication, QLabel
 except ImportError:  # pragma: no cover - depends on the environment
@@ -51,6 +52,7 @@ class SoundSectionTests(unittest.TestCase):
 
     def tearDown(self):
         self.inspector.close()
+        shiboken6.delete(self.inspector)     # free it now: every widget left alive slows each later theme change
 
     def show(self, **edit):
         self.inspector.set_settings(ClipSettings(edit=VideoEdit(**edit)), 10.0)

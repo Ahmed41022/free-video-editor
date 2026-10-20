@@ -28,7 +28,10 @@ from ..jobs import Clip, Job, JobQueue
 from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
 from ..proxy import ProxyMaker, needs_proxy
-from ..timing import part_index, remove_part_at, restore_part_at, split_at
+from ..captions import Logo
+from ..timing import (
+    output_spans_to_source, part_index, remove_part_at, restore_part_at, source_to_output, split_at,
+)
 from ..video import (
     REVERSE_WARN_BYTES, format_memory, frame_rate_hint, plan_geometry, render_frame, reverse_memory, reverse_warning,
 )
@@ -325,6 +328,9 @@ class MainWindow(QMainWindow):
         self.view.cropMoved.connect(self._crop_moved)
         self.view.zoomChanged.connect(self._zoom_changed)
         self.view.cropEditFinished.connect(self._edit_finished)
+        self.view.overlayPicked.connect(self._overlay_picked)
+        self.view.overlayMoved.connect(self._overlay_moved)
+        self.view.overlayEditFinished.connect(self._edit_finished)
         self.inspector.settingsEdited.connect(self._inspector_edited)
         self.inspector.applyToAllRequested.connect(self.apply_to_all)
         self.inspector.savePresetRequested.connect(self.save_preset)
@@ -332,6 +338,8 @@ class MainWindow(QMainWindow):
         self.inspector.cutRequested.connect(self.cut_at)
         self.inspector.removeSilencesRequested.connect(self.remove_silences)
         self.inspector.outputFolderRequested.connect(self.choose_output_folder)
+        self.inspector.textSelected.connect(self._text_selected)
+        self.inspector.textTimeRequested.connect(self.text_time_at_playhead)
         self.bridge.jobUpdated.connect(self._job_updated)
 
     def refresh_icons(self) -> None:
@@ -601,6 +609,8 @@ class MainWindow(QMainWindow):
         self.compare_button.setEnabled(video_out and bool(info and info.has_video))
         if info is None or not info.has_video:
             self.view.set_crop(None, 1.0)
+            self.view.set_overlays([], Logo(), None, None)
+            self.timeline.setTexts([])
             return
         self.view.set_orientation(info.display_rotation, edit.rotate if video_out else 0, edit.flip and video_out)
         if video_out and edit.crops:
@@ -608,8 +618,39 @@ class MainWindow(QMainWindow):
             self.view.set_crop((geometry.width, geometry.height, *geometry.crop), edit.zoom)
         else:
             self.view.set_crop(None, edit.zoom)
+        self._show_overlays(item)
         if self.compare_button.isChecked():
             self._after_timer.start()
+
+    def _overlay_time(self, item: MediaItem) -> Optional[float]:
+        """Where the playhead is on the export's timeline, or None when it is on a part that is cut out."""
+        edit, info = item.settings.edit, item.info
+        if info is None or not info.duration:
+            return None
+        return source_to_output(self.player.position, edit.segments(info.duration), edit.speed, edit.reverse)
+
+    def _show_overlays(self, item: MediaItem) -> None:
+        """Hand the texts and the logo to the preview, and the texts' times to the timeline."""
+        edit, info = item.settings.edit, item.info
+        if item.settings.output != OUTPUT_VIDEO:
+            self.view.set_overlays([], Logo(), None, None)
+            self.timeline.setTexts([])
+            return
+        geometry = plan_geometry(info.width, info.height, edit)
+        # In the fit modes the export's frame is bigger than the picture, so the preview shows the frame.
+        self.view.set_overlays(edit.texts, edit.logo, (geometry.out_width, geometry.out_height),
+                               self._overlay_time(item), canvas=not edit.crops and bool(edit.texts or edit.logo.file))
+        if self.view.selected is None or self.view.selected[0] == "text":
+            chosen = self.inspector.captions.selected
+            self.view.set_selected_overlay(("text", chosen) if 0 <= chosen < len(edit.texts) else None)
+        self._show_text_spans(item)
+
+    def _show_text_spans(self, item: MediaItem) -> None:
+        edit, info = item.settings.edit, item.info
+        segments = edit.segments(info.duration) if info and info.duration else []
+        spans = [output_spans_to_source(t.start, t.end, segments, edit.speed, edit.reverse) if segments else []
+                 for t in edit.texts]
+        self.timeline.setTexts(spans, self.inspector.captions.selected)
 
     # ----- editing ------------------------------------------------------------
 
@@ -641,6 +682,51 @@ class MainWindow(QMainWindow):
             new = self.current.settings.copy()
             new.edit.pos_x, new.edit.pos_y = pos_x, pos_y
             self.push_settings(new, "Move crop", final=False)
+
+    def _overlay_picked(self, kind: str, index: int) -> None:
+        if kind == "text":
+            self.inspector.captions.select(index)
+
+    def _overlay_moved(self, kind: str, index: int, x: float, y: float) -> None:
+        item = self.current
+        if item is None:
+            return
+        new = item.settings.copy()
+        if kind == "text" and index < len(new.edit.texts):
+            new.edit.texts[index].x, new.edit.texts[index].y = x, y
+            self.push_settings(new, "Move text", final=False)
+        elif kind == "logo":
+            new.edit.logo.corner, new.edit.logo.x, new.edit.logo.y = "custom", x, y
+            self.push_settings(new, "Move logo", final=False)
+
+    def _text_selected(self, index: int) -> None:
+        self.view.set_selected_overlay(("text", index) if index >= 0 else None)
+        if self.current is not None:
+            self._show_text_spans(self.current)
+
+    def text_time_at_playhead(self, which: str) -> None:
+        """Make the playhead the start or end of the selected text."""
+        item, index = self.current, self.inspector.captions.selected
+        if item is None or index < 0 or index >= len(item.settings.edit.texts):
+            return
+        t = self._overlay_time(item)
+        if t is None:
+            self.statusBar().showMessage("The playhead is on a part that is cut out.", 4000)
+            return
+        t = round(t, 3)
+        new = item.settings.copy()
+        text = new.edit.texts[index]
+        if which == "start":
+            if text.end is not None and t >= text.end:
+                self.statusBar().showMessage("The text has to start before it ends.", 4000)
+                return
+            text.start = t
+        else:
+            if t <= text.start:
+                self.statusBar().showMessage("The text has to end after it starts.", 4000)
+                return
+            text.end = t
+        self.push_settings(new, "Text time")
 
     def _zoom_changed(self, zoom: float) -> None:
         if self.current:
@@ -929,6 +1015,8 @@ class MainWindow(QMainWindow):
 
     def _on_position(self, seconds: float) -> None:
         self.timeline.setPosition(seconds)
+        if self.current is not None and self.current.settings.edit.texts:
+            self.view.set_overlay_time(self._overlay_time(self.current))
         duration = self.current.info.duration if self.current and self.current.info else None
         self.time_label.setText(f"{format_time(seconds)} / {format_time(duration or 0)}")
         if self.compare_button.isChecked() and not self.player.playing:

@@ -4,6 +4,7 @@ import unittest
 from dataclasses import fields
 from pathlib import Path
 
+from video_converter.captions import Logo, Subtitles, TextItem
 from video_converter.core import DEFAULT_QUALITY, QUALITY_PRESETS
 from video_converter.project import (
     FRAMING_FIELDS,
@@ -32,7 +33,14 @@ def custom_settings() -> ClipSettings:
                        audio_fade_in=0.25, audio_fade_out=2.0, brightness=0.2, contrast=1.3, saturation=0.5,
                        gamma=1.4, sharpen=0.6, denoise=4.0, look="vintage", stabilize="strong", frame_rate=30,
                        volume=-4.5, normalize=True, audio_denoise="strong", music="/music/song.mp3",
-                       music_volume=-12.0, music_duck=True),
+                       music_volume=-12.0, music_duck=True,
+                       texts=[TextItem(text="Title", font="Tahoma", size=0.1, color="#ffcc00", outline_color="#112233",
+                                       outline=0.15, box=True, box_color="#445566", box_opacity=0.4, bold=True,
+                                       align="right", x=0.2, y=0.3, start=1.0, end=4.5, fade_in=0.5, fade_out=1.5)],
+                       logo=Logo(file="/art/logo.png", corner="custom", x=0.3, y=0.4, size=0.25, opacity=0.5,
+                                 margin=0.05),
+                       subtitles=Subtitles(file="/subs/talk.srt", font="Segoe UI", size=0.07, color="#00ff00",
+                                           outline_color="#222222", outline=0.2, bold=True, position="top")),
         audio_quality="320 kbps",
     )
 
@@ -290,7 +298,7 @@ class ApplyToTests(unittest.TestCase):
             with self.subTest(field=name):
                 self.assertEqual(getattr(result.edit, name), getattr(self.target.edit, name))
         for f in fields(VideoEdit):
-            if f.name not in FRAMING_FIELDS:
+            if f.name not in FRAMING_FIELDS + ("texts", "subtitles"):
                 with self.subTest(field=f.name):
                     self.assertEqual(getattr(result.edit, f.name), getattr(self.source.edit, f.name))
         self.assertEqual(result.output, self.source.output)

@@ -13,6 +13,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Callable, Optional
 
+from .captions import Logo, Subtitles, TextItem, overlay_graph
 from .core import (
     _NO_WINDOW,
     DEFAULT_QUALITY,
@@ -158,6 +159,9 @@ class VideoEdit:
     music: str = ""           # background music file; "" = none
     music_volume: float = DEFAULT_MUSIC_VOLUME      # dB, next to the video's own sound
     music_duck: bool = False  # lower the music while the video's sound plays
+    texts: list[TextItem] = field(default_factory=list)     # text on the picture, see captions.py
+    logo: Logo = field(default_factory=Logo)                # a logo or watermark over the whole video
+    subtitles: Subtitles = field(default_factory=Subtitles)     # a subtitle file burned into the picture
 
     @property
     def sound(self) -> Sound:
@@ -459,7 +463,8 @@ def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segm
             filters.append(f"{timed}{','.join(tempo)}[tempo{tag}]")
             timed = f"[tempo{tag}]"
         framed = f"[f{tag}]"
-        filters.append(build_filter_graph(plan_geometry(info.width, info.height, edit), edit, timed, framed, tag))
+        geometry = plan_geometry(info.width, info.height, edit)
+        filters.append(build_filter_graph(geometry, edit, timed, framed, tag))
         # Reverse after scaling: it holds every frame in memory, so smaller frames help.
         post = picture_filters(edit)
         post += ["reverse"] if edit.reverse else []
@@ -468,7 +473,11 @@ def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segm
             w, h = frame
             post += [f"scale={w}:{h}:force_original_aspect_ratio=decrease:force_divisible_by=2",
                      f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black", "setsar=1", "format=yuv420p"]
-        filters.append(f"{framed}{','.join(post) or 'null'}{v_out}")
+        # Text, the logo and subtitles go on last, at the size of the final picture.
+        overlays = overlay_graph(f"[ov{tag}]", v_out, edit.texts, edit.logo, edit.subtitles,
+                                 frame or (geometry.out_width, geometry.out_height), segments, speed, edit.reverse, tag)
+        filters.append(f"{framed}{','.join(post) or 'null'}{f'[ov{tag}]' if overlays else v_out}")
+        filters += overlays
     has_audio = audio and info.has_audio and not (video and edit.mute)
     if has_audio:
         filters.append(voice_filters(f"[{index}:a:0]", a_out, segments, edit.sound, speed, edit.reverse,
@@ -864,16 +873,26 @@ def render_frame(
 
     The frame is reframed and adjusted like the export, then stamped with the time it will have
     in the export and run through the export's own fade filters, so fades look the same too.
+    The text, logo and subtitles are drawn at the export's size before the frame is shrunk, with the
+    same filters, so they match the export. A frame that is cut out of the export gets only the logo.
     Stabilization is left out: it needs the whole clip."""
-    graph = build_filter_graph(plan_geometry(info.width, info.height, edit), edit, out="[framed]")
+    geometry = plan_geometry(info.width, info.height, edit)
+    graph = build_filter_graph(geometry, edit, out="[framed]")
     segments = edit.segments(info.duration)
     when = source_to_output(at, segments, edit.speed, edit.reverse)
     chain = picture_filters(edit)
     if when is not None:
         chain.append(f"setpts={when:.3f}/TB")
         chain += fade_filters(edit.fade_in, edit.fade_out, output_duration(segments, edit.speed), audio=False)
-    chain.append(_shrink(max_size))
-    _grab_frames(ffmpeg, source, at, f"{graph};[framed]{','.join(chain)}[p]", {"p": output_png})
+    kept = when is not None
+    overlays = overlay_graph("[drawn]", "[over]", edit.texts if kept else [], edit.logo,
+                             edit.subtitles if kept else Subtitles(), (geometry.out_width, geometry.out_height),
+                             segments, edit.speed, edit.reverse)
+    if overlays:
+        stages = [f"{graph};[framed]{','.join(chain) or 'null'}[drawn]", *overlays, f"[over]{_shrink(max_size)}[p]"]
+    else:
+        stages = [f"{graph};[framed]{','.join([*chain, _shrink(max_size)])}[p]"]
+    _grab_frames(ffmpeg, source, at, ";".join(stages), {"p": output_png})
     return output_png
 
 

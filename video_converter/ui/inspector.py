@@ -16,6 +16,7 @@ from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, PRESETS, ClipSettings
 from ..sound import AUDIO_DENOISE, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
 from ..timing import FADE_MAX, SPEED_MAX, SPEED_MIN, output_duration, removed_parts
 from ..video import ADJUSTMENTS, FIT_MODES, FRAME_RATES, LOOKS, RESOLUTIONS, STABILIZE, VIDEO_QUALITY
+from .captions_panel import CaptionsPanel
 
 ADJUST_LABELS = {"brightness": "Brightness", "contrast": "Contrast", "saturation": "Saturation",
                  "gamma": "Gamma", "sharpen": "Sharpen", "denoise": "Denoise"}
@@ -85,6 +86,8 @@ class Inspector(QScrollArea):
     cutRequested = Signal(str)               # "split" or "remove": at the current playhead
     removeSilencesRequested = Signal()
     outputFolderRequested = Signal()
+    textSelected = Signal(int)               # the selected text's index (-1: none), to show it on the preview
+    textTimeRequested = Signal(str)          # "start" or "end": use the playhead as the selected text's time
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -381,6 +384,14 @@ class Inspector(QScrollArea):
             self.fade_section.row(label, holder, row_index)
             self.fade_rows[label] = (self.fade_section.grid.itemAtPosition(row_index, 0).widget(), holder)
 
+        # Text, logo and subtitles
+        self.captions_section = Section("Text and logo", expanded=False)
+        self.captions = CaptionsPanel()
+        self.captions.edited.connect(lambda change, label, final: self._edit(change, label, final))
+        self.captions.selectionChanged.connect(self.textSelected)
+        self.captions.timeRequested.connect(self.textTimeRequested)
+        self.captions_section.grid.addWidget(self.captions, 0, 0, 1, 2)
+
         # Sound
         self.audio_section = Section("Sound")
         self.mute_box = QCheckBox("Remove the sound")
@@ -542,7 +553,8 @@ class Inspector(QScrollArea):
 
         self.sections = [self.preset_section, self.output_section, self.frame_section, self.adjust_section,
                          self.trim_section,
-                         self.speed_section, self.fade_section, self.audio_section, self.quality_section]
+                         self.speed_section, self.fade_section, self.captions_section, self.audio_section,
+                         self.quality_section]
         for section in self.sections + [self.export_section]:
             layout.addWidget(section)
         layout.addStretch(1)
@@ -609,6 +621,7 @@ class Inspector(QScrollArea):
             self.output_group.button(0 if video else 1).setChecked(True)
             self.frame_section.setVisible(video)
             self.adjust_section.setVisible(video)
+            self.captions_section.setVisible(video)
             self.quality_section.setVisible(video)
             self.mute_box.setVisible(video)
             self.mp3_label.setVisible(not video)
@@ -640,6 +653,7 @@ class Inspector(QScrollArea):
                 box.setValue(getattr(edit, name))
             for widget in self.fade_rows["Picture"]:
                 widget.setVisible(video)
+            self.captions.set_edit(edit)
             self.mute_box.setChecked(edit.mute)
             self.mp3_box.setCurrentText(settings.audio_quality)
             self._show_sound(settings)

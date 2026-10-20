@@ -16,6 +16,7 @@ MARGIN = 12          # space left and right of the track, so handles at the ends
 RULER_H = 18
 THUMBS_H = 46
 WAVE_H = 30
+TEXT_H = 8           # the thin track that shows when each text is on screen
 HANDLE_GRAB = 7      # pixels either side of a handle that start dragging it
 SNAP_EDGE = 0.05     # seconds; trims this close to the ends mean "no trim"
 _EPS = 1e-6
@@ -96,7 +97,7 @@ class Timeline(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setMinimumHeight(RULER_H + THUMBS_H + WAVE_H + 14)
+        self.setMinimumHeight(RULER_H + THUMBS_H + WAVE_H + TEXT_H + 14)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -107,6 +108,8 @@ class Timeline(QWidget):
         self.keep: list[Range] = []
         self.thumbnails: list[QPixmap] = []
         self.waveform: list[float] = []
+        self.text_spans: list[list[Range]] = []     # for each text, the parts of the source it is shown over
+        self.text_selected = -1
         self._drag: Optional[str] = None   # "in", "out", "cut" or "playhead"
         self._edge: Optional[tuple[int, str]] = None
 
@@ -117,6 +120,7 @@ class Timeline(QWidget):
         self.start = self.end = None
         self.keep = []
         self.thumbnails, self.waveform = [], []
+        self.text_spans, self.text_selected = [], -1
         self.update()
 
     def setDuration(self, duration: float) -> None:
@@ -137,6 +141,12 @@ class Timeline(QWidget):
         if self._drag != "cut":
             self.keep = list(keep)
             self.update()
+
+    def setTexts(self, spans: list[list[Range]], selected: int = -1) -> None:
+        """Show when the texts are on screen: `spans[i]` are the parts of the source (in source seconds)
+        text i plays over, `selected` the one being edited."""
+        self.text_spans, self.text_selected = [list(s) for s in spans], selected
+        self.update()
 
     def setThumbnails(self, pixmaps: list[QPixmap]) -> None:
         self.thumbnails = pixmaps
@@ -311,6 +321,19 @@ class Timeline(QWidget):
             p.drawText(wave, Qt.AlignmentFlag.AlignCenter, "No sound")
 
         top, bottom = thumbs.top(), wave.bottom()
+
+        # texts: one thin bar for each stretch of source a text is shown over
+        if self.text_spans:
+            lane = QRectF(left, bottom + 4, width, TEXT_H)
+            p.fillRect(lane, QColor(c["track"]))
+            p.setPen(Qt.PenStyle.NoPen)
+            for i, spans in enumerate(self.text_spans):
+                color = QColor("#f5b83d" if i == self.text_selected else c["accent"])
+                color.setAlpha(230 if i == self.text_selected else 150)
+                p.setBrush(color)
+                for a, b in spans:
+                    x1, x2 = self._x(a), self._x(b)
+                    p.drawRoundedRect(QRectF(x1, lane.top(), max(x2 - x1, 2.0), TEXT_H), 2, 2)
 
         # cut-out sections: dark, hatched, with grabbable edges
         danger = QColor(c["danger"])
