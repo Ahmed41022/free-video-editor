@@ -36,7 +36,7 @@ Everything the app needs is built in either way.
 - Before / after view that renders exactly what the export will look like, adjustments and looks included
 - Undo and redo for every change, dark and light themes, and drag-and-drop of files and folders
 - Each file keeps its own settings; **Apply to all files** copies them to the rest (each keeps its own crop,
-  trim and cuts)
+  trim, cuts, texts and subtitle file; the logo and the subtitle style are copied). Presets never touch the texts
 - Export queue that runs in the background with progress, time left, cancel and "show in folder"
 
 **Video (MP4)**
@@ -53,6 +53,15 @@ Everything the app needs is built in either way.
 - One-click presets for Play on phone, TikTok / Reels / Shorts, Instagram, YouTube and WhatsApp status, plus
   your own saved presets
 - Phone recordings that are stored sideways are detected and shown the right way up
+- Text on the video, as many pieces as you like: pick any installed font, size (as a share of the video's
+  height, so it looks the same at any resolution), color, outline, a box behind it, bold, alignment, where it
+  goes (drag it on the preview) and when it shows, with fade in and out. Arabic, Hebrew and other scripts
+  that run right to left are joined and ordered correctly. Times are on the finished video, after cuts and speed
+- A logo or watermark: any picture (a PNG with see-through parts works best), in a corner or dragged anywhere,
+  with its own size and opacity, shown for the whole video
+- Burned-in subtitles from an `.srt`, `.vtt` or `.ass` file made for the original video. They stay in sync
+  after cuts, a trim and speed changes. Choose the font, size, color, outline and top, middle or bottom
+- A thin track under the timeline shows when each text is on screen
 
 **Audio (MP3)**
 - 128 / 192 / 256 / 320 kbps or variable bitrate, keeping title and artist metadata
@@ -76,7 +85,7 @@ Everything the app needs is built in either way.
 ## How to use
 
 1. Click **Add files** or **Add folder**, or drop videos onto the window (or onto the exe)
-2. Pick a file, then choose a preset or set the shape, crop, picture, trim, cuts, speed, fades and sound on the right
+2. Pick a file, then choose a preset or set the shape, crop, picture, trim, cuts, speed, fades, text and sound on the right
 3. Click **Export** (or **Export all**); exports run in the queue at the bottom while you keep working
 
 To make one video from several files, put them in the order you want (drag them in the list), select the
@@ -127,6 +136,14 @@ then in `imageio-ffmpeg`.
 python -m video_converter
 ```
 
+**Text, logo and subtitles.** Open **Text and logo** on the right and click **Add text**. Drag the text on the
+preview to move it (the logo too); **Use playhead** sets when it appears and disappears, measured on the finished
+video. In a joined export each clip has its own texts, timed within that clip. Subtitle files are timed for the
+original video, so choose one only for the video it belongs to (a file in an old code page is read as Windows-1252).
+Emoji need a font that has them and show as boxes in most fonts. The text goes over the picture last: a look
+doesn't tint it and a fade to black doesn't hide it. The preview under **Before / after** is made with the same
+filters as the export.
+
 On Windows you can also double-click **`Free Video Editor.pyw`**.
 
 ### Command line
@@ -139,6 +156,8 @@ python -m video_converter "My video.mp4" --video phone --fit blur --start 0:10 -
 python -m video_converter "My video.mp4" --video original --cut 0:05-0:12 --cut 1:00-1:10 --speed 1.5
 python -m video_converter intro.mp4 main.mp4 --video widescreen --fade-in 1 --fade-out 2 --join
 python -m video_converter "Game clip.mp4" --video original --fps 60 --size up1080   # plays on a phone
+python -m video_converter clip.mp4 --video original --text "My title" --text-pos 0.5,0.15 --text-end 4 --logo logo.png
+python -m video_converter talk.mp4 --video original --subtitles talk.srt --subtitle-position bottom
 ```
 
 | Option | Description |
@@ -169,6 +188,14 @@ python -m video_converter "Game clip.mp4" --video original --fps 60 --size up108
 | `--music FILE` | Lay this music under the whole result: it repeats if it is shorter and fades out over the last 2 seconds. Works with `--join`, cuts and `--speed`; with `--mute` there is no sound at all |
 | `--music-volume DB` | The music's volume, `-40` to `0` dB (default `-18`); needs `--music` |
 | `--duck` | Lower the music while the video's own sound plays; needs `--music` |
+| `--text TEXT` | Write this text on the video (`\n` starts a new line); needs `--video`. One text from the command line |
+| `--text-start`, `--text-end` | When the text shows, on the finished video (after cuts and speed); default: the whole video |
+| `--text-pos X,Y` | Where the middle of the text sits, as shares of the frame, e.g. `0.5,0.85` (default, bottom and centered) |
+| `--text-size N`, `--text-color COLOR`, `--text-font FAMILY` | The text's height as a share of the video's height, `0.02` to `0.4` (default `0.06`); `#RRGGBB` or a name like `yellow` (default white); an installed font (default Arial) |
+| `--logo FILE` | Show this picture over the whole video; needs `--video` |
+| `--logo-pos`, `--logo-size N`, `--logo-opacity N` | `top-left`, `top-right`, `bottom-left`, `bottom-right` (default), `center`, or `X,Y` for the logo's middle; its width as a share of the video's, `0.03` to `0.8` (default `0.15`); `0.05` to `1` (default `1`) |
+| `--subtitles FILE` | Burn in an `.srt`, `.vtt` or `.ass` file made for the original video. Its times move with cuts, the trim and `--speed`; not with `--join` |
+| `--subtitle-size N`, `--subtitle-position`, `--subtitle-color` | Height as a share of the video's (default `0.05`); `bottom` (default), `middle` or `top`; `#RRGGBB` or a name |
 | `--brightness`, `--contrast`, `--saturation`, `--gamma` | Adjust the picture, e.g. `--contrast 1.2` (`--help` lists the ranges) |
 | `--sharpen`, `--denoise` | Sharpen (`0` to `1.5`) or reduce noise (`0` to `10`) |
 | `--look` | `bw`, `warm`, `cool`, `vintage`, or `contrast` |

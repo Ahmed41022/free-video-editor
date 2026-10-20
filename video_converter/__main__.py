@@ -7,16 +7,22 @@
     python -m video_converter clip.mp4 --video original --fps 60    # a copy that plays on a phone
     python -m video_converter talk.mp4 --remove-silences            # an MP3 without the pauses
     python -m video_converter talk.mp4 --normalize --music song.mp3 --duck    # even loudness, music under it
+    python -m video_converter clip.mp4 --video original --text "Hello" --text-end 3 --logo logo.png   # title, watermark
+    python -m video_converter clip.mp4 --video original --subtitles clip.srt                         # burned-in subtitles
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
+import re
 import sys
 from pathlib import Path
 
 from . import __version__
+from .captions import (
+    LOGO_CORNERS, LOGO_OPACITY, LOGO_SIZE, SUBTITLE_POSITIONS, SUBTITLE_SIZE, TEXT_SIZE, Logo, Subtitles, TextItem,
+)
 from .core import (
     DEFAULT_QUALITY,
     QUALITY_PRESETS,
@@ -109,6 +115,75 @@ def _between(name: str, low: float, high: float):
 def _adjustment(name: str):
     low, high, _ = ADJUSTMENTS[name]
     return _between(name, low, high)
+
+
+COLOR_NAMES = {"white": "#ffffff", "black": "#000000", "yellow": "#ffe600", "red": "#ff2a2a", "green": "#2ecc40",
+               "blue": "#2a7fff", "orange": "#ff9800", "pink": "#ff6ec7", "purple": "#a259ff", "gray": "#808080"}
+
+
+def _color(text: str) -> str:
+    name = text.strip().lower()
+    if name in COLOR_NAMES:
+        return COLOR_NAMES[name]
+    if re.fullmatch(r"#?[0-9a-f]{6}", name):
+        return "#" + name.lstrip("#")
+    raise argparse.ArgumentTypeError(f"not a color: {text!r} (use #RRGGBB or a name like white or yellow)")
+
+
+def _position(text: str) -> tuple[float, float]:
+    parts = text.split(",")
+    try:
+        x, y = (float(p) for p in parts) if len(parts) == 2 else (None, None)
+    except ValueError:
+        x = None
+    if x is None or not (0 <= x <= 1 and 0 <= y <= 1):
+        raise argparse.ArgumentTypeError(f"use X,Y with both between 0 and 1, e.g. 0.5,0.85 (got {text!r})")
+    return x, y
+
+
+def _logo_position(text: str):
+    """A corner name, or "X,Y" (a tuple)."""
+    name = text.strip().lower()
+    if name in LOGO_CORNERS and name != "custom":
+        return name
+    return _position(text)
+
+
+def _caption_edit(args, parser: argparse.ArgumentParser) -> dict:
+    """The text, logo and subtitles options as VideoEdit fields (checked against the other options)."""
+    used = [name for name, on in (("--text", args.text), ("--logo", args.logo), ("--subtitles", args.subtitles)) if on]
+    others = [flag for flag, value, default in (
+        ("--text-start", args.text_start, 0.0), ("--text-end", args.text_end, None), ("--text-pos", args.text_pos, None),
+        ("--text-size", args.text_size, TextItem().size), ("--text-color", args.text_color, TextItem().color),
+        ("--text-font", args.text_font, TextItem().font)) if value != default]
+    if others and not args.text:
+        parser.error(f"{', '.join(others)} need --text")
+    for flag, on in (("--logo-pos", args.logo_pos != "bottom-right"), ("--logo-size", args.logo_size != Logo().size),
+                     ("--logo-opacity", args.logo_opacity != Logo().opacity)):
+        if on and not args.logo:
+            parser.error(f"{flag} needs --logo")
+    if not args.subtitles and (args.subtitle_size != Subtitles().size or args.subtitle_position != Subtitles().position
+                               or args.subtitle_color != Subtitles().color):
+        parser.error("the subtitle options need --subtitles")
+    if used and not args.video:
+        parser.error(f"{', '.join(used)} need --video")
+    if args.subtitles and args.join:
+        parser.error("--subtitles can't be used with --join: a subtitle file is made for one video")
+    if args.text_end is not None and args.text_end <= args.text_start:
+        parser.error("--text-end must be after --text-start")
+    values: dict = {}
+    if args.text:
+        x, y = args.text_pos or (TextItem().x, TextItem().y)
+        values["texts"] = [TextItem(text=args.text.replace("\\n", "\n"), font=args.text_font, size=args.text_size,
+                                    color=args.text_color, x=x, y=y, start=args.text_start, end=args.text_end)]
+    if args.logo:
+        corner = args.logo_pos
+        spot = dict(corner=corner) if isinstance(corner, str) else dict(corner="custom", x=corner[0], y=corner[1])
+        values["logo"] = Logo(file=str(args.logo), size=args.logo_size, opacity=args.logo_opacity, **spot)
+    if args.subtitles:
+        values["subtitles"] = Subtitles(file=str(args.subtitles), size=args.subtitle_size, color=args.subtitle_color,
+                                        position=args.subtitle_position)
+    return values
 
 
 def _warn_reverse(name: str, edit: VideoEdit, info, sound_only: bool, fps: float | None = None) -> None:
@@ -229,6 +304,39 @@ def run_cli(argv: list[str]) -> int:
     picture.add_argument("--look", choices=LOOKS, default="none",
                          help="color look; bw = black and white, contrast = high contrast")
     picture.add_argument("--stabilize", choices=STABILIZE, default="off", help="steady shaky footage (slower)")
+    captions = parser.add_argument_group(
+        "text, logo and subtitles (with --video)",
+        "Text times are on the exported video (after cuts and speed); with --join each clip gets the same text and "
+        "logo, timed within the clip. Subtitle times are those of the original video and are moved through "
+        "cuts and speed. Positions are shares of the frame, 0 to 1 from the left and top.")
+    captions.add_argument("--text", metavar="TEXT", help="write this text on the video (\\n starts a new line)")
+    captions.add_argument("--text-start", type=_time, default=0.0, metavar="TIME", help="when the text appears (default: 0)")
+    captions.add_argument("--text-end", type=_time, metavar="TIME", help="when it goes away (default: the end)")
+    captions.add_argument("--text-pos", type=_position, metavar="X,Y",
+                          help="where the middle of the text sits, e.g. 0.5,0.85 (default: bottom, centered)")
+    captions.add_argument("--text-size", type=_between("--text-size", *TEXT_SIZE), default=TextItem().size, metavar="N",
+                          help=f"the text's height as a share of the video's height, {TEXT_SIZE[0]:g} to {TEXT_SIZE[1]:g} "
+                               f"(default: {TextItem().size:g})")
+    captions.add_argument("--text-color", type=_color, default=TextItem().color, metavar="COLOR",
+                          help="#RRGGBB, or a name like white, yellow, red (default: white)")
+    captions.add_argument("--text-font", default=TextItem().font, metavar="FAMILY",
+                          help=f"an installed font family (default: {TextItem().font})")
+    captions.add_argument("--logo", type=Path, metavar="FILE", help="a picture (a PNG with see-through parts works best) to show over the video")
+    captions.add_argument("--logo-pos", type=_logo_position, default="bottom-right", metavar="WHERE",
+                          help="top-left, top-right, bottom-left, bottom-right, center, or X,Y for the middle of the "
+                               "logo (default: bottom-right)")
+    captions.add_argument("--logo-size", type=_between("--logo-size", *LOGO_SIZE), default=Logo().size, metavar="N",
+                          help=f"the logo's width as a share of the video's width, {LOGO_SIZE[0]:g} to {LOGO_SIZE[1]:g} "
+                               f"(default: {Logo().size:g})")
+    captions.add_argument("--logo-opacity", type=_between("--logo-opacity", *LOGO_OPACITY), default=Logo().opacity,
+                          metavar="N", help=f"{LOGO_OPACITY[0]:g} to {LOGO_OPACITY[1]:g}; 1 = solid (default: 1)")
+    captions.add_argument("--subtitles", type=Path, metavar="FILE",
+                          help="burn in an .srt, .vtt or .ass subtitle file made for the original video")
+    captions.add_argument("--subtitle-size", type=_between("--subtitle-size", *SUBTITLE_SIZE), default=Subtitles().size,
+                          metavar="N", help=f"as a share of the video's height (default: {Subtitles().size:g})")
+    captions.add_argument("--subtitle-position", choices=list(SUBTITLE_POSITIONS), default=Subtitles().position)
+    captions.add_argument("--subtitle-color", type=_color, default=Subtitles().color, metavar="COLOR",
+                          help="#RRGGBB, or a name like white, yellow (default: white)")
     args = parser.parse_args(argv)
 
     if args.start is not None and args.end is not None and args.end <= args.start:
@@ -247,6 +355,7 @@ def run_cli(argv: list[str]) -> int:
         parser.error("--fps needs --video")
     if not args.video and picture_values != {name: getattr(VideoEdit(), name) for name in picture_values}:
         parser.error("the picture options need --video")
+    caption_values = _caption_edit(args, parser)
 
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
@@ -265,7 +374,7 @@ def run_cli(argv: list[str]) -> int:
             frame_rate=CLI_FPS[args.fps],
             crf=VIDEO_QUALITY[CLI_VIDEO_QUALITY[args.video_quality]], use_gpu=args.gpu == "auto",
             mute=args.mute, **timing,
-            **picture_values,
+            **picture_values, **caption_values,
         )
     quality = CLI_QUALITY[args.quality]
 

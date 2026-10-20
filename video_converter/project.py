@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from .captions import drawable, keep_own_captions, load_logo, load_subtitles, load_texts
 from .core import DEFAULT_QUALITY, QUALITY_PRESETS, output_path_for
 from .sound import AUDIO_DENOISE, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, normalize_keep, removed_parts
@@ -73,6 +74,17 @@ class ClipSettings:
             if name == "frame_rate":
                 if not isinstance(value, bool) and value in FRAME_RATES.values():
                     settings.edit.frame_rate = None if value is None else int(value)
+                continue
+            if name == "texts":
+                texts = load_texts(value)
+                if texts is not None:
+                    settings.edit.texts = texts
+                continue
+            if name == "logo":
+                settings.edit.logo = load_logo(value)
+                continue
+            if name == "subtitles":
+                settings.edit.subtitles = load_subtitles(value)
                 continue
             if name == "keep":
                 keep = _load_keep(value)
@@ -160,11 +172,15 @@ FRAMING_FIELDS = ("pos_x", "pos_y", "zoom", "start", "end", "keep")
 
 def apply_to(target: ClipSettings, source: ClipSettings, include_framing: bool = False) -> ClipSettings:
     """Return a copy of `target` with `source`'s settings, keeping target's own
-    crop position, zoom and trim unless `include_framing` is set."""
+    crop position, zoom and trim unless `include_framing` is set.
+
+    The texts and the subtitle file stay the target's own too: what one video says is not what another
+    one says, and a subtitle file was made for one video. The logo and the subtitle style are copied."""
     result = source.copy()
     if not include_framing:
         for name in FRAMING_FIELDS:
             setattr(result.edit, name, copy.deepcopy(getattr(target.edit, name)))
+        keep_own_captions(result.edit, target.edit)
     return result
 
 
@@ -239,6 +255,12 @@ def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
             parts.append("adjusted")
         if STABILIZE.get(edit.stabilize):
             parts.append("stabilized")
+        if any(drawable(item) for item in edit.texts):
+            parts.append("text")
+        if edit.logo.file:
+            parts.append("logo")
+        if edit.subtitles.file:
+            parts.append("subtitles")
     edit = settings.edit
     if edit.start is not None or edit.end is not None:
         start = format_time(edit.start or 0)

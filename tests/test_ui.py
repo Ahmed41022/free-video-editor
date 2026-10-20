@@ -13,6 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
+    import shiboken6
     from PySide6.QtCore import QEvent, QModelIndex, QPoint, QPointF, QSettings, Qt
     from PySide6.QtGui import QColor, QContextMenuEvent, QImage
     from PySide6.QtTest import QTest
@@ -149,6 +150,7 @@ class TimelineWidgetTests(unittest.TestCase):
 
     def tearDown(self):
         self.timeline.close()
+        shiboken6.delete(self.timeline)     # free it now: every widget left alive slows each later theme change
 
     def drag(self, x0, x1):
         y = 60
@@ -204,6 +206,7 @@ class TimelineCutTests(unittest.TestCase):
 
     def tearDown(self):
         self.timeline.close()
+        shiboken6.delete(self.timeline)     # free it now: every widget left alive slows each later theme change
 
     @staticmethod
     def x(seconds):
@@ -424,6 +427,7 @@ class VideoViewTests(unittest.TestCase):
 
     def tearDown(self):
         self.view.close()
+        shiboken6.delete(self.view)     # free it now: every widget left alive slows each later theme change
 
     def test_dragging_the_box_moves_the_crop(self):
         center = self.view.crop_rect().center().toPoint()
@@ -471,6 +475,7 @@ class InspectorTests(unittest.TestCase):
 
     def tearDown(self):
         self.inspector.close()
+        shiboken6.delete(self.inspector)     # free it now: every widget left alive slows each later theme change
 
     def test_showing_settings_does_not_report_edits(self):
         self.inspector.set_settings(ClipSettings(), 10.0)
@@ -767,6 +772,7 @@ class AdjustSectionTests(unittest.TestCase):
 
     def tearDown(self):
         self.inspector.close()
+        shiboken6.delete(self.inspector)     # free it now: every widget left alive slows each later theme change
 
     def test_a_slider_drag_reports_one_final_edit(self):
         slider, value_label = self.inspector.adjust_sliders["contrast"]

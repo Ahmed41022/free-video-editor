@@ -222,6 +222,41 @@ def source_to_output(t: float, segments: list[Segment], speed: float = 1.0,
     return None
 
 
+def output_to_source(t: float, segments: list[Segment], speed: float = 1.0, reverse: bool = False) -> Optional[float]:
+    """Which source time plays at time `t` of the export, or None past its end."""
+    spans = output_spans_to_source(t, t + 1e-9, segments, speed, reverse)
+    return spans[0][0] if spans else None
+
+
+def output_spans_to_source(start: float, end: Optional[float], segments: list[Segment], speed: float = 1.0,
+                           reverse: bool = False) -> list[Range]:
+    """The parts of the source that play between `start` and `end` (None = the end) of the export:
+    the other way round from `source_to_output`. A span across a cut comes out as one part for each
+    side of it. Used to show where a text's time on the export falls on the source's timeline."""
+    speed = clamp_speed(speed)
+    total = output_duration(segments, speed)
+    if end is None:
+        end = total if total is not None else math.inf
+    low_bound, high_bound = (total - end, total - start) if reverse and total is not None else (start, end)
+    spans: list[Range] = []
+    done = 0.0
+    for a, b in segments:
+        length = (b - a) if b is not None else math.inf
+        lo, hi = max(low_bound, done / speed), min(high_bound, (done + length) / speed)
+        if hi - lo > 0:
+            spans.append((a + lo * speed - done, a + hi * speed - done))
+        if b is None:
+            break
+        done += length
+    merged: list[Range] = []
+    for a, b in sorted(spans):
+        if merged and a - merged[-1][1] <= _EPS:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    return merged
+
+
 def clamp_speed(speed: float) -> float:
     return min(max(speed, SPEED_MIN), SPEED_MAX)
 

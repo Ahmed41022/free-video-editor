@@ -6,10 +6,13 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QObject, QPointF, QRectF, QSizeF, Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QTransform, QWheelEvent
+from PySide6.QtGui import (
+    QColor, QFont, QFontMetricsF, QImage, QMouseEvent, QPainter, QPainterPath, QPen, QTransform, QWheelEvent,
+)
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QtVideo, QVideoFrame, QVideoSink
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+from ..captions import Logo, TextItem, laid_out, text_box
 from ..timing import Segment
 from . import theme
 
@@ -195,6 +198,9 @@ class VideoView(QWidget):
     cropMoved = Signal(float, float)       # new pos_x, pos_y (0..1)
     zoomChanged = Signal(float)
     cropEditFinished = Signal()
+    overlayPicked = Signal(str, int)               # "text" and its index, or "logo" and 0: pressed on it
+    overlayMoved = Signal(str, int, float, float)  # kind, index, new x, y (shares of the output frame)
+    overlayEditFinished = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -214,12 +220,22 @@ class VideoView(QWidget):
         self.zoom = 1.0
         self._image: Optional[QImage] = None
         self._drag: Optional[tuple[str, QPointF, float, float, float]] = None
+        # Text and logo drawn over the output frame, which they can be dragged around.
+        self.texts: list[TextItem] = []
+        self.logo = Logo()
+        self.out_size: Optional[tuple[int, int]] = None     # the export's width and height
+        self.overlay_time: Optional[float] = None           # the playhead on the export's timeline; None = cut out
+        self.selected: Optional[tuple[str, int]] = None     # ("text", index) or ("logo", 0)
+        self.canvas = False         # show the whole output frame even when it is bigger than the picture
+        self._logo_cache: Optional[tuple[str, int, QImage]] = None
+        self._overlay_drag: Optional[tuple[str, int, QPointF, float, float]] = None
 
     # ----- state --------------------------------------------------------------
 
     def clear(self, placeholder: Optional[str] = None) -> None:
         self.raw = self._image = self.after_image = None
         self.crop = None
+        self.texts, self.out_size, self.selected, self.canvas = [], None, None, False
         if placeholder is not None:
             self.placeholder = placeholder
         self.update()
@@ -253,6 +269,7 @@ class VideoView(QWidget):
 
     def frame_rect(self) -> QRectF:
         """Where the (oriented) frame is drawn in widget coordinates."""
+        bounds = QRectF(self.rect()).adjusted(8, 8, -8, -8)
         if self.crop:
             size = QSizeF(self.crop[0], self.crop[1])
         else:
@@ -260,7 +277,9 @@ class VideoView(QWidget):
             if image is None:
                 return QRectF()
             size = QSizeF(image.width(), image.height())
-        return fit_rect(size, QRectF(self.rect()).adjusted(8, 8, -8, -8))
+            if self.canvas and self.out_size:
+                bounds = fit_rect(QSizeF(*self.out_size), bounds)       # the picture sits inside the output frame
+        return fit_rect(size, bounds)
 
     def crop_rect(self) -> Optional[QRectF]:
         if not self.crop:
@@ -269,6 +288,161 @@ class VideoView(QWidget):
         frame = self.frame_rect()
         sx, sy = frame.width() / fw, frame.height() / fh
         return QRectF(frame.left() + cx * sx, frame.top() + cy * sy, cw * sx, ch * sy)
+
+    # ----- text and logo --------------------------------------------------------
+
+    def set_overlays(self, texts: list[TextItem], logo: Logo, out_size: Optional[tuple[int, int]],
+                     time: Optional[float], canvas: bool = False) -> None:
+        """Show these texts and this logo over the output frame (`out_size` is the export's width and
+        height). `time` is the playhead on the export's timeline, which decides which texts show;
+        `canvas` shows the whole output frame, as the export will have it, around a picture that doesn't fill it."""
+        self.texts, self.logo, self.out_size, self.overlay_time, self.canvas = list(texts), logo, out_size, time, canvas
+        if self.selected and (self.selected[0] == "text" and self.selected[1] >= len(texts)
+                              or self.selected[0] == "logo" and not logo.file):
+            self.selected = None
+        self.update()
+
+    def set_overlay_time(self, time: Optional[float]) -> None:
+        if time != self.overlay_time:
+            self.overlay_time = time
+            self.update()
+
+    def set_selected_overlay(self, selected: Optional[tuple[str, int]]) -> None:
+        if selected != self.selected:
+            self.selected = selected
+            self.update()
+
+    def output_rect(self) -> QRectF:
+        """Where the exported frame is drawn: the rendered preview, the crop box, or the picture."""
+        bounds = QRectF(self.rect()).adjusted(8, 8, -8, -8)
+        if self.show_after and self.after_image is not None:
+            return fit_rect(QSizeF(self.after_image.size()), bounds)
+        if self.crop:
+            return self.crop_rect() or QRectF()
+        if self.canvas and self.out_size:
+            return fit_rect(QSizeF(*self.out_size), bounds)
+        return self.frame_rect()
+
+    def _text_shown(self, index: int) -> bool:
+        item = self.texts[index]
+        if self.overlay_time is None:
+            return False
+        return item.start <= self.overlay_time and (item.end is None or self.overlay_time <= item.end)
+
+    def _text_rect(self, item: TextItem, out: QRectF) -> QRectF:
+        """The box a text takes up in widget coordinates, kept inside the frame like ffmpeg keeps it."""
+        scale = out.height() / self.out_size[1]
+        width, height = (v * scale for v in text_box(item, self.out_size))
+        left = min(max(out.left() + item.x * out.width() - width / 2, out.left()), max(out.right() - width, out.left()))
+        top = min(max(out.top() + item.y * out.height() - height / 2, out.top()), max(out.bottom() - height, out.top()))
+        return QRectF(left, top, width, height)
+
+    def _logo_image(self) -> QImage:
+        path = self.logo.file
+        if not path:
+            return QImage()
+        try:
+            stamp = Path(path).stat().st_mtime_ns
+        except OSError:
+            return QImage()
+        if self._logo_cache is None or self._logo_cache[:2] != (path, stamp):
+            self._logo_cache = (path, stamp, QImage(path))
+        return self._logo_cache[2]
+
+    def _logo_rect(self, out: QRectF) -> Optional[QRectF]:
+        image = self._logo_image()
+        if image.isNull() or self.out_size is None:
+            return None
+        logo = self.logo
+        width = max(logo.size * out.width(), 4.0)
+        height = width * image.height() / image.width()
+        margin = logo.margin * out.width()
+        if logo.corner == "custom":
+            left, top = out.left() + logo.x * out.width() - width / 2, out.top() + logo.y * out.height() - height / 2
+        else:
+            vertical, _, horizontal = logo.corner.partition("-")
+            left = out.center().x() - width / 2 if logo.corner == "center" else (
+                out.left() + margin if horizontal == "left" else out.right() - width - margin)
+            top = out.center().y() - height / 2 if logo.corner == "center" else (
+                out.top() + margin if vertical == "top" else out.bottom() - height - margin)
+        left = min(max(left, out.left()), max(out.right() - width, out.left()))
+        top = min(max(top, out.top()), max(out.bottom() - height, out.top()))
+        return QRectF(left, top, width, height)
+
+    def overlay_rects(self) -> list[tuple[str, int, QRectF]]:
+        """What can be grabbed, bottom to top: the logo, then the texts that show now (and the selected one)."""
+        out = self.output_rect()
+        if out.isEmpty() or self.out_size is None:
+            return []
+        rects = []
+        logo = self._logo_rect(out)
+        if logo is not None:
+            rects.append(("logo", 0, logo))
+        for i, item in enumerate(self.texts):
+            if item.text.strip() and (self._text_shown(i) or self.selected == ("text", i)):
+                rects.append(("text", i, self._text_rect(item, out)))
+        return rects
+
+    def _overlay_at(self, point: QPointF) -> Optional[tuple[str, int, QRectF]]:
+        for kind, index, rect in reversed(self.overlay_rects()):
+            if rect.adjusted(-4, -4, 4, 4).contains(point):
+                return kind, index, rect
+        return None
+
+    def _paint_overlays(self, p: QPainter, content: bool) -> None:
+        """Draw the texts and the logo (`content`; the rendered preview already has them) and a frame around the selected one."""
+        out = self.output_rect()
+        rects = self.overlay_rects()
+        p.save()
+        p.setClipRect(out)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        for kind, index, rect in rects:
+            if content and kind == "logo":
+                p.setOpacity(self.logo.opacity)
+                p.drawImage(rect, self._logo_image())
+                p.setOpacity(1.0)
+            elif content:
+                self._draw_text(p, self.texts[index], rect, out, 1.0 if self._text_shown(index) else 0.4)
+        p.restore()
+        for kind, index, rect in rects:
+            if self.selected == (kind, index):
+                pen = QPen(QColor("#f5b83d"))
+                pen.setWidthF(1.5)
+                pen.setStyle(Qt.PenStyle.DashLine)
+                p.setPen(pen)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawRect(rect.adjusted(-2, -2, 2, 2))
+
+    def _draw_text(self, p: QPainter, item: TextItem, rect: QRectF, out: QRectF, opacity: float) -> None:
+        """One text, drawn with Qt's own text layout (so Arabic and other scripts join and run the right way).
+        The export draws it with ffmpeg; this is the live version while editing."""
+        scale = out.height() / self.out_size[1]
+        wrapped, _, pixels = laid_out(item, self.out_size)
+        font = QFont(item.font)
+        font.setPixelSize(max(int(round(pixels * scale)), 1))
+        font.setBold(item.bold)
+        metrics = QFontMetricsF(font)
+        p.setOpacity(opacity)
+        if item.box:
+            box = QColor(item.box_color)
+            box.setAlphaF(item.box_opacity)
+            p.fillRect(rect, box)
+        lines = wrapped.split("\n")
+        pad = (0.3 if item.box else item.outline) * pixels * scale
+        inner = rect.adjusted(pad, pad, -pad, -pad)
+        for i, line in enumerate(lines):
+            width = metrics.horizontalAdvance(line)
+            x = {"left": inner.left(), "right": inner.right() - width}.get(item.align, inner.center().x() - width / 2)
+            path = QPainterPath()
+            path.addText(x, inner.top() + i * metrics.lineSpacing() + metrics.ascent(), font, line)
+            if item.outline > 0:
+                pen = QPen(QColor(item.outline_color))
+                pen.setWidthF(max(2 * item.outline * pixels * scale, 1.0))
+                pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                p.setPen(pen)
+                p.drawPath(path)
+            p.fillPath(path, QColor(item.color))
+        p.setOpacity(1.0)
 
     def _handle_at(self, point: QPointF) -> Optional[str]:
         rect = self.crop_rect()
@@ -285,6 +459,16 @@ class VideoView(QWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
             return
+        grabbed = self._overlay_at(event.position())
+        if grabbed is not None:
+            kind, index, rect = grabbed
+            self.set_selected_overlay((kind, index))
+            self.overlayPicked.emit(kind, index)
+            out = self.output_rect()
+            # Where the middle of it is now, as shares of the frame (a logo in a corner starts from there).
+            x, y = (rect.center().x() - out.left()) / out.width(), (rect.center().y() - out.top()) / out.height()
+            self._overlay_drag = (kind, index, event.position(), x, y)
+            return
         handle = self._handle_at(event.position())
         if handle is None:
             return
@@ -296,6 +480,17 @@ class VideoView(QWidget):
         self._drag = (handle, event.position(), rect.center().x(), rect.center().y(), self.zoom)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._overlay_drag is not None:
+            kind, index, start, x, y = self._overlay_drag
+            out = self.output_rect()
+            delta = event.position() - start
+            if not out.isEmpty():
+                self.overlayMoved.emit(kind, index, round(min(max(x + delta.x() / out.width(), 0.0), 1.0), 4),
+                                       round(min(max(y + delta.y() / out.height(), 0.0), 1.0), 4))
+            return
+        if self._drag is None and self._overlay_at(event.position()) is not None:
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+            return
         if self._drag is None:
             handle = self._handle_at(event.position())
             cursor = {"move": Qt.CursorShape.SizeAllCursor, "tl": Qt.CursorShape.SizeFDiagCursor,
@@ -318,6 +513,9 @@ class VideoView(QWidget):
                 self.zoomChanged.emit(round(new_zoom, 3))
 
     def mouseReleaseEvent(self, _event: QMouseEvent) -> None:
+        if self._overlay_drag is not None:
+            self._overlay_drag = None
+            self.overlayEditFinished.emit()
         if self._drag is not None:
             self._drag = None
             self.cropEditFinished.emit()
@@ -350,6 +548,7 @@ class VideoView(QWidget):
         if self.show_after and self.after_image is not None:
             target = fit_rect(QSizeF(self.after_image.size()), QRectF(self.rect()).adjusted(8, 8, -8, -8))
             p.drawImage(target, self.after_image)
+            self._paint_overlays(p, content=False)
             self._badge(p, "After")
             return
 
@@ -359,6 +558,8 @@ class VideoView(QWidget):
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.placeholder)
             return
         frame = self.frame_rect()
+        if self.canvas and self.out_size and not self.crop:
+            p.fillRect(self.output_rect(), QColor("black"))
         p.drawImage(frame, image)
 
         rect = self.crop_rect()
@@ -383,6 +584,7 @@ class VideoView(QWidget):
             p.setBrush(QColor("white"))
             for corner in (rect.topLeft(), rect.topRight(), rect.bottomLeft(), rect.bottomRight()):
                 p.drawEllipse(corner, 5, 5)
+        self._paint_overlays(p, content=True)
         if self.show_after:
             self._badge(p, "Rendering preview…")
 
