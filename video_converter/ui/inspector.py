@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, Qt, Signal
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QAbstractScrollArea, QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -44,6 +45,36 @@ def _db_text(value: float) -> str:
 def _short_name(name: str, longest: int = 24) -> str:
     """A file name that fits the panel: the start and the end of a long one, with … between."""
     return name if len(name) <= longest else f"{name[:longest // 2 - 1]}…{name[-(longest // 2):]}"
+
+
+class WheelGuard(QObject):
+    """Makes the mouse wheel scroll the settings panel instead of changing a value by accident. A combo box, spin
+    box or slider only takes the wheel while it has the keyboard focus (click it or Tab to it first); otherwise
+    the wheel is passed on to the scrolling panel."""
+
+    def __init__(self, parent: QObject):
+        super().__init__(parent)
+
+    def watch(self, root: QWidget) -> None:
+        for widget in root.findChildren(QWidget):
+            if isinstance(widget, (QComboBox, QAbstractSpinBox, QSlider)):
+                widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)       # a wheel turn must not give it the focus
+                widget.installEventFilter(self)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if event.type() != QEvent.Type.Wheel or not isinstance(obj, QWidget) or obj.hasFocus():
+            return False
+        # Hand the turn to the scrolling panel ourselves: an ignored event is not reliably passed on from here.
+        area = obj.parentWidget()
+        while area is not None and not isinstance(area, QAbstractScrollArea):
+            area = area.parentWidget()
+        if area is not None:
+            viewport = area.viewport()
+            where = viewport.mapFromGlobal(event.globalPosition().toPoint())
+            QApplication.sendEvent(viewport, QWheelEvent(
+                QPointF(where), event.globalPosition(), event.pixelDelta(), event.angleDelta(), event.buttons(),
+                event.modifiers(), event.phase(), event.inverted(), event.source()))
+        return True
 
 
 class Section(QFrame):
@@ -655,6 +686,8 @@ class Inspector(QScrollArea):
             # Long option names shouldn't force the panel wider than the window allows.
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             combo.setMinimumContentsLength(8)
+        self.wheel_guard = WheelGuard(self)
+        self.wheel_guard.watch(content)
         self.set_presets({})
         self.set_settings(None, None)
 

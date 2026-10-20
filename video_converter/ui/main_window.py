@@ -16,9 +16,9 @@ from typing import Optional
 from PySide6.QtCore import QByteArray, QEvent, QObject, QSettings, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QImage, QKeySequence, QPixmap, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
-    QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter,
-    QToolBar, QToolButton, QVBoxLayout, QWidget,
+    QAbstractButton, QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QHBoxLayout,
+    QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
+    QPushButton, QSizePolicy, QSplitter, QTextEdit, QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .. import APP_NAME, __version__, diagnostics, gpu, i18n, updates
@@ -291,7 +291,7 @@ class MainWindow(QMainWindow):
         center_layout.setSpacing(0)
         self.view = VideoView()
         center_layout.addWidget(self.view, 1)
-        transport = QWidget()
+        transport = self.transport = QWidget()
         transport.setObjectName("panel")
         row = QHBoxLayout(transport)
         row.setContentsMargins(10, 4, 10, 4)
@@ -1474,14 +1474,30 @@ class MainWindow(QMainWindow):
 
     # ----- keyboard, drag and drop, closing ------------------------------------
 
+    def _owns_shortcuts(self, focus: Optional[QWidget], key: int) -> bool:
+        """Whether the playback and editing keys (Space, J K L, I O, S X, B, arrows, Home) are ours while `focus`
+        has the keyboard. They are only for the places the person is not typing or operating a control: the
+        window itself, the file list, the preview, the timeline and the transport bar. Every text input, and
+        every button, check box, slider and list of the settings panel, keeps its own keys."""
+        if focus is None or focus is self:
+            return True
+        if isinstance(focus, (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)) or (
+                isinstance(focus, QComboBox) and focus.isEditable()):
+            return False
+        if focus is self.media_list or focus is self.media_list.viewport() or focus is self.view \
+                or focus is self.timeline:
+            return True
+        if self.transport.isAncestorOf(focus):
+            # A transport button keeps Space (it presses the button); the other keys are the transport's own.
+            return not (isinstance(focus, QAbstractButton) and key == Qt.Key.Key_Space)
+        return False
+
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if event.type() != QEvent.Type.KeyPress or not self.isActiveWindow() or event.modifiers() & (
                 Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier):
             return super().eventFilter(obj, event)
         focus = QApplication.focusWidget()
-        if isinstance(focus, (QLineEdit, QAbstractSpinBox)) or (isinstance(focus, QComboBox) and focus.isEditable()):
-            return super().eventFilter(obj, event)
-        if self.current is None:
+        if not self._owns_shortcuts(focus, event.key()) or self.current is None:
             return super().eventFilter(obj, event)
         key = event.key()
         if not (Qt.Key.Key_A <= key <= Qt.Key.Key_Z) and 0x41 <= event.nativeVirtualKey() <= 0x5A:

@@ -87,6 +87,10 @@ class TextBox(QPlainTextEdit):
     """The box a text is typed in; it says when the person has left it."""
     leftBox = Signal()
 
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setTabChangesFocus(True)       # Tab moves on to the next control instead of typing a tab
+
     def focusOutEvent(self, event) -> None:
         self.leftBox.emit()
         super().focusOutEvent(event)
