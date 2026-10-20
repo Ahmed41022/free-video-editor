@@ -95,6 +95,8 @@ class Inspector(QScrollArea):
     outputFolderRequested = Signal()
     textSelected = Signal(int)               # the selected text's index (-1: none), to show it on the preview
     textTimeRequested = Signal(str)          # "start" or "end": use the playhead as the selected text's time
+    autoCaptionsRequested = Signal()         # make captions from the speech
+    editCaptionsRequested = Signal()         # open the caption editor
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -400,6 +402,8 @@ class Inspector(QScrollArea):
         self.captions.edited.connect(lambda change, label, final: self._edit(change, label, final))
         self.captions.selectionChanged.connect(self.textSelected)
         self.captions.timeRequested.connect(self.textTimeRequested)
+        self.captions.autoCaptionsRequested.connect(self.autoCaptionsRequested)
+        self.captions.editCaptionsRequested.connect(self.editCaptionsRequested)
         self.captions_section.grid.addWidget(self.captions, 0, 0, 1, 2)
 
         # Sound

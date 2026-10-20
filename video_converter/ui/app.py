@@ -65,7 +65,29 @@ def crash_box(summary: str, parent=None) -> QMessageBox:
     return box
 
 
+CAPTIONS_SELF_TEST = "--self-test-captions"
+
+
+def captions_self_test(report: Optional[str] = None) -> int:
+    """Check that the speech engine behind automatic captions works in this build, without opening a window:
+    0 if it does. The one-line result (or the error) is written to the file `report`, since the built program
+    has no console to print to."""
+    try:
+        from ..autocaptions import self_test
+
+        text, code = self_test(), 0
+    except Exception:
+        import traceback
+
+        text, code = "FAILED\n" + traceback.format_exc(), 1
+    if report:
+        Path(report).write_text(text + "\n", encoding="utf-8")
+    return code
+
+
 def main(paths: Optional[list[str]] = None) -> int:
+    if paths and paths[0] == CAPTIONS_SELF_TEST:
+        return captions_self_test(paths[1] if len(paths) > 1 else None)
     if sys.platform == "win32":
         try:
             import ctypes

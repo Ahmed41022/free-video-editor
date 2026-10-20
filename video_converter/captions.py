@@ -441,6 +441,26 @@ def _srt_time(seconds: float) -> str:
     return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
 
 
+def format_srt(cues: list[Cue]) -> str:
+    """The text of an .srt file for `cues`, numbered in order. A blank line inside a cue would end it
+    early in the file, so those are dropped."""
+    blocks = []
+    for number, cue in enumerate(cues, 1):
+        body = "\n".join(line.strip() for line in cue.text.replace("\r", "").split("\n") if line.strip())
+        blocks.append(f"{number}\n{_srt_time(cue.start)} --> {_srt_time(cue.end)}\n{body}\n")
+    return "\n".join(blocks)
+
+
+def write_srt(cues: list[Cue], path: Path) -> None:
+    """Save `cues` as a UTF-8 .srt file at `path` (written aside first, so a failure can't leave half a file)."""
+    temp = path.with_name(path.name + ".part")
+    try:
+        temp.write_bytes(format_srt(cues).encode("utf-8"))
+        temp.replace(path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def map_span(start: float, end: float, segments: list[Segment], speed: float = 1.0, reverse: bool = False,
              ) -> list[tuple[float, float]]:
     """Where the source time span start..end lands on the export's timeline: one piece for each kept

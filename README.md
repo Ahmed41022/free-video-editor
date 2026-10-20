@@ -81,6 +81,12 @@ The website is also available [in Arabic](https://ahmed41022.github.io/free-vide
   with its own size and opacity, shown for the whole video
 - Burned-in subtitles from an `.srt`, `.vtt` or `.ass` file made for the original video. They stay in sync
   after cuts, a trim and speed changes. Choose the font, size, color, outline and top, middle or bottom
+- **Automatic captions**: *Make captions automatically…* under **Text and logo → Subtitles** listens to the
+  speech and writes it down as captions, in Arabic, English, French, Spanish, German, Turkish, Hindi, Urdu and
+  many other languages (or *Detect automatically*), optionally *translated to English*. It runs entirely on your
+  PC: the first time you use an accuracy level its speech model is downloaded once (Fast 75 MB, Balanced 141 MB,
+  Accurate 464 MB), and after that no internet is needed. The captions are saved next to the video as `name.srt`,
+  burned in, and can be fixed in **Edit captions…** (words, times, delete). See [Automatic captions](#automatic-captions)
 - A thin track under the timeline shows when each text is on screen
 
 **Audio (MP3)**
@@ -176,6 +182,40 @@ filters as the export.
 
 On Windows you can also double-click **`Free Video Editor.pyw`**.
 
+### Automatic captions
+
+Select a video with speech, open **Text and logo**, and under **Subtitles** click **Make captions
+automatically…**. Choose the language (or leave it on *Detect automatically*) and how accurate to be, tick
+**Translate to English** if you want the captions in English whatever is spoken, and click **Start**.
+
+| Level | Download (once) | Good for |
+| --- | --- | --- |
+| Fast | 75 MB | Quick drafts and clear English speech |
+| Balanced (default) | 141 MB | Most videos, in most languages |
+| Accurate | 464 MB | Accents, noise, and languages like Arabic; the slowest |
+
+- **Everything runs on your PC.** The speech models are not part of the program. The first time you pick a level,
+  its model is downloaded once from Hugging Face (the official `Systran/faster-whisper-*` repositories, over
+  HTTPS, and nothing else is ever contacted) into `%LOCALAPPDATA%\Free Video Editor\models`. Each file is checked
+  against a SHA-256 hash that is built into the program, a download can be cancelled and picks up where it
+  stopped, and a model that doesn't check out is never used. After that, captions work with no internet. Delete
+  that folder to get the space back.
+- **What is listened to**: the sound of the original file inside your trim (cuts are ignored, so if you put a cut
+  part back its captions are there). The captions are timed for the original video, so they stay in sync through
+  cuts, trims and speed changes just like any subtitle file.
+- **The result** is saved as `name.srt` next to the video (`name (1).srt` if that exists) and added as the video's
+  burned-in subtitles, in one undo step. Change the look (font, size, color, place) in the same section.
+  **Edit captions…** opens a table where you can fix words, change times and delete captions; saving rewrites the
+  `.srt` and is one undo step. Arabic and other right-to-left captions are shown correctly.
+- Captions are cut into lines of at most 42 characters, two lines at most, between about 1 and 6 seconds,
+  breaking at pauses and punctuation. Music and silence are skipped. It needs a video with a sound track; a
+  video with no speech gives a message instead of captions. Very long videos take a while (the Balanced level is
+  usually several times faster than real time on a modern PC); **Cancel** stops within a few seconds.
+- Errors are explained in the window: no internet on the first use, a full disk, a video with no sound.
+
+From the command line, `--auto-captions` writes the `.srt` and burns it into the exported video, and
+`--captions-only` just writes the `.srt` (see the table below).
+
 ### Command line
 
 Pass one or more files to convert them without opening the window:
@@ -188,6 +228,8 @@ python -m video_converter intro.mp4 main.mp4 --video widescreen --fade-in 1 --fa
 python -m video_converter "Game clip.mp4" --video original --fps 60 --size up1080   # plays on a phone
 python -m video_converter clip.mp4 --video original --text "My title" --text-pos 0.5,0.15 --text-end 4 --logo logo.png
 python -m video_converter talk.mp4 --video original --subtitles talk.srt --subtitle-position bottom
+python -m video_converter talk.mp4 --video original --auto-captions               # listen, write talk.srt, burn it in
+python -m video_converter talk.mp4 --captions-only --caption-language ar --caption-model accurate   # just talk.srt
 python -m video_converter "Big clip.mp4" --target-size 10                           # a copy that fits Discord's 10 MB
 python -m video_converter clip.mp4 --format gif --start 0:05 --end 0:09             # a looping GIF
 python -m video_converter clip.mp4 --video square --frame-at 0:12 --frame-out frame.png   # save one frame
@@ -233,6 +275,11 @@ python -m video_converter clip.mp4 --video square --frame-at 0:12 --frame-out fr
 | `--logo-pos`, `--logo-size N`, `--logo-opacity N` | `top-left`, `top-right`, `bottom-left`, `bottom-right` (default), `center`, or `X,Y` for the logo's middle; its width as a share of the video's, `0.03` to `0.8` (default `0.15`); `0.05` to `1` (default `1`) |
 | `--subtitles FILE` | Burn in an `.srt`, `.vtt` or `.ass` file made for the original video. Its times move with cuts, the trim and `--speed`; not with `--join` |
 | `--subtitle-size N`, `--subtitle-position`, `--subtitle-color` | Height as a share of the video's (default `0.05`); `bottom` (default), `middle` or `top`; `#RRGGBB` or a name |
+| `--auto-captions` | Listen to the speech, save the captions as `name.srt` (next to the video, or in `-o`) and burn them into the exported video; needs `--video` (or `--format` / `--target-size`). Works with cuts, the trim and `--speed`; the `--subtitle-*` options set the look. Not with `--subtitles`, `--join` or `--frame-at`. The first use of a `--caption-model` downloads its model (once) |
+| `--captions-only` | Only write the `.srt` (implies `--auto-captions`); `--start` and `--end` choose the part to listen to. Exit code 1 if no speech was found |
+| `--caption-language CODE` | The language spoken: `ar`, `en`, `fr`, `es`, `de`, `tr`, `hi`, `ur`, … or `auto` (default) to detect it |
+| `--caption-model` | `fast` (75 MB download), `balanced` (141 MB, default) or `accurate` (464 MB) |
+| `--translate-captions` | Write the captions in English, whatever language is spoken |
 | `--brightness`, `--contrast`, `--saturation`, `--gamma` | Adjust the picture, e.g. `--contrast 1.2` (`--help` lists the ranges) |
 | `--sharpen`, `--denoise` | Sharpen (`0` to `1.5`) or reduce noise (`0` to `10`) |
 | `--look` | `bw`, `warm`, `cool`, `vintage`, or `contrast` |
@@ -246,7 +293,10 @@ python -m venv .venv
 .venv\Scripts\python build_exe.py
 ```
 
-The result is `dist\Free Video Editor.exe`, a single file that includes ffmpeg and the Qt libraries.
+The result is `dist\Free Video Editor.exe`, a single file that includes ffmpeg, the Qt libraries and the speech
+engine for automatic captions (faster-whisper with CTranslate2; the speech models themselves are downloaded by
+the app when first needed, not bundled). To check that a built exe can load the engine without opening a window,
+run `"dist\Free Video Editor.exe" --self-test-captions result.txt`: the exit code is 0 and `result.txt` starts with `ok`.
 
 To also build the installer, install [Inno Setup 6](https://jrsoftware.org/isdl.php) and add `--installer`:
 `.venv\Scripts\python build_exe.py --installer` writes `dist\FreeVideoEditor-Setup-<version>.exe`
@@ -261,7 +311,9 @@ python -m unittest discover -s tests -v
 
 The tests generate short sample videos with ffmpeg and skip what they can't run: the conversion tests need
 ffmpeg, and the editor tests (`tests/test_ui.py`) need PySide6, so run them from the build environment:
-`.venv\Scripts\python -m unittest discover -s tests`.
+`.venv\Scripts\python -m unittest discover -s tests`. No test uses the network or writes to your models folder;
+one optional test runs the real Fast speech model on made-up sound, and only if that model has already been
+downloaded on the PC.
 GitHub runs the whole suite on every push and pull request (`.github/workflows/tests.yml`).
 
 ## Releases
@@ -277,3 +329,6 @@ and attaches them to the run.
 
 Free Video Editor is released under the [MIT License](LICENSE).
 The Windows exe bundles FFmpeg (GPLv3) and Qt for Python (LGPLv3); see [licenses/](licenses/).
+The automatic captions feature adds faster-whisper, CTranslate2 (MIT), PyAV (BSD, with its own FFmpeg libraries),
+ONNX Runtime (MIT), tokenizers (Apache 2.0) and NumPy (BSD); the Whisper models (MIT) are downloaded on request
+and not bundled. See [licenses/SPEECH-NOTICE.txt](licenses/SPEECH-NOTICE.txt).

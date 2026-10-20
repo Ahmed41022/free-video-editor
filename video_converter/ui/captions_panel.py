@@ -23,7 +23,8 @@ from ..core import format_time, parse_time
 from ..timing import FADE_MAX
 from ..video import VideoEdit
 
-TYPING_PAUSE = 700      # milliseconds without typing before the text counts as one finished edit
+EDITABLE_EXTENSIONS = (".srt", ".vtt")       # the subtitle files the caption editor can open
+TYPING_PAUSE = 700     # milliseconds without typing before the text counts as one finished edit
 
 # Where the quick position buttons put a text: (label, y).
 POSITIONS = (("Top", 0.12), ("Middle", 0.5), ("Bottom", 0.85))
@@ -95,6 +96,8 @@ class CaptionsPanel(QWidget):
     edited = Signal(object, str, bool)
     selectionChanged = Signal(int)          # the selected text's index, or -1
     timeRequested = Signal(str)             # "start" or "end": use the playhead as the selected text's time
+    autoCaptionsRequested = Signal()        # "Make captions automatically…"
+    editCaptionsRequested = Signal()        # "Edit captions…"
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -290,6 +293,14 @@ class CaptionsPanel(QWidget):
 
         # --- subtitles
         layout.addWidget(self._heading("Subtitles"))
+        self.auto_button = QPushButton("Make captions automatically…")
+        self.auto_button.setToolTip("Listen to the speech in this video and write it down as captions. It all runs "
+                                    "on this PC.")
+        self.auto_button.clicked.connect(self.autoCaptionsRequested.emit)
+        layout.addWidget(self.auto_button)
+        self.auto_hint = _muted("Writes the speech down for you, in many languages. Runs on this PC, with no "
+                                "internet after a one-time download of the speech model.")
+        layout.addWidget(self.auto_hint)
         self.sub_name = _muted("None", wrap=False)
         self.sub_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.sub_choose = QPushButton("Choose…")
@@ -299,6 +310,10 @@ class CaptionsPanel(QWidget):
         self.sub_remove.clicked.connect(lambda: self.edited.emit(
             lambda s: setattr(s.edit.subtitles, "file", ""), "Remove subtitles", True))
         layout.addWidget(_row(self.sub_name, self.sub_choose, self.sub_remove))
+        self.edit_captions_button = QPushButton("Edit captions…")
+        self.edit_captions_button.setToolTip("Fix the words and the times of the captions")
+        self.edit_captions_button.clicked.connect(self.editCaptionsRequested.emit)
+        layout.addWidget(self.edit_captions_button)
         self.sub_message = QLabel("The subtitle file can't be found. Choose it again.")
         self.sub_message.setObjectName("error")
         self.sub_message.setWordWrap(True)
@@ -451,6 +466,13 @@ class CaptionsPanel(QWidget):
         self.sub_remove.setEnabled(has)
         self.sub_options.setVisible(has)
         self.sub_message.setVisible(has and not Path(sub.file).is_file())
+        editable = has and Path(sub.file).suffix.lower() in EDITABLE_EXTENSIONS and Path(sub.file).is_file()
+        self.edit_captions_button.setVisible(has)
+        self.edit_captions_button.setEnabled(editable)
+        self.edit_captions_button.setToolTip(
+            "Fix the words and the times of the captions" if editable or not has else
+            "Only .srt and .vtt subtitle files can be edited here" if Path(sub.file).is_file() else
+            "The subtitle file can't be found")
         if sub:
             index = self.sub_font.findText(sub.font)
             if index >= 0:

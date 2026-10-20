@@ -29,7 +29,8 @@ from ..jobs import Clip, Job, JobQueue
 from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
 from ..proxy import ProxyMaker, needs_proxy
-from ..captions import Logo
+from ..autocaptions import captions_file_for, save_captions
+from ..captions import Logo, format_srt, parse_cues, read_text, subtitle_kind
 from ..stills import IMAGE_EXTENSIONS, save_frame
 from ..timing import (
     output_spans_to_source, part_index, remove_part_at, restore_part_at, source_to_output, split_at,
@@ -39,6 +40,8 @@ from ..video import (
     reverse_memory, reverse_warning,
 )
 from . import icons, theme
+from .auto_captions_dialog import AutoCaptionsDialog
+from .captions_editor import CaptionsEditor
 from .inspector import Inspector
 from .player import Player, VideoView
 from .queue_panel import QueueBridge, QueuePanel
@@ -95,6 +98,30 @@ class SettingsCommand(QUndoCommand):
         self.window.apply_settings(self.item, self.before)
 
 
+class CaptionsFileCommand(QUndoCommand):
+    """One undoable rewrite of a subtitle file: undo puts back the bytes it had."""
+
+    def __init__(self, window: "MainWindow", item: MediaItem, path: Path, before: bytes, after: bytes, label: str):
+        super().__init__(label)
+        self.window, self.item, self.path = window, item, path
+        self.before, self.after = before, after
+
+    def redo(self) -> None:
+        self._write(self.after)
+
+    def undo(self) -> None:
+        self._write(self.before)
+
+    def _write(self, data: bytes) -> None:
+        try:
+            temp = self.path.with_name(self.path.name + ".part")
+            temp.write_bytes(data)
+            temp.replace(self.path)
+        except OSError as exc:
+            self.window.statusBar().showMessage(f"Couldn't update {self.path.name}: {exc.strerror or exc}", 6000)
+        self.window.captions_file_changed(self.item)
+
+
 class MediaList(QListWidget):
     """The list of files. Dragging an item reorders the list (the order of a joined export);
     files dragged in from outside are left to the window."""
@@ -135,6 +162,7 @@ class MainWindow(QMainWindow):
         self.user_presets: dict[str, dict] = {}
         self.merge_open = False
         self.theme_mode = "dark"
+        self.models_root: Optional[Path] = None       # where the speech models are kept (None = the app's own folder)
         self.tmpdir = Path(tempfile.mkdtemp(prefix="videoconverter-"))
         self.closed = False
         self.confirm_heavy_exports = True     # ask before an export that needs a lot of memory
@@ -359,6 +387,8 @@ class MainWindow(QMainWindow):
         self.inspector.cutRequested.connect(self.cut_at)
         self.inspector.removeSilencesRequested.connect(self.remove_silences)
         self.inspector.outputFolderRequested.connect(self.choose_output_folder)
+        self.inspector.autoCaptionsRequested.connect(self.make_captions)
+        self.inspector.editCaptionsRequested.connect(self.edit_captions)
         self.inspector.textSelected.connect(self._text_selected)
         self.inspector.textTimeRequested.connect(self.text_time_at_playhead)
         self.bridge.jobUpdated.connect(self._job_updated)
@@ -820,6 +850,77 @@ class MainWindow(QMainWindow):
             new = item.settings.copy()
             new.edit.keep = dialog.keep
             self.push_settings(new, "Remove silences")
+
+    def make_captions(self) -> None:
+        """Ask how to listen, make captions from the video's speech, save them as an .srt next to the video
+        and burn them in: one undoable change."""
+        item = self.current
+        if item is None or item.info is None:
+            return
+        if not item.info.has_audio:
+            self.statusBar().showMessage("This file has no sound, so there are no captions to make.", 4000)
+            return
+        edit = item.settings.edit
+        dialog = AutoCaptionsDialog(self.ffmpeg, item.path, item.info.duration, edit.start, edit.end, self.store, self,
+                                    models_root=self.models_root)
+        accepted = dialog.exec() == AutoCaptionsDialog.DialogCode.Accepted
+        outcome = dialog.outcome
+        dialog.deleteLater()
+        if not accepted or outcome is None or item not in self.items:
+            return
+        try:
+            path = save_captions(outcome.cues, item.path)
+        except ConversionError as exc:
+            QMessageBox.warning(self, APP_NAME, str(exc))
+            return
+        new = item.settings.copy()
+        new.edit.subtitles.file = str(path)
+        self.undo_stack.push(SettingsCommand(self, item, item.settings, new, "Make captions", mergeable=False))
+        self.merge_open = False
+        count = len(outcome.cues)
+        self.statusBar().showMessage(f"Added {count} {'caption' if count == 1 else 'captions'}, saved as "
+                                     f"{path.name}. Use Edit captions to fix any words.", 8000)
+
+    def edit_captions(self) -> None:
+        """Open the subtitle file's captions in a table; saving rewrites the file as one undoable change."""
+        item = self.current
+        if item is None:
+            return
+        path = Path(item.settings.edit.subtitles.file or "")
+        try:
+            before = path.read_bytes()
+            cues = parse_cues(read_text(path), subtitle_kind(path, read_text(path)))
+        except OSError:
+            self.statusBar().showMessage("The subtitle file can't be read.", 4000)
+            return
+        dialog = CaptionsEditor(cues, self)
+        accepted = dialog.exec() == CaptionsEditor.DialogCode.Accepted
+        edited = dialog.cues
+        dialog.deleteLater()
+        if not accepted or item not in self.items:
+            return
+        if [(c.start, c.end, c.text) for c in edited] == [(c.start, c.end, c.text) for c in cues]:
+            return
+        data = format_srt(edited).encode("utf-8")
+        if path.suffix.lower() == ".srt":
+            self.undo_stack.push(CaptionsFileCommand(self, item, path, before, data, "Edit captions"))
+        else:
+            # Only .srt is written; a WebVTT file is left alone and the edited captions go to a new .srt.
+            try:
+                new_path = captions_file_for(path)
+                new_path.write_bytes(data)
+            except OSError as exc:
+                QMessageBox.warning(self, APP_NAME, f"Couldn't save the captions: {exc.strerror or exc}")
+                return
+            new = item.settings.copy()
+            new.edit.subtitles.file = str(new_path)
+            self.undo_stack.push(SettingsCommand(self, item, item.settings, new, "Edit captions", mergeable=False))
+        self.merge_open = False
+
+    def captions_file_changed(self, item: MediaItem) -> None:
+        """The text of the item's subtitle file was rewritten (or restored): refresh what shows it."""
+        if item is self.current:
+            self._show_settings(item)
 
     def _timeline_menu(self, t: float, pos) -> None:
         item = self.current

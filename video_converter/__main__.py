@@ -9,6 +9,8 @@
     python -m video_converter talk.mp4 --normalize --music song.mp3 --duck    # even loudness, music under it
     python -m video_converter clip.mp4 --video original --text "Hello" --text-end 3 --logo logo.png   # title, watermark
     python -m video_converter clip.mp4 --video original --subtitles clip.srt                         # burned-in subtitles
+    python -m video_converter talk.mp4 --video original --auto-captions       # listen, write talk.srt, burn the captions in
+    python -m video_converter talk.mp4 --captions-only --caption-language ar  # just write talk.srt (Arabic)
     python -m video_converter clip.mp4 --video original --target-size 10      # a copy that fits Discord's 10 MB
     python -m video_converter clip.mp4 --format gif --end 0:05                # a looping GIF of the first 5 seconds
     python -m video_converter clip.mp4 --frame-at 0:12 --frame-out frame.png  # save one frame as a picture
@@ -23,12 +25,14 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .autocaptions import LANGUAGES, CaptionOptions, make_captions, save_captions
 from .captions import (
     LOGO_CORNERS, LOGO_OPACITY, LOGO_SIZE, SUBTITLE_POSITIONS, SUBTITLE_SIZE, TEXT_SIZE, Logo, Subtitles, TextItem,
 )
 from .core import (
     DEFAULT_QUALITY,
     QUALITY_PRESETS,
+    ConversionCancelled,
     ConversionError,
     ConversionJob,
     convert,
@@ -45,6 +49,7 @@ from .silence import (
     DB_RANGE, DEFAULT_DB, DEFAULT_MIN, DEFAULT_PAD, MIN_RANGE, PAD_RANGE, detect_silences, plan_silence_removal,
 )
 from .sound import AUDIO_DENOISE, DEFAULT_MUSIC_VOLUME, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
+from .speech_models import DEFAULT_MODEL, MODELS, is_downloaded
 from .stills import IMAGE_EXTENSIONS, save_frame
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, cut_range
 from .video import (
@@ -67,6 +72,8 @@ CLI_SHAPES = {"phone": (9, 16), "square": (1, 1), "portrait": (4, 5), "widescree
 CLI_SIZES = {"up1080": UP_TO_1080, "1080": 1080, "720": 720, "480": 480}
 CLI_FPS = {"source": None, "60": 60, "30": 30}
 CLI_VIDEO_QUALITY = {"high": "High", "balanced": "Balanced", "small": "Smaller file"}
+PHASE_NAMES = {"prepare": "getting the sound ready", "download": "downloading the model", "load": "checking the model",
+               "listen": "listening"}
 
 
 def _time(text: str) -> float:
@@ -189,9 +196,9 @@ def _caption_edit(args, parser: argparse.ArgumentParser) -> dict:
                      ("--logo-opacity", args.logo_opacity != Logo().opacity)):
         if on and not args.logo:
             parser.error(f"{flag} needs --logo")
-    if not args.subtitles and (args.subtitle_size != Subtitles().size or args.subtitle_position != Subtitles().position
+    if not args.subtitles and not args.auto_captions and (args.subtitle_size != Subtitles().size or args.subtitle_position != Subtitles().position
                                or args.subtitle_color != Subtitles().color):
-        parser.error("the subtitle options need --subtitles")
+        parser.error("the subtitle options need --subtitles (or --auto-captions)")
     if used and not args.video:
         parser.error(f"{', '.join(used)} need --video")
     if args.subtitles and args.join:
@@ -211,6 +218,45 @@ def _caption_edit(args, parser: argparse.ArgumentParser) -> dict:
         values["subtitles"] = Subtitles(file=str(args.subtitles), size=args.subtitle_size, color=args.subtitle_color,
                                         position=args.subtitle_position)
     return values
+
+
+def _language(text: str) -> str:
+    code = text.strip().lower()
+    if code in ("auto", ""):
+        return ""
+    if code in LANGUAGES:
+        return code
+    raise argparse.ArgumentTypeError(f"not a language code: {text!r} (use auto, or one of {', '.join(k for k in LANGUAGES if k)})")
+
+
+def frame_mode_requested(args) -> bool:
+    return args.frame_at is not None or args.frame_out is not None
+
+
+def _make_srt(ffmpeg: str, source: Path, info, args, note) -> Path | None:
+    """Listen to `source` (inside the --start/--end trim) and save its captions as an .srt, using the
+    --caption-* options. Returns the file, or None when no speech was found."""
+    if not info.has_audio:
+        raise ConversionError("This file has no sound, so there is nothing to make captions from.")
+    model = MODELS[args.caption_model]
+    if not is_downloaded(model):
+        note(f"{source.name}: downloading the {model.label} speech model ({model.size_text}), once; after this "
+             f"captions work offline")
+    last = [""]
+
+    def progress(phase: str, fraction: float, text: str) -> None:
+        shown = f"{source.name}: {PHASE_NAMES[phase]} {fraction:6.1%}"
+        if shown != last[0]:
+            last[0] = shown
+            print(f"\r{shown}", end="", flush=True)
+
+    result = make_captions(ffmpeg, source, CaptionOptions(args.caption_model, args.caption_language,
+                                                          args.translate_captions, args.start, args.end),
+                           info.duration, on_progress=progress)
+    print()
+    if not result.cues:
+        return None
+    return save_captions(result.cues, source, args.output_dir, args.overwrite)
 
 
 def _warn_reverse(name: str, edit: VideoEdit, info, sound_only: bool, fps: float | None = None) -> None:
@@ -383,7 +429,41 @@ def run_cli(argv: list[str]) -> int:
     captions.add_argument("--subtitle-position", choices=list(SUBTITLE_POSITIONS), default=Subtitles().position)
     captions.add_argument("--subtitle-color", type=_color, default=Subtitles().color, metavar="COLOR",
                           help="#RRGGBB, or a name like white, yellow (default: white)")
+    speech = parser.add_argument_group(
+        "automatic captions (listen to the speech and write it down)",
+        "Runs on this PC. The first use of each accuracy level downloads its speech model once (75, 141 or 464 MB "
+        "from huggingface.co); after that nothing needs the internet. The captions are saved next to the video as "
+        "name.srt (or in -o), and with --video they are also burned into the picture.")
+    speech.add_argument("--auto-captions", action="store_true",
+                        help="make captions from the speech and burn them in (needs --video; or use --captions-only)")
+    speech.add_argument("--captions-only", action="store_true",
+                        help="only write the .srt file; no video is exported")
+    speech.add_argument("--caption-language", type=_language, default="", metavar="CODE",
+                        help="the language spoken, e.g. ar, en, fr, es, de, tr, hi, ur (default: auto = detect it)")
+    speech.add_argument("--caption-model", choices=list(MODELS), default=DEFAULT_MODEL,
+                        help="fast = 75 MB, balanced = 141 MB, accurate = 464 MB download; slower is more "
+                             "accurate (default: %(default)s)")
+    speech.add_argument("--translate-captions", action="store_true", help="write the captions in English")
     args = parser.parse_args(argv)
+
+    if args.captions_only:
+        args.auto_captions = True
+    if not args.auto_captions and (args.caption_language or args.caption_model != DEFAULT_MODEL
+                                   or args.translate_captions):
+        parser.error("--caption-language, --caption-model and --translate-captions need --auto-captions")
+    if args.auto_captions:
+        if args.subtitles:
+            parser.error("--auto-captions makes its own subtitles; don't use it with --subtitles")
+        if args.join:
+            parser.error("--auto-captions can't be used with --join: captions are made for one video")
+        if frame_mode_requested(args):
+            parser.error("--auto-captions can't be used with --frame-at")
+        if args.captions_only and (args.video or args.format or args.target_size is not None):
+            parser.error("--captions-only only writes the .srt file; leave out --video, --format and --target-size, "
+                         "or use --auto-captions to export a video as well")
+        if not args.captions_only and not (args.video or args.format or args.target_size is not None):
+            parser.error("--auto-captions burns the captions into a video, so it needs --video (e.g. --video "
+                         "original); use --captions-only to just write the .srt")
 
     if args.start is not None and args.end is not None and args.end <= args.start:
         parser.error("--end must be after --start")
@@ -441,7 +521,6 @@ def run_cli(argv: list[str]) -> int:
         )
     quality = CLI_QUALITY[args.quality]
     extension = edit.output_format.extension if args.video else ".mp3"
-
     def show(fraction: float, name: str) -> None:
         print(f"\r{name}: {fraction:6.1%}", end="", flush=True)
 
@@ -466,6 +545,26 @@ def run_cli(argv: list[str]) -> int:
             return 1
         print(f"{source.name} -> {output}")
         return 0
+
+    if args.captions_only:
+        failures = 0
+        for source in args.files:
+            try:
+                if not source.is_file():
+                    raise ConversionError(f"File not found: {source}")
+                saved = _make_srt(ffmpeg, source, probe_media(ffmpeg, source), args, note)
+                if saved is None:
+                    failures += 1
+                    print(f"{source.name}: no speech was found, so no captions were made", file=sys.stderr)
+                else:
+                    print(f"{source.name} -> {saved}")
+            except ConversionError as exc:
+                failures += 1
+                print(f"\r{source.name}: FAILED - {exc}", file=sys.stderr)
+            except ConversionCancelled:
+                print(f"\r{source.name}: cancelled", file=sys.stderr)
+                return 1
+        return 1 if failures else 0
 
     if args.join:
         first = args.files[0]
@@ -497,9 +596,17 @@ def run_cli(argv: list[str]) -> int:
             if not source.is_file():
                 raise ConversionError(f"File not found: {source}")
             gif = args.format == "gif"
-            info = (probe_media(ffmpeg, source) if args.cut or args.reverse or args.remove_silences or gif
-                    else None)
+            info = (probe_media(ffmpeg, source)
+                    if args.cut or args.reverse or args.remove_silences or gif or args.auto_captions else None)
             file_edit = _with_cuts(edit, args.cut, info.duration) if args.cut else edit
+            if args.auto_captions:
+                file_edit = copy.deepcopy(file_edit)
+                saved = _make_srt(ffmpeg, source, info, args, note)
+                if saved is None:
+                    note(f"{source.name}: no speech was found, so the video is exported without captions")
+                else:
+                    file_edit.subtitles = Subtitles(file=str(saved), size=args.subtitle_size,
+                                                    color=args.subtitle_color, position=args.subtitle_position)
             if args.remove_silences:
                 file_edit = _without_silences(file_edit, ffmpeg, source, info, args, note)
             if args.reverse:

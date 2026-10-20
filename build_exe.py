@@ -29,6 +29,13 @@ BUILD = ROOT / "build"
 APP_NAME = "Free Video Editor"
 AUTHOR = "Ahmed Ragab"
 
+# faster-whisper and what it loads at run time: ctranslate2 (the engine and its DLLs), onnxruntime and the
+# bundled voice-detector model, PyAV (decoding), and the tokenizers.
+SPEECH_PACKAGES = ("faster_whisper", "ctranslate2", "onnxruntime", "av", "tokenizers")
+# Packages that onnxruntime / huggingface_hub can import when they are installed but that captions never use.
+SPEECH_EXCLUDES = ("torch", "tensorflow", "sympy", "matplotlib", "pandas", "scipy", "IPython", "onnx",
+                   "tensorboard", "sklearn", "numba", "pytest")
+
 
 def locate_ffmpeg() -> Path:
     if os.environ.get("FFMPEG_PATH"):
@@ -128,6 +135,9 @@ def build_exe() -> None:
             # ffmpeg is bundled directly; don't pull in imageio-ffmpeg's copy as well.
             "--exclude-module", "imageio_ffmpeg",
             "--exclude-module", "tkinter",
+            # The speech engine for automatic captions (the models themselves are downloaded by the app, not bundled).
+            *[arg for package in SPEECH_PACKAGES for arg in ("--collect-all", package)],
+            *[arg for module in SPEECH_EXCLUDES for arg in ("--exclude-module", module)],
             "--distpath", str(ROOT / "dist"),
             "--workpath", str(BUILD / "pyinstaller"),
             "--specpath", str(BUILD),

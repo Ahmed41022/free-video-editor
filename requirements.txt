@@ -1,2 +1,3 @@
 PySide6-Essentials>=6.8
 PySide6-Addons>=6.8
+faster-whisper>=1.1
