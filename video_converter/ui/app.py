@@ -105,4 +105,5 @@ def main(paths: Optional[list[str]] = None) -> int:
     window.show()
     if paths:
         window.add_paths([Path(p) for p in paths])
+    window.start_update_check()
     return app.exec()

@@ -38,6 +38,8 @@ _SHAPES = {
     "rotate_right": '<path d="M20 4v5h-5"/><path d="M19 9a8 8 0 1 0-1.5 7.5"/>',
     "film": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
     "music": '<path d="M9 18V6l11-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+    "camera": '<path d="M3 8a2 2 0 0 1 2-2h2l2-2h6l2 2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'
+              '<circle cx="12" cy="13" r="4"/>',
 }
 
 

@@ -381,12 +381,12 @@ class CommandLineTests(unittest.TestCase):
     def test_the_card_is_used_by_default(self):
         code, choose, export = self.run_cli()
         self.assertEqual(code, 0)
-        choose.assert_called_once_with("ffmpeg", True)
+        choose.assert_called_once_with("ffmpeg", True, "h264")
         self.assertEqual(export.call_args.kwargs["encoder"], "h264_nvenc")
 
     def test_gpu_off_turns_it_off(self):
         _, choose, export = self.run_cli("--gpu", "off")
-        choose.assert_called_once_with("ffmpeg", False)
+        choose.assert_called_once_with("ffmpeg", False, "h264")
         self.assertFalse(export.call_args.args[1].edit.use_gpu)
 
     def test_gpu_auto_is_accepted_and_other_words_are_not(self):

@@ -13,9 +13,15 @@ from PySide6.QtWidgets import (
 
 from ..core import AUDIO_EXTENSIONS, QUALITY_PRESETS, format_time, parse_time
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, PRESETS, ClipSettings
+from ..output import (
+    DEFAULT_TARGET_MB, GIF_FPS_CHOICES, GIF_WIDTH_CHOICES, OUTPUT_FORMATS, TARGET_PRESETS, TARGET_RANGE,
+)
 from ..sound import AUDIO_DENOISE, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
 from ..timing import FADE_MAX, SPEED_MAX, SPEED_MIN, output_duration, removed_parts
 from ..video import ADJUSTMENTS, FIT_MODES, FRAME_RATES, LOOKS, RESOLUTIONS, STABILIZE, VIDEO_QUALITY
+
+FIT_LABEL = "Fit in a file size"
+FIT_DATA = "fit"       # the Quality box's value for it (the others are x264 quality numbers)
 
 ADJUST_LABELS = {"brightness": "Brightness", "contrast": "Contrast", "saturation": "Saturation",
                  "gamma": "Gamma", "sharpen": "Sharpen", "denoise": "Denoise"}
@@ -69,11 +75,12 @@ class Section(QFrame):
         self.body.setVisible(expanded)
         self.header.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
 
-    def row(self, label: str, widget: QWidget, row: int) -> None:
+    def row(self, label: str, widget: QWidget, row: int) -> QLabel:
         text = QLabel(label)
         text.setObjectName("muted")
         self.grid.addWidget(text, row, 0)
         self.grid.addWidget(widget, row, 1)
+        return text
 
 
 class Inspector(QScrollArea):
@@ -95,6 +102,9 @@ class Inspector(QScrollArea):
         self.duration: Optional[float] = None
         self._updating = False
         self._dragging = False
+        self._gif = False        # the format is GIF, which has its own options
+        self._fits = False       # the quality is Fit in a file size
+        self._size_text, self._size_is_error = "", False
         self.user_presets: dict[str, dict] = {}
 
         content = QWidget()
@@ -127,7 +137,7 @@ class Inspector(QScrollArea):
         self.output_section = Section("Output")
         out_row = QHBoxLayout()
         self.output_group = QButtonGroup(self)
-        for i, (text, value) in enumerate((("Video (MP4)", OUTPUT_VIDEO), ("Audio (MP3)", OUTPUT_AUDIO))):
+        for i, (text, value) in enumerate((("Video", OUTPUT_VIDEO), ("Audio (MP3)", OUTPUT_AUDIO))):
             button = QPushButton(text)
             button.setCheckable(True)
             button.setProperty("value", value)
@@ -483,6 +493,31 @@ class Inspector(QScrollArea):
 
         # Quality
         self.quality_section = Section("Video quality")
+        self.quality_rows: dict[str, list[QWidget]] = {}      # name -> the widgets of that row, to show or hide
+
+        def row(name: str, label: str, widget: QWidget, index: int) -> None:
+            self.quality_rows[name] = [self.quality_section.row(label, widget, index), widget]
+
+        def note(index: int, error: bool = False) -> QLabel:
+            label = QLabel()
+            label.setObjectName("error" if error else "muted")
+            label.setWordWrap(True)
+            label.hide()
+            self.quality_section.grid.addWidget(label, index, 1)
+            return label
+
+        self.format_box = QComboBox()
+        for key, fmt in OUTPUT_FORMATS.items():
+            self.format_box.addItem(fmt.label, key)
+        self.format_box.setToolTip(
+            "MP4 (H.264) plays on everything. H.265 makes smaller files, but older phones and programs can't "
+            "play it. WebM is for the web. MOV suits Apple's apps and video editors. A GIF is a short, silent, "
+            "looping picture.")
+        self.format_box.currentIndexChanged.connect(
+            lambda: self._edit(lambda s: setattr(s.edit, "video_format", self.format_box.currentData()), "Format"))
+        row("format", "Format", self.format_box, 0)
+        self.format_hint = note(1)
+        self.format_warning = note(2, error=True)
         self.size_box = QComboBox()
         for label, value in RESOLUTIONS.items():
             self.size_box.addItem(label, value)
@@ -493,37 +528,68 @@ class Inspector(QScrollArea):
             "1080p, 720p and 480p set the short side.")
         self.size_box.currentIndexChanged.connect(
             lambda: self._edit(lambda s: setattr(s.edit, "resolution", self.size_box.currentData()), "Size"))
-        self.quality_section.row("Size", self.size_box, 0)
+        row("size", "Size", self.size_box, 3)
         self.rate_box = QComboBox()
         for label, value in FRAME_RATES.items():
             self.rate_box.addItem(label, value)
         self.rate_box.setToolTip(
-            "Steady makes every frame the same distance apart, which phones need. A steady export is also "
+            "Steady makes every frame the same distance apart, which phones need. A steady MP4 or MOV is also "
             "made phone-safe (H.264 High, AAC sound). A video that is slower than the rate you choose keeps "
             "its own rate, so Steady 60 never makes a 30 fps video bigger.")
         self.rate_box.currentIndexChanged.connect(
             lambda: self._edit(lambda s: setattr(s.edit, "frame_rate", self.rate_box.currentData()), "Frame rate"))
-        self.quality_section.row("Frame rate", self.rate_box, 1)
-        self.rate_hint = QLabel()
-        self.rate_hint.setObjectName("muted")
-        self.rate_hint.setWordWrap(True)
-        self.rate_hint.hide()
-        self.quality_section.grid.addWidget(self.rate_hint, 2, 1)
+        row("rate", "Frame rate", self.rate_box, 4)
+        self.rate_hint = note(5)
         self.crf_box = QComboBox()
         for label, value in VIDEO_QUALITY.items():
             self.crf_box.addItem(label, value)
-        self.crf_box.currentIndexChanged.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "crf", self.crf_box.currentData()), "Quality"))
-        self.quality_section.row("Quality", self.crf_box, 3)
+        self.crf_box.addItem(FIT_LABEL, FIT_DATA)
+        self.crf_box.setToolTip(
+            "Higher quality makes bigger files. Fit in a file size does the opposite: you say how big the file "
+            "may be, for Discord, WhatsApp or email, and the picture gets what is left after the sound.")
+        self.crf_box.currentIndexChanged.connect(self._quality_chosen)
+        row("quality", "Quality", self.crf_box, 6)
+        self.limit_box = QComboBox()
+        for label, megabytes in TARGET_PRESETS.items():
+            self.limit_box.addItem(label, megabytes)
+        self.limit_box.addItem("Custom…", None)
+        self.limit_box.currentIndexChanged.connect(self._limit_chosen)
+        row("limit", "Limit", self.limit_box, 7)
+        self.limit_spin = QDoubleSpinBox()
+        self.limit_spin.setRange(*TARGET_RANGE)
+        self.limit_spin.setDecimals(1)
+        self.limit_spin.setSuffix(" MB")
+        self.limit_spin.setKeyboardTracking(False)
+        self.limit_spin.setValue(20.0)          # where Custom… starts: not one of the presets
+        self.limit_spin.valueChanged.connect(
+            lambda value: self._edit(lambda s: setattr(s.edit, "target_mb", round(value, 1)), "File size"))
+        row("custom", "Size in MB", self.limit_spin, 8)
+        self.size_note = note(9)
+        self.size_error = note(10, error=True)
+        self.gif_fps_box = QComboBox()
+        self.gif_fps_box.currentIndexChanged.connect(
+            lambda: self._edit(lambda s: setattr(s.edit, "gif_fps", self.gif_fps_box.currentData()), "GIF frame rate"))
+        self.gif_fps_box.setToolTip("The most frames a second the GIF gets. A video with fewer keeps its own.")
+        row("gif_fps", "GIF frame rate", self.gif_fps_box, 11)
+        self.gif_width_box = QComboBox()
+        self.gif_width_box.currentIndexChanged.connect(
+            lambda: self._edit(lambda s: setattr(s.edit, "gif_width", self.gif_width_box.currentData()), "GIF width"))
+        self.gif_width_box.setToolTip("The widest the GIF gets, in pixels. A narrower picture keeps its width.")
+        row("gif_width", "GIF width", self.gif_width_box, 12)
+        for box, values, text in ((self.gif_fps_box, GIF_FPS_CHOICES, "{} fps"),
+                                  (self.gif_width_box, GIF_WIDTH_CHOICES, "{} px")):
+            for value in values:
+                box.addItem(text.format(value), value)
         self.gpu_box = QCheckBox("Use the graphics card when possible")
         self.gpu_box.setToolTip("Exports much faster on most PCs. The picture quality is about the same; "
                                 "if the graphics card fails, the export runs on the CPU instead.")
         self.gpu_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "use_gpu", on), "Graphics card"))
-        self.quality_section.grid.addWidget(self.gpu_box, 4, 0, 1, 2)
+        self.quality_section.grid.addWidget(self.gpu_box, 13, 0, 1, 2)
         self.gpu_label = QLabel()
         self.gpu_label.setObjectName("muted")
         self.gpu_label.setWordWrap(True)
-        self.quality_section.grid.addWidget(self.gpu_label, 5, 0, 1, 2)
+        self.quality_section.grid.addWidget(self.gpu_label, 14, 0, 1, 2)
+        self.quality_rows["gpu"] = [self.gpu_box, self.gpu_label]
         self.set_gpu_name(None, searching=True)
 
         # Export location (applies to every export, not one file)
@@ -566,7 +632,24 @@ class Inspector(QScrollArea):
     def set_frame_rate_hint(self, text: str) -> None:
         """Show (or, with "", hide) the note under Frame rate about a source that may not play on a phone."""
         self.rate_hint.setText(text)
-        self.rate_hint.setVisible(bool(text))
+        self.rate_hint.setVisible(bool(text) and not self._gif)
+
+    def set_size_note(self, text: str, error: bool = False) -> None:
+        """Show what fitting a file size will do to the picture, or (`error`) why it can't be done. "" hides it."""
+        self._size_text, self._size_is_error = text, error
+        self._refresh_size_note()
+
+    def _refresh_size_note(self) -> None:
+        shown = bool(self._size_text) and self._fits
+        self.size_note.setText("" if self._size_is_error else self._size_text)
+        self.size_note.setVisible(shown and not self._size_is_error)
+        self.size_error.setText(self._size_text if self._size_is_error else "")
+        self.size_error.setVisible(shown and self._size_is_error)
+
+    def set_format_warning(self, text: str) -> None:
+        """Show (or, with "", hide) a warning about the format, such as a GIF that will be big."""
+        self.format_warning.setText(text)
+        self.format_warning.setVisible(bool(text))
 
     def set_has_sound(self, has_sound: bool) -> None:
         """Remove silences needs a sound track to listen to."""
@@ -645,11 +728,55 @@ class Inspector(QScrollArea):
             self._show_sound(settings)
             self.size_box.setCurrentIndex(max(self.size_box.findData(edit.resolution), 0))
             self.rate_box.setCurrentIndex(max(self.rate_box.findData(edit.frame_rate), 0))
-            self.crf_box.setCurrentIndex(max(self.crf_box.findData(edit.crf), 0))
             self.gpu_box.setChecked(edit.use_gpu)
+            self._show_format(edit)
             self.preset_box.setCurrentIndex(0)
         finally:
             self._updating = False
+
+    def _show_format(self, edit) -> None:
+        """Show the format, the quality or file size, and the GIF options, and only the rows that go with them."""
+        fmt = edit.output_format
+        self.format_box.setCurrentIndex(max(self.format_box.findData(edit.video_format), 0))
+        self.format_hint.setText(fmt.hint)
+        self.format_hint.setVisible(bool(fmt.hint))
+        self._gif = fmt.codec == "gif"
+        self._fits = edit.target_mb > 0 and not self._gif
+        self.crf_box.setCurrentIndex(max(self.crf_box.findData(FIT_DATA if edit.target_mb > 0 else edit.crf), 0))
+        preset = self.limit_box.findData(edit.target_mb)
+        self.limit_box.setCurrentIndex(preset if preset >= 0 else self.limit_box.count() - 1)
+        if edit.target_mb > 0 and preset < 0:
+            self.limit_spin.setValue(edit.target_mb)       # a preset leaves the box as it was, for Custom… to start from
+        for box, value in ((self.gif_fps_box, edit.gif_fps), (self.gif_width_box, edit.gif_width)):
+            if box.findData(value) < 0:        # a value from a saved preset that the list doesn't offer
+                box.addItem(f"{value} {'fps' if box is self.gif_fps_box else 'px'}", value)
+            box.setCurrentIndex(box.findData(value))
+        custom = self.limit_box.currentData() is None
+        visible = {
+            "rate": not self._gif, "quality": not self._gif, "limit": self._fits, "custom": self._fits and custom,
+            "gif_fps": self._gif, "gif_width": self._gif, "gpu": fmt.codec in ("h264", "hevc"),
+        }
+        for name, shown in visible.items():
+            for widget in self.quality_rows[name]:
+                widget.setVisible(shown)
+        if self._gif:
+            self.rate_hint.hide()
+        self._refresh_size_note()
+
+    def _quality_chosen(self) -> None:
+        data = self.crf_box.currentData()
+
+        def change(s: ClipSettings) -> None:
+            if data == FIT_DATA:
+                s.edit.target_mb = s.edit.target_mb or DEFAULT_TARGET_MB
+            else:
+                s.edit.crf, s.edit.target_mb = data, 0.0
+        self._edit(change, "File size" if data == FIT_DATA else "Quality")
+
+    def _limit_chosen(self) -> None:
+        megabytes = self.limit_box.currentData()
+        self._edit(lambda s: setattr(s.edit, "target_mb", megabytes if megabytes else round(self.limit_spin.value(), 1)),
+                   "File size")
 
     # ----- editing ------------------------------------------------------------
 

@@ -5,7 +5,8 @@
 A Windows video editor that reshapes, crops, cuts and joins videos into new MP4s, for example to fit a phone
 screen for Stories, Reels, TikTok or Shorts, changes their speed, adds fades, adjusts and steadies the picture,
 and turns videos into MP3 audio.
-Everything runs locally on your computer; no files are uploaded anywhere.
+Everything runs locally on your computer; no files are uploaded anywhere. The only thing the app ever asks the
+internet for is whether a newer version exists, once a day (you can turn that off).
 
 ![Free Video Editor editing a landscape video into a 9:16 phone video](docs/screenshot.png)
 
@@ -38,8 +39,21 @@ Everything the app needs is built in either way.
 - Each file keeps its own settings; **Apply to all files** copies them to the rest (each keeps its own crop,
   trim and cuts)
 - Export queue that runs in the background with progress, time left, cancel and "show in folder"
+- Tells you when a newer version is out: once a day the app asks GitHub for the latest release (a plain request
+  that sends nothing but the app's name and version) and shows a small bar with **Download** and **Not now**.
+  Turn it off under **Help → Check for updates**
 
-**Video (MP4)**
+**Video (MP4, H.265, WebM, MOV or GIF)**
+- Choose the **Format** under Video quality: MP4 with H.264 (plays everywhere, the default), MP4 with H.265
+  (smaller files, but older phones and programs can't play it), WebM (VP9 and Opus, for the web), MOV (H.264,
+  for Apple's apps and video editors), or an animated GIF (looping, no sound, at most 15 frames a second and
+  480 pixels wide by default; a note warns you when a GIF will run long enough to get big)
+- **Fit in a file size** for Discord (10 MB), WhatsApp (16 MB), email (25 MB) or any size you type: the picture
+  gets exactly what is left after the sound, in two passes, and a picture that can't look decent in that size
+  is made smaller (720p, 480p, 360p) with a note in the queue, or the export says it can't be done. The file
+  comes out at most that size, and usually within 3% of it
+- Save the frame at the playhead as a PNG or JPG with **Save frame** (Ctrl+Shift+S), with all your edits applied
+  and at the size the export has
 - Reshape for phones (9:16), square posts (1:1), portrait posts (4:5) or widescreen (16:9)
 - Crop to fill the frame, or fit the whole video with a blurred background or black bars
 - Rotate, mirror, remove the sound, and pick the size (up to 1080p, 1080p, 720p, 480p), frame rate and quality
@@ -101,6 +115,15 @@ To convert a whole folder, add the folder, choose the preset for one file, click
 **Export all**. A video that is slower than the rate you choose keeps its own rate (a 30 fps video stays at 30 fps
 with Steady 60), and the original is never changed.
 
+### Videos that are too big to send
+
+Discord, WhatsApp and email refuse big files. Under **Video quality**, set **Quality** to **Fit in a file size** and
+choose **Discord (10 MB)**, **WhatsApp (16 MB)**, **Email (25 MB)** or **Custom…**. The note under it says what the
+picture will get; a long video in a small size is made smaller (720p, 480p or 360p), and the queue tells you when
+that happened. If even the smallest size would look terrible, the panel says how much of the video would fit, so
+you can cut it shorter or pick a bigger size. Sizes count a megabyte as a million bytes, the way they are
+advertised, so a "10 MB" file is under the limit however the other end counts it.
+
 ### Keyboard shortcuts
 
 | Key | Action |
@@ -115,6 +138,7 @@ with Steady 60), and the original is never changed.
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+O | Add files |
 | Ctrl+E / Ctrl+Shift+E | Export the selected file / export all |
+| Ctrl+Shift+S | Save the frame at the playhead as a PNG or JPG |
 | Ctrl+J | Join the files into one |
 
 ## Running from source
@@ -139,6 +163,9 @@ python -m video_converter "My video.mp4" --video phone --fit blur --start 0:10 -
 python -m video_converter "My video.mp4" --video original --cut 0:05-0:12 --cut 1:00-1:10 --speed 1.5
 python -m video_converter intro.mp4 main.mp4 --video widescreen --fade-in 1 --fade-out 2 --join
 python -m video_converter "Game clip.mp4" --video original --fps 60 --size up1080   # plays on a phone
+python -m video_converter "Big clip.mp4" --target-size 10                           # a copy that fits Discord's 10 MB
+python -m video_converter clip.mp4 --format gif --start 0:05 --end 0:09             # a looping GIF
+python -m video_converter clip.mp4 --video square --frame-at 0:12 --frame-out frame.png   # save one frame
 ```
 
 | Option | Description |
@@ -156,6 +183,10 @@ python -m video_converter "Game clip.mp4" --video original --fps 60 --size up108
 | `--size` | Short side in pixels: `1080`, `720`, or `480`, or `up1080` for the source's size but at most 1080 (never enlarged). Default: the source's short side; phone, portrait and square stop at `1080` |
 | `--fps` | `60` or `30` for a steady frame rate with phone-safe H.264 and AAC (a slower video keeps its own rate), or `source` (default) to leave it alone. `--video original --fps 60` makes a copy that plays on a phone, saved as `name (phone-ready).mp4` |
 | `--video-quality` | `high`, `balanced` (default), or `small` |
+| `--format` | `mp4` (H.264, default), `hevc` (H.265 in an MP4: smaller, but older phones can't play it; saved as `name (phone H.265).mp4`), `webm` (VP9 and Opus), `mov` (H.264), or `gif` (a looping picture with no sound). Without `--video` it makes a video of the original shape |
+| `--target-size MB` | Make the file fit in this many megabytes (`10` Discord, `16` WhatsApp, `25` email), in two passes with the graphics card's bitrate control when it is used. The file comes out under that size, usually within 3% of it. A picture that can't look decent in that size is made smaller (and it says so), or the export fails with a message. Not for a GIF |
+| `--gif-fps`, `--gif-width` | With `--format gif`: the most frames a second (default `15`) and the widest the GIF gets in pixels (default `480`). A GIF longer than 15 seconds prints a warning about its size |
+| `--frame-at TIME`, `--frame-out FILE` | Save the frame at that time of the video as a `.png` or `.jpg`, with the picture options applied (`--video phone`, `--look bw`, and so on), instead of exporting |
 | `--cut START-END` | Remove a section, e.g. `--cut 0:05-0:12`; repeat it to remove more |
 | `--remove-silences` | Cut out the pauses (stretches with no sound), keeping a little silence around the speech. Works with MP3 and `--video` exports |
 | `--silence-db`, `--silence-min`, `--silence-pad` | With `--remove-silences`: how quiet counts as silence, `-60` to `-20` dB (default `-35`); the shortest pause to cut, `0.3` to `3` seconds (default `0.6`); the silence left on each side of the speech, `0` to `0.5` seconds (default `0.15`) |

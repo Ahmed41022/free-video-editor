@@ -207,12 +207,13 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(window.inspector.gpu_label.text(), "No supported graphics card found")
         self.assertFalse(window.inspector.gpu_box.isEnabled())
 
-    def test_the_help_menu_has_the_three_entries(self):
+    def test_the_help_menu_has_its_entries(self):
         window = self.new_window()
         menus = {action.text().replace("&", ""): action.menu() for action in window.menuBar().actions()}
         self.assertIn("Help", menus)
         entries = [a.text() for a in menus["Help"].actions() if a.text()]
-        self.assertEqual(entries, ["Open the log folder", "Report a problem…", f"About {APP_NAME}"])
+        self.assertEqual(entries, ["Open the log folder", "Report a problem…", "Check for updates",
+                                   f"About {APP_NAME}"])
 
     def test_report_a_problem_opens_the_prefilled_issue_after_the_user_agrees(self):
         window = self.new_window(("h264_nvenc",), name="NVIDIA")
@@ -265,7 +266,7 @@ class WindowTests(unittest.TestCase):
         self.assertIn(APP_NAME, about.call_args.args[1])
 
     def test_the_window_title_has_the_new_version(self):
-        self.assertIn("2.7.0", self.new_window().windowTitle())
+        self.assertIn("2.9.0", self.new_window().windowTitle())
 
 
 class CrashBoxTests(unittest.TestCase):

@@ -14,7 +14,7 @@ from typing import Callable, Optional
 from .core import ConversionCancelled, ConversionError, ConversionJob, MediaInfo, convert
 from .gpu import choose_encoder
 from .project import OUTPUT_AUDIO, ClipSettings, describe, describe_join, output_file_for
-from .video import DEFAULT_FPS, JoinJob, JoinPart, VideoJob, convert_video, join_clips, reverse_memory
+from .video import DEFAULT_FPS, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, reverse_memory
 
 log = logging.getLogger(__name__)
 
@@ -96,13 +96,15 @@ def run_job(ffmpeg: str, job: Job, on_progress: Callable[[float], None]) -> Path
     the same file never collide. Video goes through the graphics card when the job's settings
     allow it and there is one that works; if it fails, the job is done again on the CPU."""
     def note(text: str) -> None:
-        job.note = text
+        # A job can have more to say than one thing (made smaller to fit, and then the card failed).
+        job.note = f"{job.note} · {text}" if job.note and text not in job.note else (job.note or text)
 
     if job.clips:
         output = output_file_for(job.source, job.settings, job.output_dir, joined=True)
         parts = [JoinPart(clip.source, clip.settings.edit, clip.info) for clip in job.clips]
         join = JoinJob(parts, output, job.settings.output == OUTPUT_AUDIO, job.settings.audio_quality)
-        encoder = None if join.audio_only else choose_encoder(ffmpeg, job.settings.edit.use_gpu)
+        encoder = None if join.audio_only else choose_encoder(ffmpeg, job.settings.edit.use_gpu, hardware_codec(
+            job.settings.edit))
         return join_clips(ffmpeg, join, on_progress, job.cancel_event, encoder, note)
     output = output_file_for(job.source, job.settings, job.output_dir)
     edit = job.settings.edit
@@ -111,7 +113,12 @@ def run_job(ffmpeg: str, job: Job, on_progress: Callable[[float], None]) -> Path
                               edit.speed, edit.reverse, edit.audio_fade_in, edit.audio_fade_out, edit.sound)
         return convert(ffmpeg, audio, on_progress, job.cancel_event)
     return convert_video(ffmpeg, VideoJob(job.source, output, edit), on_progress, job.cancel_event, job.info,
-                         choose_encoder(ffmpeg, edit.use_gpu), note)
+                         choose_encoder(ffmpeg, edit.use_gpu, hardware_codec(edit)), note)
+
+
+def hardware_codec(edit: VideoEdit) -> str:
+    """Which graphics card encoders suit `edit`'s format: "h264" or "hevc" (WebM and GIF have none)."""
+    return edit.output_format.codec
 
 
 def _describe_for_log(job: Job) -> str:

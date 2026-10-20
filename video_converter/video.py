@@ -1,14 +1,16 @@
 """Video editing: reframe for phones and other shapes, crop, rotate, cut, change speed, fade,
-adjust the picture, stabilize, join clips, and export MP4."""
+adjust the picture, stabilize, join clips, and export MP4 (or H.265, WebM, MOV or GIF), optionally
+fitted into a file size."""
 
 from __future__ import annotations
 
 import logging
 import math
+import shutil
 import subprocess
 import tempfile
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from pathlib import Path
 from typing import Callable, Optional
@@ -28,11 +30,29 @@ from .core import (
     music_length_error,
     no_segments_error,
     probe_media,
+    remove_file,
     run_ffmpeg,
     scaled,
     trim_args,
 )
-from .gpu import CPU_FALLBACK_NOTE, encoder_args
+from .gpu import CPU_FALLBACK_NOTE, encoder_args, encoder_codec
+from .output import (
+    DEFAULT_VIDEO_FORMAT,
+    GIF_FPS,
+    GIF_WIDTH,
+    LADDER,
+    OUTPUT_FORMATS,
+    TRIES,
+    UNDERUSE,
+    SizeFit,
+    fit_note,
+    fit_plan,
+    gif_rate,
+    gif_scale,
+    gif_warning,
+    next_kbps,
+    target_bytes,
+)
 from .sound import (
     DEFAULT_MUSIC_VOLUME,
     STEREO_48K,
@@ -158,6 +178,15 @@ class VideoEdit:
     music: str = ""           # background music file; "" = none
     music_volume: float = DEFAULT_MUSIC_VOLUME      # dB, next to the video's own sound
     music_duck: bool = False  # lower the music while the video's sound plays
+    video_format: str = DEFAULT_VIDEO_FORMAT      # an OUTPUT_FORMATS key: MP4, H.265, WebM, MOV or GIF
+    target_mb: float = 0.0    # more than 0: make the file fit in this many megabytes (crf is then ignored)
+    gif_fps: int = GIF_FPS    # a GIF's frame rate and width are limits; a slower, narrower video keeps its own
+    gif_width: int = GIF_WIDTH
+
+    @property
+    def output_format(self):
+        """The OutputFormat of `video_format` (MP4 when it isn't a known one)."""
+        return OUTPUT_FORMATS.get(self.video_format, OUTPUT_FORMATS[DEFAULT_VIDEO_FORMAT])
 
     @property
     def sound(self) -> Sound:
@@ -484,9 +513,9 @@ def input_args(segments: list[Segment], source: Path) -> list[str]:
 def output_tag(edit: VideoEdit) -> str:
     """The word in the output's file name: "clip (phone).mp4". The original shape at a steady frame
     rate is the "make it play on my phone" export, so it says so."""
-    if edit.aspect is None and edit.frame_rate:
-        return "phone-ready"
-    return FORMAT_TAGS.get(edit.aspect, "edited")
+    tag = "phone-ready" if edit.aspect is None and edit.frame_rate else FORMAT_TAGS.get(edit.aspect, "edited")
+    # An H.265 file is an MP4 too, so its name says what is different about it.
+    return f"{tag} H.265" if edit.video_format == "hevc" else tag
 
 
 @dataclass
@@ -504,18 +533,58 @@ _FASTSTART = ["-movflags", "+faststart"]
 _AAC = ["-c:a", "aac", "-b:a", "192k"]
 # What every phone plays: AAC LC at 48 kHz in stereo (more channels are mixed down).
 _AAC_PHONE = [*_AAC, "-ar", "48000", "-ac", "2"]
+_X265 = ["-c:v", "libx265", "-preset", "medium", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"]
+_VP9 = ["-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", "-row-mt", "1", "-deadline", "good", "-cpu-used", "4"]
+# The same quality number asks more of x265 and VP9, which both count a little differently from x264.
+_CRF_OFFSET = {"h264": 0, "hevc": 5, "vp9": 9}
+PASSLOG = "passlog"       # the first pass's notes for the second, in ffmpeg's working folder
+
+
+def audio_codec_args(edit: VideoEdit, phone: bool = False, kbps: int = 0) -> list[str]:
+    """How to encode the sound for `edit`'s format. `phone` is a steady-frame-rate export, whose sound
+    is AAC at 48 kHz in stereo; `kbps` (more than 0) sets the bitrate, for an export that has to fit a file size."""
+    if edit.output_format.audio == "opus":
+        return ["-c:a", "libopus", "-b:a", f"{kbps or 128}k", "-ar", "48000"]
+    args = ["-c:a", "aac", "-b:a", f"{kbps or 192}k"]
+    return [*args, "-ar", "48000", "-ac", "2"] if phone else args
 
 
 def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[float] = None,
-                     level: Optional[str] = None) -> list[str]:
-    """How to encode the picture at quality `crf`: with the hardware `encoder`, or on the CPU (x264).
-    `fps` is the frame rate of the result, when known. With a `level` (see `h264_level`) the video is
-    H.264 High profile at that level, which is how a phone-safe export says what it needs."""
+                     level: Optional[str] = None, video_format: str = DEFAULT_VIDEO_FORMAT,
+                     fit: Optional[SizeFit] = None, first_pass: bool = False) -> list[str]:
+    """How to encode the picture at quality `crf`: with the hardware `encoder`, or on the CPU (x264, x265
+    or VP9, by `video_format`). `fps` is the frame rate of the result, when known. With a `level` (see
+    `h264_level`) an H.264 video is High profile at that level, which is how a phone-safe export says
+    what it needs.
+
+    With a `fit` the picture gets its bitrate instead of a quality: from the graphics card, or on the CPU
+    in two passes (`first_pass` is the first one, which makes the notes the second needs)."""
+    fmt = OUTPUT_FORMATS.get(video_format, OUTPUT_FORMATS[DEFAULT_VIDEO_FORMAT])
+    codec = fmt.codec
+    if encoder and encoder_codec(encoder) != codec:
+        encoder = None          # an H.264 card can't make H.265
+    kbps = fit.kbps if fit else None
+    # The encoders spread a bitrate over frames at the frame rate they are told, and a picture that has
+    # been through the filters doesn't tell them (x265, VP9 and the graphics cards then aim far too low):
+    # a file size says it out loud, and the export runs at that steady rate.
+    rate = ["-r", f"{fps or DEFAULT_FPS:.6g}"] if kbps else []
     if encoder:
-        codec = encoder_args(encoder, crf, fps or DEFAULT_FPS, level)
+        args = encoder_args(encoder, crf, fps or DEFAULT_FPS, level if codec == "h264" else None, kbps)
+        return [*args, *(rate if "-r" not in args else []), *_FASTSTART]
+    number = "1" if first_pass else "2"
+    bitrate = [*rate, "-b:v", f"{kbps}k"]
+    if codec == "hevc":
+        args = [*_X265, *([*bitrate, "-x265-params", f"pass={number}:stats={PASSLOG}.log"] if kbps
+                          else ["-crf", str(crf + _CRF_OFFSET[codec])])]
+    elif codec == "vp9":
+        args = [*_VP9, *([*bitrate, "-pass", number, "-passlogfile", PASSLOG] if kbps
+                         else ["-crf", str(crf + _CRF_OFFSET[codec]), "-b:v", "0"])]
     else:
-        codec = [*_X264, "-crf", str(crf)] + (["-profile:v", "high", "-level", level] if level else [])
-    return [*codec, *_FASTSTART]
+        args = [*_X264, *([*bitrate, "-pass", number, "-passlogfile", PASSLOG] if kbps else ["-crf", str(crf)])]
+        if level:
+            args += ["-profile:v", "high", "-level", level]
+    # The first pass writes nothing but its notes, and only an MP4 or MOV has a front to move.
+    return args if first_pass or fmt.extension == ".webm" else [*args, *_FASTSTART]
 
 
 def music_path(edit: VideoEdit, video: bool = True) -> Optional[str]:
@@ -527,41 +596,133 @@ def music_path(edit: VideoEdit, video: bool = True) -> Optional[str]:
 
 
 def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None,
-                  encoder: Optional[str] = None, loudness: Optional[Loudness] = None) -> list[str]:
+                  encoder: Optional[str] = None, loudness: Optional[Loudness] = None,
+                  fit: Optional[SizeFit] = None, first_pass: bool = False) -> list[str]:
     """The export command. `loudness` is what the first loudness pass measured (see `measure_command`);
-    with it, and `edit.normalize`, the sound is evened out."""
+    with it, and `edit.normalize`, the sound is evened out.
+
+    With a `fit` the picture is encoded at its bitrate; on the CPU that takes two passes, and
+    `first_pass` is the command for the first (the picture only, thrown away). A GIF has its own two
+    commands (see `gif_command`), where `first_pass` makes the palette."""
     edit = job.edit
+    if edit.output_format.codec == "gif":
+        return gif_command(ffmpeg, job, info, transforms, first_pass)
     segments = edit.segments(info.duration, info.fps)
     if not segments:
         raise no_segments_error()
     rate = edit_rate(edit, info)
-    music = music_path(edit)
+    music = None if first_pass else music_path(edit)
     has_voice = info.has_audio and not edit.mute
     # The sound goes on to the final mix when there is music or a loudness to apply to it.
     mastered = (has_voice or bool(music)) and (bool(music) or (edit.normalize and loudness is not None))
-    graph = clip_graph(0, edit, info, segments, fps=rate, transforms=transforms,
+    graph = clip_graph(0, edit, info, segments, audio=not first_pass, fps=rate, transforms=transforms,
                        a_out="[voice]" if mastered else "[a]")
     filters = list(graph.filters)
     if music and graph.duration is None:
         raise music_length_error()
-    if mastered:
+    if mastered and not first_pass:
         filters += master_filters(edit.sound, "[voice]" if graph.has_audio else None, 1 if music else None,
                                   graph.duration, "[a]", loudness)
     cmd = [ffmpeg, *_HEAD, *input_args(segments, job.source), *(music_args(music) if music else []),
            "-filter_complex", ";".join(filters), "-map", "[v]"]
-    cmd += ["-map", "[a]", *(_AAC_PHONE if rate else _AAC)] if graph.has_audio or music else ["-an"]
+    if graph.has_audio or music:
+        cmd += ["-map", "[a]", *audio_codec_args(edit, bool(rate), fit.audio_kbps if fit else 0)]
+    else:
+        cmd += ["-an"]
     level = None
-    if rate:
+    if rate and edit.output_format.codec == "h264":
         geometry = plan_geometry(info.width, info.height, edit)
         level = h264_level(geometry.out_width, geometry.out_height, float(rate))
-    cmd += [*video_codec_args(edit.crf, encoder, float(rate) if rate else info.fps, level),
-            "-map_metadata", "0", *_TAIL, str(job.output.resolve())]
-    return cmd
+    cmd += video_codec_args(edit.crf, encoder, float(rate) if rate else info.fps, level, edit.video_format, fit,
+                            first_pass)
+    if first_pass:
+        return [*cmd, "-f", "null", *_TAIL, "-"]
+    return [*cmd, "-map_metadata", "0", *_TAIL, str(job.output.resolve())]
+
+
+GIF_PALETTE = "palette.png"      # the colors of the GIF, made by its first pass in ffmpeg's working folder
+
+
+def gif_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None,
+                palette: bool = False) -> list[str]:
+    """The export command for a GIF, which takes two: the first (`palette`) picks the best 256 colors for
+    the whole clip, and the second uses them. The picture goes through the same cuts, speed, reframing and
+    adjustments as any export, then is made no wider than `edit.gif_width` at no more than `edit.gif_fps`
+    frames a second, and loops forever. There is no sound."""
+    edit = job.edit
+    segments = edit.segments(info.duration, info.fps)
+    if not segments:
+        raise no_segments_error()
+    rate = gif_rate(edit.gif_fps, info.fps * clamp_speed(edit.speed) if info.fps else None)
+    graph = clip_graph(0, edit, info, segments, audio=False, fps=rate, transforms=transforms)
+    filters = [*graph.filters, f"[v]{gif_scale(edit.gif_width)}[g]"]
+    cmd = [ffmpeg, *_HEAD, *input_args(segments, job.source)]
+    if palette:
+        # A second copy of the picture goes nowhere, but gives the progress bar something to count.
+        filters += ["[g]split=2[a][b]", "[a]palettegen=stats_mode=diff[p]"]
+        return [*cmd, "-filter_complex", ";".join(filters), *_TAIL, "-map", "[p]", "-frames:v", "1", "-update", "1",
+                GIF_PALETTE, "-map", "[b]", "-f", "null", "-"]
+    filters.append("[g][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle[out]")
+    return [*cmd, "-i", GIF_PALETTE, "-filter_complex", ";".join(filters), "-map", "[out]", "-an", "-loop", "0",
+            *_TAIL, str(job.output.resolve())]
+
+
+def plan_fit(edit: VideoEdit, info: MediaInfo, seconds: Optional[float], sound: bool,
+             fps: Optional[float] = None) -> tuple[VideoEdit, Optional[SizeFit]]:
+    """Work out how to fit an export of `edit` (a result `seconds` long, `sound` whether it has any,
+    running at `fps`) into `edit.target_mb`. Returns the edit to export, which has a smaller size when the
+    picture had to be lowered (720p, then 480p, 360p), and the SizeFit, or (edit, None) when there is
+    no file size to fit. Raises ConversionError when not even the smallest size leaves the picture enough."""
+    fmt = edit.output_format
+    if edit.target_mb <= 0 or fmt.codec == "gif":
+        return edit, None
+    if seconds is None:
+        raise ConversionError("Can't fit this into a file size: its length is unknown.")
+    if seconds <= 0:
+        raise no_segments_error()
+    geometry = plan_geometry(info.width, info.height, edit)
+    rungs: list[tuple[Optional[int], int, int]] = [(None, geometry.out_width, geometry.out_height)]
+    for short in LADDER:
+        if short < min(geometry.out_width, geometry.out_height):
+            lower = plan_geometry(info.width, info.height, replace(edit, resolution=short))
+            rungs.append((short, lower.out_width, lower.out_height))
+    fit = fit_plan(target_bytes(edit.target_mb), seconds, fmt.codec, fmt.audio if sound else "",
+                   fps or info.fps or DEFAULT_FPS, rungs)
+    return (replace(edit, resolution=fit.short) if fit.short else edit), fit
+
+
+def edit_fit(edit: VideoEdit, info: MediaInfo) -> tuple[VideoEdit, Optional[SizeFit]]:
+    """`plan_fit` for exporting `info` with `edit`: the length, sound and frame rate come from them."""
+    segments = edit.segments(info.duration, info.fps)
+    rate = edit_rate(edit, info)
+    sound = (info.has_audio and not edit.mute) or bool(music_path(edit))
+    return plan_fit(edit, info, output_duration(segments, edit.speed), sound, float(rate) if rate else info.fps)
+
+
+def fit_summary(edit: VideoEdit, info: MediaInfo) -> tuple[str, bool]:
+    """What to tell the user about fitting `info` into `edit.target_mb`, and whether it can't be done:
+    ("", False) when no file size is asked for."""
+    if edit.target_mb <= 0 or edit.output_format.codec == "gif" or not info.has_video:
+        return "", False
+    try:
+        return fit_note(edit_fit(edit, info)[1]), False
+    except ConversionError as exc:
+        return str(exc), True
+
+
+def format_warning(edit: VideoEdit, info: MediaInfo) -> str:
+    """A warning about the format for exporting `info` with `edit`: a GIF that will get big."""
+    if edit.output_format.codec != "gif":
+        return ""
+    return gif_warning(output_duration(edit.segments(info.duration, info.fps), edit.speed))
 
 
 def wants_loudness_pass(edit: VideoEdit, info: MediaInfo) -> bool:
     """Whether exporting `info` with `edit` evens out the loudness, which takes a first pass.
-    There is nothing to even out in a file without sound, and nothing at all with the sound removed."""
+    There is nothing to even out in a file without sound, and nothing at all with the sound removed
+    (or in a GIF, which has none)."""
+    if edit.output_format.codec == "gif":
+        return False
     return edit.normalize and ((info.has_audio and not edit.mute) or bool(music_path(edit)))
 
 
@@ -616,12 +777,87 @@ def _encode(command: Callable[[Optional[str]], list[str]], encoder: Optional[str
     return run_ffmpeg(command(None), output, duration, on_progress, cancel_event, cwd)
 
 
+PREPASS_SHARE = 0.4     # part of what is left of the progress bar for a first pass (the notes for a file size, or a GIF's colors)
+
+
+def _finish(command: Callable[[dict[int, str], Optional[str], Optional[Loudness]], list[str]],
+            transforms: dict[int, str], loudness: Optional[Loudness], encoder: Optional[str], output: Path,
+            duration: Optional[float], on_progress: Optional[Callable[[float], None]],
+            cancel_event: Optional[threading.Event], folder: Path, on_note: Optional[Callable[[str], None]],
+            fit: Optional[SizeFit], prepass: Optional[Callable[[dict[int, str]], list[str]]]) -> Path:
+    """The last step of an export in `folder`: the first pass that the encode needs (`prepass`, which
+    only the CPU needs), the encode itself, and, with a `fit`, a look at how big the file came out.
+
+    A file over its size limit is made again with a lower bitrate (both passes, as they have to agree on
+    it), and one that comes out well under it with a higher one, up to TRIES times in all (see
+    `next_kbps`); the biggest file that fits is kept. A rate control that can't be told exactly how many bytes to make
+    (the graphics card's, or any with a very hard picture) needs this. If the card fails the whole job
+    runs again on the CPU, as in `_encode`."""
+    def encode(enc: Optional[str]) -> list[str]:
+        return command(transforms, enc, loudness)
+
+    def first_pass(report: Optional[Callable[[float], None]]) -> None:
+        run_ffmpeg(prepass(transforms), folder / "prepass", duration, report, cancel_event, folder)
+
+    share = PREPASS_SHARE if prepass and encoder is None else 0.0
+    if prepass and encoder is None:
+        first_pass(scaled(on_progress, 0.0, share))
+    final = scaled(on_progress, share, 1 - share)
+    if fit is None:
+        return _encode(encode, encoder, output, duration, final, cancel_event, cwd=folder, on_note=on_note)
+    best: Optional[Path] = None         # the biggest file so far that fit, kept while another try is made
+    best_size = 0
+    history: list[tuple[int, int]] = []         # (kbps, size) of every try so far
+    prepared = fit.kbps if prepass and encoder is None else None        # the bitrate the first pass was made at
+    while True:
+        if prepass and encoder is None and prepared != fit.kbps:
+            first_pass(None)            # the two passes have to be told the same bitrate, or the second can't aim
+            prepared = fit.kbps
+        try:
+            run_ffmpeg(encode(encoder), output, duration, final, cancel_event, folder)
+        except ConversionError as exc:
+            if encoder is None:
+                raise
+            if cancel_event is not None and cancel_event.is_set():
+                raise ConversionCancelled() from None
+            log.warning("The graphics card encoder %s failed (%s); trying again on the CPU", encoder, exc)
+            if on_note:
+                on_note(CPU_FALLBACK_NOTE)
+            encoder = None
+            continue
+        size = output.stat().st_size
+        history.append((fit.kbps, size))
+        log.info("The file came out at %.2f MB; the limit is %.2f MB", size / 1e6, fit.target_bytes / 1e6)
+        if size <= fit.target_bytes:
+            if size >= fit.target_bytes * UNDERUSE:
+                if best is not None:
+                    remove_file(best)
+                return output
+            if size > best_size:
+                if best is not None:
+                    remove_file(best)
+                best, best_size = folder / "best", size
+                shutil.move(str(output), str(best))
+        more = next_kbps(fit, history) if len(history) < TRIES else None
+        if more is None:
+            break
+        log.info("Trying again at %d kbps", more)
+        fit.kbps = more
+    remove_file(output)
+    if best is None:
+        raise ConversionError(f"The video came out at {size / 1e6:.1f} MB, over the {fit.target_bytes / 1e6:g} MB "
+                              "limit, even after trying again. Shorten the video, or choose a bigger size.")
+    shutil.move(str(best), str(output))
+    return output
+
+
 def _run_export(ffmpeg: str, clips: list[tuple[Path, VideoEdit, list[Segment], Optional[float]]],
                 command: Callable[[dict[int, str], Optional[str], Optional[Loudness]], list[str]], output: Path,
                 duration: Optional[float], on_progress: Optional[Callable[[float], None]],
                 cancel_event: Optional[threading.Event], encoder: Optional[str] = None,
                 on_note: Optional[Callable[[str], None]] = None, measure: Optional[list[str]] = None,
-                measure_share: float = LOUDNESS_SHARE) -> Path:
+                measure_share: float = LOUDNESS_SHARE, fit: Optional[SizeFit] = None,
+                prepass: Optional[Callable[[dict[int, str]], list[str]]] = None) -> Path:
     """Run an export, first running the stabilizer's detect pass for every clip that asks for it, and
     the loudness pass (the command `measure`) when the loudness is to be evened out.
 
@@ -629,9 +865,12 @@ def _run_export(ffmpeg: str, clips: list[tuple[Path, VideoEdit, list[Segment], O
     builds the export command given {clip index: transforms file name}, the hardware encoder to use
     (None = the CPU) and what the loudness pass measured (None = nothing to apply). The transforms
     files live in a temporary folder that is ffmpeg's working folder. The passes come first and take
-    their share of the progress bar; cancelling stops whichever one is running."""
+    their share of the progress bar; cancelling stops whichever one is running.
+
+    A file size to `fit` or a first pass for the encode itself (`prepass(transforms)` builds its
+    command: the two-pass notes, a GIF's colors) comes last, just before the encode; see `_finish`."""
     shaky = [i for i, (_, edit, _, _) in enumerate(clips) if STABILIZE.get(edit.stabilize)]
-    if not shaky and measure is None:
+    if not shaky and measure is None and fit is None and prepass is None:
         return _encode(lambda enc: command({}, enc, None), encoder, output, duration, on_progress, cancel_event,
                        on_note=on_note)
     with tempfile.TemporaryDirectory(prefix="fve-export-") as folder:
@@ -659,8 +898,8 @@ def _run_export(ffmpeg: str, clips: list[tuple[Path, VideoEdit, list[Segment], O
             loudness = measure_loudness(measure, folder / "loudness", duration, scaled(on_progress, used, measure_share),
                                         cancel_event, folder)
             used += measure_share
-        return _encode(lambda enc: command(transforms, enc, loudness), encoder, output, duration,
-                       scaled(on_progress, used, 1 - used), cancel_event, cwd=folder, on_note=on_note)
+        return _finish(command, transforms, loudness, encoder, output, duration, scaled(on_progress, used, 1 - used),
+                       cancel_event, folder, on_note, fit, prepass)
 
 
 def convert_video(
@@ -672,27 +911,41 @@ def convert_video(
     encoder: Optional[str] = None,
     on_note: Optional[Callable[[str], None]] = None,
 ) -> Path:
-    """Export `job.source` as an edited MP4 at `job.output`.
+    """Export `job.source` as an edited video at `job.output`: an MP4 unless `job.edit.video_format` says
+    another (H.265, WebM, MOV or GIF).
 
     With a hardware `encoder` (see `gpu.choose_encoder`) the graphics card does the encoding; if that
-    fails the export is run again on the CPU and `on_note` hears about it."""
+    fails the export is run again on the CPU and `on_note` hears about it. With `job.edit.target_mb` the
+    file is made to fit that size (see `plan_fit`), and `on_note` hears when the picture had to be made smaller."""
     if not job.source.is_file():
         raise ConversionError(f"File not found: {job.source}")
     check_trim(job.edit.start, job.edit.end)
     info = info or probe_media(ffmpeg, job.source)
     if not info.has_video:
         raise ConversionError("This file has no video track.")
-    check_music(ffmpeg, job.edit.sound, job.edit.mute)
+    gif = job.edit.output_format.codec == "gif"
+    if not gif:
+        check_music(ffmpeg, job.edit.sound, job.edit.mute)
 
     job = VideoJob(job.source.resolve(), job.output, job.edit)   # ffmpeg may run in another folder
     video_command(ffmpeg, job, info)                               # fail early on bad settings
-    segments = job.edit.segments(info.duration, info.fps)
-    duration = output_duration(segments, job.edit.speed)
-    measure = measure_command(ffmpeg, job, info) if wants_loudness_pass(job.edit, info) else None
-    return _run_export(ffmpeg, [(job.source, job.edit, segments, info.fps)],
+    edit, fit = edit_fit(job.edit, info)
+    job = VideoJob(job.source, job.output, edit)
+    if fit and fit.note and on_note:
+        on_note(fit.note)
+    segments = edit.segments(info.duration, info.fps)
+    duration = output_duration(segments, edit.speed)
+    measure = measure_command(ffmpeg, job, info) if wants_loudness_pass(edit, info) else None
+    if encoder and encoder_codec(encoder) != edit.output_format.codec:
+        encoder = None              # a card that makes H.264 can't make H.265
+    # The first pass of a file size (CPU only) or of a GIF: not the picture itself, but what the encode needs.
+    prepass = (lambda transforms: video_command(ffmpeg, job, info, transforms.get(0), None, None, fit, True)) \
+        if gif or fit else None
+    return _run_export(ffmpeg, [(job.source, edit, segments, info.fps)],
                        lambda transforms, enc, loudness: video_command(ffmpeg, job, info, transforms.get(0), enc,
-                                                                      loudness),
-                       job.output, duration, on_progress, cancel_event, encoder, on_note, measure)
+                                                                      loudness, fit),
+                       job.output, duration, on_progress, cancel_event, encoder, on_note, measure,
+                       fit=fit, prepass=prepass)
 
 
 # ----- joining clips ------------------------------------------------------------
@@ -725,18 +978,24 @@ def _join_sound(job: JoinJob) -> tuple[bool, Optional[str]]:
 
 def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]] = None,
                  encoder: Optional[str] = None, loudness: Optional[Loudness] = None,
-                 measure: bool = False) -> tuple[list[str], float]:
+                 measure: bool = False, fit: Optional[SizeFit] = None,
+                 first_pass: bool = False) -> tuple[list[str], float]:
     """The ffmpeg command that plays every part back to back, and the result's length.
 
     Each clip is cut, sped up, reframed and faded with its own settings, then fitted into
     the first clip's frame size and frame rate. The video quality is the first clip's, and so is the
     steady frame rate if it has one: then the result is phone-safe at that rate (the fastest of the
-    clips' own rates when none is above it), whatever rate the first clip has. Each clip keeps its own
+    clips' own rates when none is above it), whatever rate the first clip has. The file format and the
+    file size to fit are the first clip's too. Each clip keeps its own
     volume and noise reduction; the loudness and the background music are the first clip's, applied to
-    the joined sound. With `measure` it is the first loudness pass instead (see `measure_command`)."""
+    the joined sound. With `measure` it is the first loudness pass instead (see `measure_command`);
+    with `first_pass` it is the first of the two passes of a `fit` (the picture only)."""
     parts, video = job.parts, not job.audio_only
     picture = video and not measure
     first = parts[0]
+    if video and first.edit.output_format.codec == "gif":
+        raise ConversionError("Joined clips can't be saved as a GIF. Export the clips one at a time, "
+                              "or choose another format for the first clip.")
     frame = fps = level = None
     steady = None
     if picture:
@@ -745,9 +1004,11 @@ def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]]
         rates = [p.info.fps * clamp_speed(p.edit.speed) for p in parts if p.info.fps]
         steady = steady_rate(first.edit.frame_rate, max(rates, default=None))
         fps = steady or first.info.fps or 30.0
-        if steady:
+        if steady and first.edit.output_format.codec == "h264":
             level = h264_level(*frame, float(steady))
     any_audio, music = _join_sound(job)
+    if first_pass:
+        any_audio, music = False, None
     if not video and not any_audio and not music:
         raise ConversionError("None of these files have sound.")
     sound = first.edit.sound
@@ -788,8 +1049,13 @@ def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]]
         return [*cmd, "-map", "[a]", "-f", "null", *_TAIL, "-"], total
     if video:
         sounds = any_audio or bool(music)
-        cmd += ["-map", "[v]", *(["-map", "[a]", *(_AAC_PHONE if steady else _AAC)] if sounds else ["-an"]),
-                *video_codec_args(first.edit.crf, encoder, float(fps), level)]
+        cmd += ["-map", "[v]",
+                *(["-map", "[a]", *audio_codec_args(first.edit, bool(steady), fit.audio_kbps if fit else 0)]
+                  if sounds else ["-an"]),
+                *video_codec_args(first.edit.crf, encoder, float(fps), level, first.edit.video_format, fit,
+                                  first_pass)]
+        if first_pass:
+            return [*cmd, "-f", "null", *_TAIL, "-"], total
     else:
         cmd += ["-map", "[a]", "-vn", "-c:a", "libmp3lame", *QUALITY_PRESETS[job.quality]]
     cmd += ["-map_metadata", "0", *_TAIL, str(job.output.resolve())]
@@ -804,8 +1070,8 @@ def join_clips(
     encoder: Optional[str] = None,
     on_note: Optional[Callable[[str], None]] = None,
 ) -> Path:
-    """Export several clips, in order, as one MP4 (or one MP3 with `job.audio_only`).
-    `encoder` and `on_note` work as in `convert_video`."""
+    """Export several clips, in order, as one MP4 (or one MP3 with `job.audio_only`), or in the first
+    clip's other format and file size (see `join_command`). `encoder` and `on_note` work as in `convert_video`."""
     if len(job.parts) < 2:
         raise ConversionError("Joining needs at least two clips.")
     for part in job.parts:
@@ -820,13 +1086,30 @@ def join_clips(
     check_music(ffmpeg, first.sound, first.mute and not job.audio_only)
     _, duration = join_command(ffmpeg, job)     # fail early on bad settings
     any_audio, music = _join_sound(job)
+    fit = None
+    if not job.audio_only and first.target_mb > 0:
+        head = job.parts[0]
+        # The picture is the first clip's size and frame rate, so that is what has to be made smaller.
+        rates = [p.info.fps * clamp_speed(p.edit.speed) for p in job.parts if p.info.fps]
+        steady = steady_rate(first.frame_rate, max(rates, default=None))
+        lowered, fit = plan_fit(first, head.info, duration, any_audio or bool(music),
+                                float(steady) if steady else head.info.fps)
+        if fit and fit.short:
+            head.edit = lowered
+            first = lowered
+        if fit and fit.note and on_note:
+            on_note(fit.note)
     measure = join_command(ffmpeg, job, measure=True)[0] if first.normalize and (any_audio or music) else None
     clips = [] if job.audio_only else [(p.source, p.edit, p.edit.segments(p.info.duration, p.info.fps), p.info.fps)
                                        for p in job.parts]
+    encoder = None if job.audio_only or (encoder and encoder_codec(encoder) != first.output_format.codec) else encoder
     return _run_export(ffmpeg, clips,
-                       lambda transforms, enc, loudness: join_command(ffmpeg, job, transforms, enc, loudness)[0],
-                       job.output, duration, on_progress, cancel_event, None if job.audio_only else encoder, on_note,
-                       measure, LOUDNESS_SHARE_AUDIO if job.audio_only else LOUDNESS_SHARE)
+                       lambda transforms, enc, loudness: join_command(ffmpeg, job, transforms, enc, loudness,
+                                                                     fit=fit)[0],
+                       job.output, duration, on_progress, cancel_event, encoder, on_note,
+                       measure, LOUDNESS_SHARE_AUDIO if job.audio_only else LOUDNESS_SHARE, fit,
+                       (lambda transforms: join_command(ffmpeg, job, transforms, fit=fit, first_pass=True)[0])
+                       if fit else None)
 
 
 # ----- preview ------------------------------------------------------------------

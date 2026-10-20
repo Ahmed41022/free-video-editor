@@ -7,6 +7,9 @@
     python -m video_converter clip.mp4 --video original --fps 60    # a copy that plays on a phone
     python -m video_converter talk.mp4 --remove-silences            # an MP3 without the pauses
     python -m video_converter talk.mp4 --normalize --music song.mp3 --duck    # even loudness, music under it
+    python -m video_converter clip.mp4 --video original --target-size 10      # a copy that fits Discord's 10 MB
+    python -m video_converter clip.mp4 --format gif --end 0:05                # a looping GIF of the first 5 seconds
+    python -m video_converter clip.mp4 --frame-at 0:12 --frame-out frame.png  # save one frame as a picture
 """
 
 from __future__ import annotations
@@ -24,19 +27,23 @@ from .core import (
     ConversionJob,
     convert,
     find_ffmpeg,
+    format_time,
     output_path_for,
     parse_time,
     probe_media,
+    unique_output_path,
 )
 from .gpu import choose_encoder
+from .output import GIF_FPS, GIF_FPS_RANGE, GIF_WIDTH, GIF_WIDTH_RANGE, OUTPUT_FORMATS, TARGET_RANGE
 from .silence import (
     DB_RANGE, DEFAULT_DB, DEFAULT_MIN, DEFAULT_PAD, MIN_RANGE, PAD_RANGE, detect_silences, plan_silence_removal,
 )
 from .sound import AUDIO_DENOISE, DEFAULT_MUSIC_VOLUME, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
+from .stills import IMAGE_EXTENSIONS, save_frame
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, cut_range
 from .video import (
     ADJUSTMENTS, DEFAULT_FPS, LOOKS, STABILIZE, UP_TO_1080, VIDEO_QUALITY, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video,
-    join_clips, output_tag, reverse_memory, reverse_warning,
+    format_warning, join_clips, output_tag, reverse_memory, reverse_warning,
 )
 
 # Short command-line names for the quality presets.
@@ -104,6 +111,26 @@ def _between(name: str, low: float, high: float):
             raise argparse.ArgumentTypeError(f"{name} must be between {low:g} and {high:g}")
         return value
     return parse
+
+
+def _whole(name: str, low: int, high: int):
+    """An argument type: a whole number from `low` to `high`."""
+    def parse(text: str) -> int:
+        try:
+            value = int(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"not a whole number: {text!r}") from None
+        if not low <= value <= high:
+            raise argparse.ArgumentTypeError(f"{name} must be between {low} and {high}")
+        return value
+    return parse
+
+
+def _warn_gif(name: str, edit: VideoEdit, info) -> None:
+    """Say so on stderr when a GIF will run long enough to get big. The export still runs."""
+    warning = format_warning(edit, info)
+    if warning:
+        print(f"\r{name}: warning - {warning}", file=sys.stderr)
 
 
 def _adjustment(name: str):
@@ -177,6 +204,18 @@ def run_cli(argv: list[str]) -> int:
                             "(a slower video keeps its own rate); source = leave it as it is (default: source). "
                             "--video original --fps 60 makes a copy that plays on a phone")
     video.add_argument("--video-quality", choices=CLI_VIDEO_QUALITY, default="balanced")
+    video.add_argument("--format", choices=list(OUTPUT_FORMATS),
+                       help="mp4 = H.264 (plays everywhere, the default), hevc = H.265 in an MP4 (smaller, but older "
+                            "phones can't play it), webm = VP9 and Opus, mov = H.264 in a MOV, gif = a looping "
+                            "picture with no sound. Without --video this makes a video of the original shape")
+    video.add_argument("--target-size", type=_between("--target-size", *TARGET_RANGE), metavar="MB",
+                       help="make the file fit in this many megabytes (10 = Discord's limit, 16 = WhatsApp, "
+                            "25 = email), in two passes. A picture that can't fit is made smaller, or the "
+                            "export fails with a message. Not for a GIF")
+    video.add_argument("--gif-fps", type=_whole("--gif-fps", *GIF_FPS_RANGE), metavar="N",
+                       help=f"with --format gif: the most frames a second (default: {GIF_FPS})")
+    video.add_argument("--gif-width", type=_whole("--gif-width", *GIF_WIDTH_RANGE), metavar="PIXELS",
+                       help=f"with --format gif: the widest the GIF gets (default: {GIF_WIDTH})")
     video.add_argument("--mute", action="store_true", help="remove the sound")
     video.add_argument("--gpu", choices=("auto", "off"), default="auto",
                        help="auto = encode on the graphics card when there is a working one (and fall back to "
@@ -220,6 +259,13 @@ def run_cli(argv: list[str]) -> int:
                             f"(default: {DEFAULT_MUSIC_VOLUME:g})")
     sound.add_argument("--duck", action="store_true", help="lower the music while the video's own sound plays")
 
+    frame = parser.add_argument_group("save a frame (with the picture options below, instead of an export)")
+    frame.add_argument("--frame-at", type=_time, metavar="TIME",
+                       help="save the frame at this time of the video (e.g. 0:12) as a picture, with the edits "
+                            "below applied; needs --frame-out and one file")
+    frame.add_argument("--frame-out", type=Path, metavar="FILE",
+                       help="where to save the frame: a .png or .jpg file")
+
     picture = parser.add_argument_group("picture (with --video)")
     hints = {"brightness": "0 = unchanged", "contrast": "1 = unchanged", "saturation": "1 = unchanged, 0 = grey",
              "gamma": "1 = unchanged", "sharpen": "0 = off", "denoise": "0 = off"}
@@ -235,6 +281,22 @@ def run_cli(argv: list[str]) -> int:
         parser.error("--end must be after --start")
     if args.join and len(args.files) < 2:
         parser.error("--join needs at least two files")
+    if (args.frame_at is None) != (args.frame_out is None):
+        parser.error("--frame-at and --frame-out go together")
+    frame_mode = args.frame_at is not None
+    if frame_mode and (len(args.files) != 1 or args.join):
+        parser.error("--frame-at saves one frame of one file")
+    if frame_mode and args.frame_out.suffix.lower() not in IMAGE_EXTENSIONS:
+        parser.error("--frame-out must end with .png or .jpg")
+    if frame_mode and (args.format or args.target_size is not None):
+        parser.error("--format and --target-size make a video; --frame-at saves a picture")
+    if args.format != "gif" and (args.gif_fps is not None or args.gif_width is not None):
+        parser.error("--gif-fps and --gif-width need --format gif")
+    if args.format == "gif" and args.target_size is not None:
+        parser.error("--target-size doesn't work for a GIF; lower --gif-width or --gif-fps, or shorten it")
+    # A format, a file size or a frame is about the picture: without --video it is the original shape.
+    if not args.video and (args.format or args.target_size is not None or frame_mode):
+        args.video = "original"
     picture_values = {name: getattr(args, name) for name in (*ADJUSTMENTS, "look", "stabilize")}
     if not args.remove_silences and any(v is not None for v in (args.silence_db, args.silence_min, args.silence_pad)):
         parser.error("--silence-db, --silence-min and --silence-pad need --remove-silences")
@@ -264,10 +326,12 @@ def run_cli(argv: list[str]) -> int:
             zoom=args.zoom, rotate=args.rotate, flip=args.mirror, resolution=CLI_SIZES.get(args.size),
             frame_rate=CLI_FPS[args.fps],
             crf=VIDEO_QUALITY[CLI_VIDEO_QUALITY[args.video_quality]], use_gpu=args.gpu == "auto",
-            mute=args.mute, **timing,
+            mute=args.mute, video_format=args.format or "mp4", target_mb=args.target_size or 0.0,
+            gif_fps=args.gif_fps or GIF_FPS, gif_width=args.gif_width or GIF_WIDTH, **timing,
             **picture_values,
         )
     quality = CLI_QUALITY[args.quality]
+    extension = edit.output_format.extension if args.video else ".mp3"
 
     def show(fraction: float, name: str) -> None:
         print(f"\r{name}: {fraction:6.1%}", end="", flush=True)
@@ -275,10 +339,28 @@ def run_cli(argv: list[str]) -> int:
     def note(text: str) -> None:
         print(f"\r{text}.", file=sys.stderr)
 
+    if frame_mode:
+        source = args.files[0]
+        try:
+            if not source.is_file():
+                raise ConversionError(f"File not found: {source}")
+            info = probe_media(ffmpeg, source)
+            if not info.has_video:
+                raise ConversionError("This file has no video track.")
+            if info.duration and args.frame_at > info.duration:
+                raise ConversionError(f"The video is only {format_time(info.duration)} long.")
+            frame_edit = _with_cuts(edit, args.cut, info.duration) if args.cut else edit
+            target = args.frame_out if args.overwrite else unique_output_path(args.frame_out)
+            output = save_frame(ffmpeg, source, target, args.frame_at, frame_edit, info)
+        except ConversionError as exc:
+            print(f"{source.name}: FAILED - {exc}", file=sys.stderr)
+            return 1
+        print(f"{source.name} -> {output}")
+        return 0
+
     if args.join:
         first = args.files[0]
-        suffix = ".mp4" if args.video else ".mp3"
-        target = output_path_for(first, args.output_dir, args.overwrite, suffix, " (joined)")
+        target = output_path_for(first, args.output_dir, args.overwrite, extension, " (joined)")
         try:
             parts = []
             for source in args.files:
@@ -293,7 +375,7 @@ def run_cli(argv: list[str]) -> int:
                 _warn_reverse(part.source.name, part.edit, part.info, not args.video, parts[0].info.fps or DEFAULT_FPS)
             job = JoinJob(parts, target, audio_only=not args.video, quality=quality)
             output = join_clips(ffmpeg, job, on_progress=lambda f: show(f, target.name),
-                                encoder=choose_encoder(ffmpeg, edit.use_gpu), on_note=note)
+                                encoder=choose_encoder(ffmpeg, edit.use_gpu, edit.output_format.codec), on_note=note)
         except ConversionError as exc:
             print(f"\r{target.name}: FAILED - {exc}", file=sys.stderr)
             return 1
@@ -305,22 +387,27 @@ def run_cli(argv: list[str]) -> int:
         try:
             if not source.is_file():
                 raise ConversionError(f"File not found: {source}")
-            info = probe_media(ffmpeg, source) if args.cut or args.reverse or args.remove_silences else None
+            gif = args.format == "gif"
+            info = (probe_media(ffmpeg, source) if args.cut or args.reverse or args.remove_silences or gif
+                    else None)
             file_edit = _with_cuts(edit, args.cut, info.duration) if args.cut else edit
             if args.remove_silences:
                 file_edit = _without_silences(file_edit, ffmpeg, source, info, args, note)
             if args.reverse:
                 _warn_reverse(source.name, file_edit, info, not args.video)
+            if gif and info.has_video:
+                _warn_gif(source.name, file_edit, info)
             if not args.video:
                 target = output_path_for(source, args.output_dir, args.overwrite)
                 job = ConversionJob(source, target, quality, args.start, args.end, file_edit.keep, args.speed,
                                     args.reverse, args.fade_in, args.fade_out, file_edit.sound)
                 output = convert(ffmpeg, job, on_progress=lambda f, n=source.name: show(f, n))
             else:
-                target = output_path_for(source, args.output_dir, args.overwrite, ".mp4", f" ({output_tag(edit)})")
+                target = output_path_for(source, args.output_dir, args.overwrite, extension, f" ({output_tag(edit)})")
                 output = convert_video(ffmpeg, VideoJob(source, target, file_edit),
                                        on_progress=lambda f, n=source.name: show(f, n),
-                                       encoder=choose_encoder(ffmpeg, edit.use_gpu), on_note=note)
+                                       encoder=choose_encoder(ffmpeg, edit.use_gpu, edit.output_format.codec),
+                                       on_note=note)
             print(f"\r{source.name} -> {output}")
         except ConversionError as exc:
             failures += 1

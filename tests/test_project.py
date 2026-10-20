@@ -32,7 +32,8 @@ def custom_settings() -> ClipSettings:
                        audio_fade_in=0.25, audio_fade_out=2.0, brightness=0.2, contrast=1.3, saturation=0.5,
                        gamma=1.4, sharpen=0.6, denoise=4.0, look="vintage", stabilize="strong", frame_rate=30,
                        volume=-4.5, normalize=True, audio_denoise="strong", music="/music/song.mp3",
-                       music_volume=-12.0, music_duck=True),
+                       music_volume=-12.0, music_duck=True, video_format="webm", target_mb=16.0, gif_fps=10,
+                       gif_width=320),
         audio_quality="320 kbps",
     )
 
