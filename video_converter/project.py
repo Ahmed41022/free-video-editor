@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from .captions import drawable, keep_own_captions, load_logo, load_subtitles, load_texts
 from .core import DEFAULT_QUALITY, QUALITY_PRESETS, output_path_for
+from .output import GIF_FPS_RANGE, GIF_WIDTH_RANGE, OUTPUT_FORMATS, TARGET_RANGE
 from .sound import AUDIO_DENOISE, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, normalize_keep, removed_parts
 from .video import (
@@ -113,6 +114,16 @@ class ClipSettings:
                 continue
             if name == "music" and not (_is_str(value) and len(value) <= MAX_PATH_LENGTH):
                 continue
+            if name == "video_format" and not (_is_str(value) and value in OUTPUT_FORMATS):
+                continue
+            if name == "target_mb" and not (_number(value) and (value == 0 or TARGET_RANGE[0] <= value <= TARGET_RANGE[1])):
+                continue
+            if name == "gif_fps" and not (isinstance(value, int) and not isinstance(value, bool)
+                                          and GIF_FPS_RANGE[0] <= value <= GIF_FPS_RANGE[1]):
+                continue
+            if name == "gif_width" and not (isinstance(value, int) and not isinstance(value, bool)
+                                            and GIF_WIDTH_RANGE[0] <= value <= GIF_WIDTH_RANGE[1]):
+                continue
             default = getattr(defaults, name)
             if _compatible(default, value):
                 setattr(settings.edit, name, float(value) if isinstance(default, float) else value)
@@ -187,9 +198,10 @@ def apply_to(target: ClipSettings, source: ClipSettings, include_framing: bool =
 # Preset name -> settings it changes. Presets only touch these fields.
 PRESETS: dict[str, dict[str, Any]] = {
     # For a video that won't play on a phone: the whole picture, no bigger than 1080p, at a steady 60 fps.
+    # H.264 in an MP4 is the one thing every phone plays, so this preset says so whatever format was chosen.
     "Play on phone (keeps the whole picture)": {
         "output": OUTPUT_VIDEO, "aspect": None, "resolution": UP_TO_1080, "frame_rate": 60,
-        "crf": VIDEO_QUALITY["High"], "mute": False},
+        "crf": VIDEO_QUALITY["High"], "mute": False, "video_format": "mp4", "target_mb": 0.0},
     "TikTok, Reels, Shorts": {"output": OUTPUT_VIDEO, "aspect": (9, 16), "fit": "crop", "resolution": 1080,
                               "crf": VIDEO_QUALITY["High"]},
     "Instagram post (4:5)": {"output": OUTPUT_VIDEO, "aspect": (4, 5), "fit": "crop", "resolution": 1080,
@@ -222,13 +234,15 @@ def apply_preset(settings: ClipSettings, values: dict[str, Any]) -> ClipSettings
 def output_file_for(source: Path, settings: ClipSettings, output_dir: Optional[Path] = None,
                     joined: bool = False) -> Path:
     """Where an export of `source` with `settings` should go (never an existing file).
-    A `joined` export, named after its first clip, is "name (joined).mp4" or ".mp3"."""
+    A `joined` export, named after its first clip, is "name (joined).mp4" or ".mp3". The extension
+    follows the video format: .mp4, .webm, .mov or .gif."""
     audio = settings.output == OUTPUT_AUDIO
+    extension = settings.edit.output_format.extension
     if joined:
-        return output_path_for(source, output_dir, suffix=".mp3" if audio else ".mp4", name_tag=" (joined)")
+        return output_path_for(source, output_dir, suffix=".mp3" if audio else extension, name_tag=" (joined)")
     if audio:
         return output_path_for(source, output_dir)
-    return output_path_for(source, output_dir, suffix=".mp4", name_tag=f" ({output_tag(settings.edit)})")
+    return output_path_for(source, output_dir, suffix=extension, name_tag=f" ({output_tag(settings.edit)})")
 
 
 def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
@@ -240,7 +254,9 @@ def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
         parts = ["MP3", settings.audio_quality]
     else:
         edit = settings.edit
-        parts = ["MP4", f"{edit.aspect[0]}:{edit.aspect[1]}" if edit.aspect else "original shape"]
+        parts = [edit.output_format.short, f"{edit.aspect[0]}:{edit.aspect[1]}" if edit.aspect else "original shape"]
+        if edit.target_mb > 0 and edit.output_format.codec != "gif":
+            parts.append(f"fits {edit.target_mb:g} MB")
         if edit.aspect:
             parts.append({"crop": "crop", "blur": "blurred fit", "bars": "black bars"}[edit.fit])
         if edit.frame_rate:
@@ -301,5 +317,5 @@ def describe_join(settings: ClipSettings, count: int) -> str:
         parts = ["MP3", settings.audio_quality]
     else:
         aspect = settings.edit.aspect
-        parts = ["MP4", f"{aspect[0]}:{aspect[1]}" if aspect else "original shape"]
+        parts = [settings.edit.output_format.short, f"{aspect[0]}:{aspect[1]}" if aspect else "original shape"]
     return " · ".join(parts + [f"{count} clips joined"])

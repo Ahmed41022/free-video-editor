@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -20,7 +21,7 @@ from PySide6.QtWidgets import (
     QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
-from .. import APP_NAME, __version__, diagnostics, gpu
+from .. import APP_NAME, __version__, diagnostics, gpu, updates
 from ..core import (
     AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_media_file, probe_media,
 )
@@ -29,11 +30,13 @@ from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
 from ..proxy import ProxyMaker, needs_proxy
 from ..captions import Logo
+from ..stills import IMAGE_EXTENSIONS, save_frame
 from ..timing import (
     output_spans_to_source, part_index, remove_part_at, restore_part_at, source_to_output, split_at,
 )
 from ..video import (
-    REVERSE_WARN_BYTES, format_memory, frame_rate_hint, plan_geometry, render_frame, reverse_memory, reverse_warning,
+    REVERSE_WARN_BYTES, fit_summary, format_memory, format_warning, frame_rate_hint, plan_geometry, render_frame,
+    reverse_memory, reverse_warning,
 )
 from . import icons, theme
 from .inspector import Inspector
@@ -116,6 +119,8 @@ class Signals(QObject):
     gpuReady = Signal(object)                          # the graphics card's name, or None if there is none
     proxyProgress = Signal(object, float)              # item, how much of its smooth preview is made
     proxyDone = Signal(object, object, str)            # item, the preview copy or None, why not
+    frameSaved = Signal(str, str)                      # where the frame was saved ("" if it wasn't), why not
+    updateChecked = Signal(object, object)             # when the check was made (None = not), the newer release or None
 
 
 class MainWindow(QMainWindow):
@@ -134,6 +139,8 @@ class MainWindow(QMainWindow):
         self.closed = False
         self.confirm_heavy_exports = True     # ask before an export that needs a lot of memory
         self.smooth_previews = True           # play a small copy of big videos (View menu)
+        self.check_updates = True             # look for a newer version once a day (Help menu)
+        self.update_release: Optional[updates.Release] = None     # the newer version the banner is about
         self.gpu_encoders: Optional[tuple[str, ...]] = None     # None until the search has finished
         self.loader = ThreadPoolExecutor(max_workers=2, thread_name_prefix="media-loader")
         self.signals = Signals()
@@ -142,6 +149,8 @@ class MainWindow(QMainWindow):
         self.signals.gpuReady.connect(self._on_gpu_ready)
         self.signals.proxyProgress.connect(self._on_proxy_progress)
         self.signals.proxyDone.connect(self._on_proxy_done)
+        self.signals.frameSaved.connect(self._on_frame_saved)
+        self.signals.updateChecked.connect(self._on_update_checked)
         self.proxies = ProxyMaker(ffmpeg, self.tmpdir / "preview", self.signals.proxyProgress.emit,
                                   self.signals.proxyDone.emit)
         self._after_token = 0
@@ -193,6 +202,10 @@ class MainWindow(QMainWindow):
         self.redo_action.setData("redo")
         toolbar.addAction(self.undo_action)
         toolbar.addAction(self.redo_action)
+        toolbar.addSeparator()
+        self.frame_action = action("Save frame", "camera", self.save_frame_image, "Ctrl+Shift+S",
+                                   tip="Save the frame at the playhead as an image, with your edits")
+        self.frame_action.setEnabled(False)
         toolbar.addSeparator()
         self.theme_action = action("Theme", "moon", self.toggle_theme, tip="Switch between dark and light")
 
@@ -291,6 +304,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.main_split)
         self.preview_status = QLabel()      # "Preparing a smooth preview…", while there is one
         self.statusBar().addPermanentWidget(self.preview_status)
+        self._build_update_banner()
         self._build_menus()
         self.statusBar().showMessage("Add videos to get started: drop them here or press Ctrl+O.")
         self.refresh_icons()
@@ -307,6 +321,13 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction("Open the log folder", self.open_log_folder)
         help_menu.addAction("Report a problem…", self.report_problem)
+        help_menu.addSeparator()
+        self.updates_action = help_menu.addAction("Check for updates")
+        self.updates_action.setCheckable(True)
+        self.updates_action.setChecked(self.check_updates)
+        self.updates_action.setToolTip("Once a day, ask GitHub whether a newer version is out. Nothing else is sent.")
+        self.updates_action.setStatusTip(self.updates_action.toolTip())
+        self.updates_action.toggled.connect(self.set_check_updates)
         help_menu.addSeparator()
         help_menu.addAction(f"About {APP_NAME}", self.show_about)
 
@@ -378,6 +399,8 @@ class MainWindow(QMainWindow):
         self.inspector.set_presets(self.user_presets)
         self.smooth_previews = self._saved_bool("smoothPreviews", True)
         self.smooth_action.setChecked(self.smooth_previews)
+        self.check_updates = self._saved_bool(updates.ENABLED_KEY, True)
+        self.updates_action.setChecked(self.check_updates)
         self._show_output_folder()
         self.refresh_icons()
 
@@ -406,6 +429,7 @@ class MainWindow(QMainWindow):
         self.store.setValue("presets", json.dumps(self.user_presets))
         self.store.setValue("theme", self.theme_mode)
         self.store.setValue("smoothPreviews", self.smooth_previews)
+        self.store.setValue(updates.ENABLED_KEY, self.check_updates)
 
     def toggle_theme(self) -> None:
         self.theme_mode = theme.apply_theme(QApplication.instance(), "light" if self.theme_mode == "dark" else "dark")
@@ -562,6 +586,7 @@ class MainWindow(QMainWindow):
                        self.in_button, self.out_button, self.split_button, self.cut_button, self.compare_button):
             widget.setEnabled(has_file)
         self.remove_action.setEnabled(has_file)
+        self.frame_action.setEnabled(False)      # until the file's details say it has a picture
         self._update_list_actions()
         if changed:
             # Don't keep a queue of big copies for files the user has already moved on from.
@@ -602,6 +627,10 @@ class MainWindow(QMainWindow):
             reverse_warning(reverse_memory(edit, info, sound_only=not video_out)) if info else "")
         self.inspector.set_has_sound(bool(info and info.has_audio))
         self.inspector.set_frame_rate_hint(frame_rate_hint(info) if info and edit.frame_rate is None else "")
+        has_picture = bool(info and info.has_video)
+        self.frame_action.setEnabled(has_picture)
+        self.inspector.set_size_note(*(fit_summary(edit, info) if has_picture and video_out else ("", False)))
+        self.inspector.set_format_warning(format_warning(edit, info) if has_picture and video_out else "")
         self.timeline.setTrim(edit.start, edit.end)
         self.timeline.setKeep(edit.keep)
         self.player.set_segments(edit.segments(info.duration if info else None))
@@ -1140,6 +1169,10 @@ class MainWindow(QMainWindow):
             return
         first = chosen[0]
         audio = first.settings.output == OUTPUT_AUDIO
+        if not audio and first.settings.edit.output_format.codec == "gif":
+            self.statusBar().showMessage("Joined clips can't be saved as a GIF: choose another format for the "
+                                         "first file.", 6000)
+            return
         silent = next((item for item in chosen if not audio and not item.info.has_video), None)
         if silent is not None:
             self.statusBar().showMessage(f"{silent.path.name} has no picture, so it can only be joined as "
@@ -1153,6 +1186,120 @@ class MainWindow(QMainWindow):
     def _job_updated(self, job: Job) -> None:
         if job.state.finished and job.state.value == "Failed":
             self.statusBar().showMessage(f"Export failed: {job.source.name}", 6000)
+
+    # ----- saving a frame ---------------------------------------------------------
+
+    def save_frame_image(self) -> None:
+        """Ask where, then save the frame at the playhead as a PNG or JPG: at the size the export has, with
+        every edit applied (not the smaller picture the preview shows)."""
+        item = self.current
+        if item is None or item.info is None or not item.info.has_video:
+            self.statusBar().showMessage("Open a video to save a frame of it.", 4000)
+            return
+        at = self.player.position
+        folder = self._saved_text("lastFrameDir") or str(self.output_dir or item.path.parent)
+        name = f"{item.path.stem} (frame {at:.1f} s).png"
+        path, _ = QFileDialog.getSaveFileName(self, "Save frame as image", str(Path(folder) / name),
+                                              "PNG image (*.png);;JPEG image (*.jpg *.jpeg)")
+        if not path:
+            return
+        target = Path(path)
+        if target.suffix.lower() not in IMAGE_EXTENSIONS:
+            target = Path(f"{path}.png")
+        self.store.setValue("lastFrameDir", str(target.parent))
+        edit, info, source = item.settings.copy().edit, item.info, item.path
+        self.statusBar().showMessage("Saving the frame…")
+
+        def work() -> None:
+            try:
+                save_frame(self.ffmpeg, source, target, at, edit, info)
+                self.signals.frameSaved.emit(str(target), "")
+            except (ConversionError, OSError, subprocess.SubprocessError) as exc:
+                self.signals.frameSaved.emit("", str(exc))
+            self._remove_tmpdir_if_closed()
+        threading.Thread(target=work, name="save-frame", daemon=True).start()
+
+    def _on_frame_saved(self, path: str, error: str) -> None:
+        if self.closed:
+            return
+        if path:
+            self.statusBar().showMessage(f"Saved the frame as {Path(path).name}.", 8000)
+        else:
+            self.statusBar().showMessage(f"Couldn't save the frame: {error.splitlines()[-1] if error else 'unknown error'}",
+                                         8000)
+
+    # ----- updates --------------------------------------------------------------------
+
+    def _build_update_banner(self) -> None:
+        """A small bar in the status line that appears when a newer version is out. It never blocks anything."""
+        self.update_banner = QWidget()
+        row = QHBoxLayout(self.update_banner)
+        row.setContentsMargins(6, 0, 6, 0)
+        row.setSpacing(6)
+        self.update_label = QLabel()
+        self.update_download = QPushButton("Download")
+        self.update_skip = QPushButton("Not now")
+        for button in (self.update_download, self.update_skip):
+            button.setObjectName("chip")
+            button.setMinimumWidth(0)
+        self.update_download.setToolTip("Open the download page in your browser")
+        self.update_skip.setToolTip("Don't mention this version again")
+        self.update_download.clicked.connect(self._download_update)
+        self.update_skip.clicked.connect(self._skip_update)
+        for widget in (self.update_label, self.update_download, self.update_skip):
+            row.addWidget(widget)
+        self.statusBar().addPermanentWidget(self.update_banner)
+        self.update_banner.hide()
+
+    def set_check_updates(self, on: bool) -> None:
+        """The Help menu's switch: look for a newer version once a day, or never."""
+        if on == self.check_updates:
+            return
+        self.check_updates = on
+        self.store.setValue(updates.ENABLED_KEY, on)
+        if not on:
+            self.update_banner.hide()
+
+    def start_update_check(self, fetch=None) -> None:
+        """Look for a newer version in the background (at most once a day, and never if the Help menu's
+        switch is off). Whatever goes wrong is only logged. `fetch` stands in for the request in tests."""
+        if not self.check_updates or self.closed:
+            return
+        last = self.store.value(updates.LAST_CHECK_KEY, 0.0)
+        skipped = self._saved_text(updates.SKIPPED_KEY)
+        try:
+            last = float(last)
+        except (TypeError, ValueError):
+            last = 0.0
+        # The check works on a copy of the settings: only this thread touches the real ones.
+        copy = updates.MemoryStore({updates.ENABLED_KEY: True, updates.LAST_CHECK_KEY: last,
+                                    updates.SKIPPED_KEY: skipped})
+
+        def work() -> None:
+            release = updates.check_for_update(copy, fetch)
+            made = copy.values[updates.LAST_CHECK_KEY]
+            self.signals.updateChecked.emit(made if made != last else None, release)
+        threading.Thread(target=work, name="update-check", daemon=True).start()
+
+    def _on_update_checked(self, made, release) -> None:
+        if self.closed:
+            return
+        if made is not None:
+            self.store.setValue(updates.LAST_CHECK_KEY, made)
+        if release is not None and self.check_updates:
+            self.update_release = release
+            self.update_label.setText(f"{APP_NAME} {release.version} is available")
+            self.update_banner.show()
+
+    def _download_update(self) -> None:
+        if self.update_release is not None:
+            QDesktopServices.openUrl(QUrl(self.update_release.url))
+        self.update_banner.hide()
+
+    def _skip_update(self) -> None:
+        if self.update_release is not None:
+            self.store.setValue(updates.SKIPPED_KEY, self.update_release.version)
+        self.update_banner.hide()
 
     # ----- keyboard, drag and drop, closing ------------------------------------
 

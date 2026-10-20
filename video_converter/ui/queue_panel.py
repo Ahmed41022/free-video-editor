@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from .. import diagnostics
 from ..core import format_time
+from ..gpu import CPU_FALLBACK_NOTE
 from ..jobs import Job, JobQueue, JobState
 from . import icons
 
@@ -27,7 +28,7 @@ def status_text(job: Job) -> str:
     if job.state is JobState.RUNNING:
         remaining = job.remaining_seconds()
         left = f" · {format_time(remaining)} left" if remaining is not None else ""
-        retry = " · the graphics card failed, trying the CPU" if job.note else ""
+        retry = " · the graphics card failed, trying the CPU" if CPU_FALLBACK_NOTE in job.note else ""
         return f"{job.progress:.0%}{left}{retry}"
     if job.state is JobState.FAILED:
         return f"Failed: {job.error.splitlines()[-1] if job.error else 'unknown error'}"
