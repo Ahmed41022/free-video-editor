@@ -124,6 +124,8 @@ def build_exe() -> None:
             "--add-binary", f"{staging / 'ffmpeg' / 'ffmpeg.exe'}{sep}ffmpeg",
             "--add-data", f"{staging / 'ffmpeg' / 'NOTICE.txt'}{sep}ffmpeg",
             "--add-data", f"{ROOT / 'licenses'}{sep}licenses",
+            # the translations (video_converter/locales/*.json) are read as files at run time
+            "--add-data", f"{ROOT / 'video_converter' / 'locales'}{sep}video_converter/locales",
             "--add-data", f"{ROOT / 'LICENSE'}{sep}.",
             # ffmpeg is bundled directly; don't pull in imageio-ffmpeg's copy as well.
             "--exclude-module", "imageio_ffmpeg",

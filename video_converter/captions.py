@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .core import ConversionError
+from .i18n import N_, tr
 from .fonts import DEFAULT_FONT, load_font, pick_font, text_size, windows_fonts_dir, wrap_text
 from .timing import FADE_MAX, Segment, clamp_speed, output_duration
 
@@ -42,12 +43,12 @@ MAX_TEXT_LENGTH = 2000
 WRAP_WIDTH = 0.92               # a line of text is wrapped before it is wider than this much of the frame
 BOX_PADDING = 0.3               # of the text size, around the text inside its background box
 
-ALIGNMENTS = {"left": "Left", "center": "Centered", "right": "Right"}
+ALIGNMENTS = {"left": N_("Left"), "center": N_("Centered"), "right": N_("Right")}
 LOGO_CORNERS = {
-    "top-left": "Top left", "top-right": "Top right", "bottom-left": "Bottom left",
-    "bottom-right": "Bottom right", "center": "Center", "custom": "Where I put it",
+    "top-left": N_("Top left"), "top-right": N_("Top right"), "bottom-left": N_("Bottom left"),
+    "bottom-right": N_("Bottom right"), "center": N_("Center"), "custom": N_("Where I put it"),
 }
-SUBTITLE_POSITIONS = {"bottom": "Bottom", "middle": "Middle", "top": "Top"}
+SUBTITLE_POSITIONS = {"bottom": N_("Bottom"), "middle": N_("Middle"), "top": N_("Top")}
 SUBTITLE_EXTENSIONS = (".srt", ".vtt", ".ass", ".ssa")
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
 
@@ -340,7 +341,7 @@ def logo_source(logo: Logo) -> Path:
     """A copy of the logo's image under a plain name (so odd characters in its path can't matter)."""
     path = Path(logo.file)
     if not path.is_file():
-        raise ConversionError(f"The logo picture can't be found: {path.name or logo.file}")
+        raise ConversionError(tr("The logo picture can't be found: {name}", name=path.name or logo.file))
     stat = path.stat()
     key = f"{path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}"
     target = scratch_dir() / (hashlib.sha1(key.encode("utf-8")).hexdigest()[:20] + (path.suffix.lower() or ".png"))
@@ -527,7 +528,7 @@ def retimed_subtitles(subtitles: Subtitles, segments: list[Segment], speed: floa
     try:
         text = read_text(path)
     except OSError:
-        raise ConversionError(f"The subtitle file can't be read: {path.name or subtitles.file}") from None
+        raise ConversionError(tr("The subtitle file can't be read: {name}", name=path.name or subtitles.file)) from None
     kind = subtitle_kind(path, text)
 
     def mapper(start: float, end: float) -> list[tuple[float, float]]:

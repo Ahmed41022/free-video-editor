@@ -8,12 +8,14 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QSettings, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from .. import APP_NAME, diagnostics
+from .. import APP_NAME, diagnostics, i18n
 from ..core import find_ffmpeg
+from ..i18n import tr
+from . import language
 
 CRASH_DIALOG_GAP = 10.0       # seconds; a burst of errors shows one box, not a hundred
 
@@ -54,15 +56,21 @@ class CrashReporter(QObject):
 
 def crash_box(summary: str, parent=None) -> QMessageBox:
     """The friendly box for an unexpected error (not shown yet)."""
-    box = QMessageBox(QMessageBox.Icon.Warning, APP_NAME, "Something unexpected went wrong.",
+    box = QMessageBox(QMessageBox.Icon.Warning, APP_NAME, tr("Something unexpected went wrong."),
                       QMessageBox.StandardButton.Close, parent)
     box.setInformativeText(
-        "It has been written to the log, so it can be looked at. You can carry on, but if the app starts "
-        "behaving oddly, save your work and restart it.\n\n"
-        f"The log is here:\n{diagnostics.log_path()}\n\n"
-        "To tell the developer, use Help > Report a problem.")
+        tr("It has been written to the log, so it can be looked at. You can carry on, but if the app starts "
+           "behaving oddly, save your work and restart it.\n\nThe log is here:\n{path}\n\n"
+           "To tell the developer, use Help > Report a problem.", path=diagnostics.log_path()))
     box.setDetailedText(summary)
     return box
+
+
+def choose_language(store, app: QApplication) -> str:
+    """Use the language saved in `store` (by default the one Windows uses) for everything the app shows."""
+    code = i18n.set_language(i18n.resolve(i18n.saved_choice(store)))
+    language.apply_to_app(app)
+    return code
 
 
 def main(paths: Optional[list[str]] = None) -> int:
@@ -77,6 +85,7 @@ def main(paths: Optional[list[str]] = None) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("VideoConverter")
+    choose_language(QSettings("VideoConverter", "Video Converter"), app)
     if _icon_path().is_file():
         app.setWindowIcon(QIcon(str(_icon_path())))
 
@@ -92,11 +101,11 @@ def main(paths: Optional[list[str]] = None) -> int:
     ffmpeg = find_ffmpeg()
     diagnostics.log_startup(ffmpeg)
     if not ffmpeg:
-        QMessageBox.critical(None, "ffmpeg not found",
-                             "This app needs ffmpeg to work with videos.\n\n"
-                             "Install it (for example: winget install Gyan.FFmpeg) or run\n"
-                             "    pip install imageio-ffmpeg\n"
-                             "and start the app again.")
+        QMessageBox.critical(None, tr("ffmpeg not found"),
+                             tr("This app needs ffmpeg to work with videos.\n\n"
+                                "Install it (for example: winget install Gyan.FFmpeg) or run\n"
+                                "    pip install imageio-ffmpeg\n"
+                                "and start the app again."))
         return 1
 
     from .main_window import MainWindow

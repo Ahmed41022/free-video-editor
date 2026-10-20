@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from .captions import drawable, keep_own_captions, load_logo, load_subtitles, load_texts
 from .core import DEFAULT_QUALITY, QUALITY_PRESETS, output_path_for
+from .i18n import N_, ntr, tr
 from .output import GIF_FPS_RANGE, GIF_WIDTH_RANGE, OUTPUT_FORMATS, TARGET_RANGE
 from .sound import AUDIO_DENOISE, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, normalize_keep, removed_parts
@@ -199,20 +200,20 @@ def apply_to(target: ClipSettings, source: ClipSettings, include_framing: bool =
 PRESETS: dict[str, dict[str, Any]] = {
     # For a video that won't play on a phone: the whole picture, no bigger than 1080p, at a steady 60 fps.
     # H.264 in an MP4 is the one thing every phone plays, so this preset says so whatever format was chosen.
-    "Play on phone (keeps the whole picture)": {
+    N_("Play on phone (keeps the whole picture)"): {
         "output": OUTPUT_VIDEO, "aspect": None, "resolution": UP_TO_1080, "frame_rate": 60,
         "crf": VIDEO_QUALITY["High"], "mute": False, "video_format": "mp4", "target_mb": 0.0},
-    "TikTok, Reels, Shorts": {"output": OUTPUT_VIDEO, "aspect": (9, 16), "fit": "crop", "resolution": 1080,
+    N_("TikTok, Reels, Shorts"): {"output": OUTPUT_VIDEO, "aspect": (9, 16), "fit": "crop", "resolution": 1080,
                               "crf": VIDEO_QUALITY["High"]},
-    "Instagram post (4:5)": {"output": OUTPUT_VIDEO, "aspect": (4, 5), "fit": "crop", "resolution": 1080,
+    N_("Instagram post (4:5)"): {"output": OUTPUT_VIDEO, "aspect": (4, 5), "fit": "crop", "resolution": 1080,
                              "crf": VIDEO_QUALITY["High"]},
-    "Square post (1:1)": {"output": OUTPUT_VIDEO, "aspect": (1, 1), "fit": "crop", "resolution": 1080,
+    N_("Square post (1:1)"): {"output": OUTPUT_VIDEO, "aspect": (1, 1), "fit": "crop", "resolution": 1080,
                           "crf": VIDEO_QUALITY["High"]},
-    "YouTube (16:9)": {"output": OUTPUT_VIDEO, "aspect": (16, 9), "fit": "blur", "resolution": 1080,
+    N_("YouTube (16:9)"): {"output": OUTPUT_VIDEO, "aspect": (16, 9), "fit": "blur", "resolution": 1080,
                        "crf": VIDEO_QUALITY["High"]},
-    "WhatsApp status": {"output": OUTPUT_VIDEO, "aspect": (9, 16), "fit": "blur", "resolution": 720,
+    N_("WhatsApp status"): {"output": OUTPUT_VIDEO, "aspect": (9, 16), "fit": "blur", "resolution": 720,
                         "crf": VIDEO_QUALITY["Smaller file"]},
-    "MP3 audio": {"output": OUTPUT_AUDIO},
+    N_("MP3 audio"): {"output": OUTPUT_AUDIO},
 }
 
 
@@ -251,49 +252,50 @@ def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
     from .core import format_time
 
     if settings.output == OUTPUT_AUDIO:
-        parts = ["MP3", settings.audio_quality]
+        parts = ["MP3", tr(settings.audio_quality)]
     else:
         edit = settings.edit
-        parts = [edit.output_format.short, f"{edit.aspect[0]}:{edit.aspect[1]}" if edit.aspect else "original shape"]
+        parts = [edit.output_format.short,
+                 f"{edit.aspect[0]}:{edit.aspect[1]}" if edit.aspect else tr("original shape")]
         if edit.target_mb > 0 and edit.output_format.codec != "gif":
-            parts.append(f"fits {edit.target_mb:g} MB")
+            parts.append(tr("fits {size:g} MB", size=edit.target_mb))
         if edit.aspect:
-            parts.append({"crop": "crop", "blur": "blurred fit", "bars": "black bars"}[edit.fit])
+            parts.append({"crop": tr("crop"), "blur": tr("blurred fit"), "bars": tr("black bars")}[edit.fit])
         if edit.frame_rate:
-            parts.append(f"steady {edit.frame_rate} fps")
+            parts.append(tr("steady {rate} fps", rate=edit.frame_rate))
         if edit.rotate:
-            parts.append(f"rotated {edit.rotate}°")
+            parts.append(tr("rotated {degrees}°", degrees=edit.rotate))
         if edit.mute:
-            parts.append("no sound")
+            parts.append(tr("no sound"))
         if edit.look != "none":
-            parts.append(LOOKS[edit.look][0].lower())
+            parts.append(tr(LOOKS[edit.look][0]).lower())
         if any(getattr(edit, name) != neutral for name, (_, _, neutral) in ADJUSTMENTS.items()):
-            parts.append("adjusted")
+            parts.append(tr("adjusted"))
         if STABILIZE.get(edit.stabilize):
-            parts.append("stabilized")
+            parts.append(tr("stabilized"))
         if any(drawable(item) for item in edit.texts):
-            parts.append("text")
+            parts.append(tr("text"))
         if edit.logo.file:
-            parts.append("logo")
+            parts.append(tr("logo"))
         if edit.subtitles.file:
-            parts.append("subtitles")
+            parts.append(tr("subtitles"))
     edit = settings.edit
     if edit.start is not None or edit.end is not None:
         start = format_time(edit.start or 0)
-        parts.append(f"{start}–{format_time(edit.end)}" if edit.end is not None else f"from {start}")
+        parts.append(f"{start}–{format_time(edit.end)}" if edit.end is not None else tr("from {time}", time=start))
     low, high = edit.start or 0.0, edit.end if edit.end is not None else duration
     cuts = sum(1 for a, b in removed_parts(edit.keep, duration) if b > low and (high is None or a < high))
     if cuts:
-        parts.append(f"{cuts} cut{'s' if cuts != 1 else ''}")
+        parts.append(ntr(cuts, "{n} cut", "{n} cuts"))
     if edit.speed != 1.0:
-        parts.append(f"{edit.speed:g}× speed")
+        parts.append(tr("{speed:g}× speed", speed=edit.speed))
     if not (settings.output == OUTPUT_VIDEO and edit.mute):      # with the sound removed, none of this is heard
         parts += sound_words(edit)
     if edit.reverse:
-        parts.append("reversed")
+        parts.append(tr("reversed"))
     video_fades = settings.output != OUTPUT_AUDIO and (edit.fade_in or edit.fade_out)
     if video_fades or edit.audio_fade_in or edit.audio_fade_out:
-        parts.append("fades")
+        parts.append(tr("fades"))
     return " · ".join(parts)
 
 
@@ -303,19 +305,19 @@ def sound_words(edit: VideoEdit) -> list[str]:
     if edit.volume:
         words.append(f"{edit.volume:+g} dB")
     if edit.normalize:
-        words.append("even loudness")
+        words.append(tr("even loudness"))
     if AUDIO_DENOISE.get(edit.audio_denoise):
-        words.append("less noise")
+        words.append(tr("less noise"))
     if edit.music:
-        words.append("music")
+        words.append(tr("music"))
     return words
 
 
 def describe_join(settings: ClipSettings, count: int) -> str:
     """A short summary of a joined export, which uses the first clip's output settings."""
     if settings.output == OUTPUT_AUDIO:
-        parts = ["MP3", settings.audio_quality]
+        parts = ["MP3", tr(settings.audio_quality)]
     else:
         aspect = settings.edit.aspect
-        parts = [settings.edit.output_format.short, f"{aspect[0]}:{aspect[1]}" if aspect else "original shape"]
-    return " · ".join(parts + [f"{count} clips joined"])
+        parts = [settings.edit.output_format.short, f"{aspect[0]}:{aspect[1]}" if aspect else tr("original shape")]
+    return " · ".join(parts + [ntr(count, "{n} clip joined", "{n} clips joined")])

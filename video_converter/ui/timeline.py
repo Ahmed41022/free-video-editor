@@ -101,6 +101,7 @@ class Timeline(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setLayoutDirection(Qt.LayoutDirection.LeftToRight)      # time runs left to right in every language
         self.duration = 0.0
         self.position = 0.0
         self.start: Optional[float] = None

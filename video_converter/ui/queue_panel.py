@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from .. import diagnostics
 from ..core import format_time
 from ..gpu import CPU_FALLBACK_NOTE
+from ..i18n import tr
 from ..jobs import Job, JobQueue, JobState
 from . import icons
 
@@ -27,24 +28,24 @@ class QueueBridge(QObject):
 def status_text(job: Job) -> str:
     if job.state is JobState.RUNNING:
         remaining = job.remaining_seconds()
-        left = f" · {format_time(remaining)} left" if remaining is not None else ""
-        retry = " · the graphics card failed, trying the CPU" if CPU_FALLBACK_NOTE in job.note else ""
+        left = " · " + tr("{time} left", time=format_time(remaining)) if remaining is not None else ""
+        retry = " · " + tr("the graphics card failed, trying the CPU") if tr(CPU_FALLBACK_NOTE) in job.note else ""
         return f"{job.progress:.0%}{left}{retry}"
     if job.state is JobState.FAILED:
-        return f"Failed: {job.error.splitlines()[-1] if job.error else 'unknown error'}"
+        return tr("Failed: {error}", error=job.error.splitlines()[-1] if job.error else tr("unknown error"))
     if job.state is JobState.DONE and job.output:
-        return f"Saved as {job.output.name}" + (f" · {job.note}" if job.note else "")
-    return job.state.value
+        return tr("Saved as {name}", name=job.output.name) + (f" · {job.note}" if job.note else "")
+    return job.state.label
 
 
 def details_box(job: Job, parent: Optional[QWidget] = None) -> QMessageBox:
     """A box telling what went wrong with a failed export and where the log is (not shown yet)."""
-    box = QMessageBox(QMessageBox.Icon.Warning, "Export failed",
-                      f"{job.title} couldn't be exported.", QMessageBox.StandardButton.Close, parent)
-    box.setInformativeText(job.error.strip().splitlines()[-1] if job.error.strip() else "The reason isn't known.")
-    box.setDetailedText(f"{job.error.strip() or 'No further details.'}\n\nThe log file, which has the full "
-                        f"ffmpeg command and output, is here:\n{diagnostics.log_path()}")
-    box.addButton("Open the log folder", QMessageBox.ButtonRole.ActionRole).clicked.connect(
+    box = QMessageBox(QMessageBox.Icon.Warning, tr("Export failed"),
+                      tr("{title} couldn't be exported.", title=job.title), QMessageBox.StandardButton.Close, parent)
+    box.setInformativeText(job.error.strip().splitlines()[-1] if job.error.strip() else tr("The reason isn't known."))
+    box.setDetailedText(f"{job.error.strip() or tr('No further details.')}\n\n" + tr(
+        "The log file, which has the full ffmpeg command and output, is here:\n{path}", path=diagnostics.log_path()))
+    box.addButton(tr("Open the log folder"), QMessageBox.ButtonRole.ActionRole).clicked.connect(
         lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(diagnostics.log_path().parent))))
     return box
 
@@ -70,16 +71,16 @@ class JobRow(QFrame):
         self.bar.setRange(0, 1000)
         self.bar.setFixedHeight(6)
         layout.addWidget(self.bar, 2)
-        self.details_button = QPushButton("Details")
-        self.details_button.setToolTip("See what went wrong and where the log is")
+        self.details_button = QPushButton(tr("Details"))
+        self.details_button.setToolTip(tr("See what went wrong and where the log is"))
         self.details_button.clicked.connect(lambda: self.detailsRequested.emit(self.job_id))
         self.open_button = QToolButton()
         self.open_button.setIcon(icons.icon("open"))
-        self.open_button.setToolTip("Show in folder")
+        self.open_button.setToolTip(tr("Show in folder"))
         self.open_button.clicked.connect(self._open)
         self.cancel_button = QToolButton()
         self.cancel_button.setIcon(icons.icon("close"))
-        self.cancel_button.setToolTip("Cancel")
+        self.cancel_button.setToolTip(tr("Cancel"))
         self.cancel_button.clicked.connect(lambda: self.cancelRequested.emit(self.job_id))
         layout.addWidget(self.details_button)
         layout.addWidget(self.open_button)
@@ -114,15 +115,15 @@ class QueuePanel(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
         header = QHBoxLayout()
-        title = QLabel("Export queue")
+        title = QLabel(tr("Export queue"))
         title.setObjectName("heading")
-        self.summary = QLabel("Nothing exported yet. Edits you export appear here.")
+        self.summary = QLabel(tr("Nothing exported yet. Edits you export appear here."))
         self.summary.setObjectName("muted")
         header.addWidget(title)
         header.addWidget(self.summary, 1)
-        clear = QPushButton("Clear finished")
+        clear = QPushButton(tr("Clear finished"))
         clear.clicked.connect(self.clear_finished)
-        cancel_all = QPushButton("Cancel all")
+        cancel_all = QPushButton(tr("Cancel all"))
         cancel_all.clicked.connect(self.queue.cancel_all)
         header.addWidget(clear)
         header.addWidget(cancel_all)
@@ -165,7 +166,7 @@ class QueuePanel(QFrame):
     def _update_summary(self) -> None:
         jobs = self.queue.jobs
         if not jobs:
-            self.summary.setText("Nothing in the queue.")
+            self.summary.setText(tr("Nothing in the queue."))
             return
         waiting = sum(j.state is JobState.QUEUED for j in jobs)
         running = sum(j.state is JobState.RUNNING for j in jobs)
@@ -173,11 +174,11 @@ class QueuePanel(QFrame):
         failed = sum(j.state is JobState.FAILED for j in jobs)
         parts = []
         if running:
-            parts.append("exporting")
+            parts.append(tr("exporting"))
         if waiting:
-            parts.append(f"{waiting} waiting")
+            parts.append(tr("{n} waiting", n=waiting))
         if done:
-            parts.append(f"{done} done")
+            parts.append(tr("{n} done", n=done))
         if failed:
-            parts.append(f"{failed} failed")
-        self.summary.setText(", ".join(parts).capitalize() if parts else "All cancelled.")
+            parts.append(tr("{n} failed", n=failed))
+        self.summary.setText(tr(", ").join(parts).capitalize() if parts else tr("All cancelled."))

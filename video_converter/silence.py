@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from .core import _NO_WINDOW, ConversionCancelled, ConversionError, stop_process
+from .i18n import ntr, tr
 from .timing import MIN_PART, SNAP_EDGE, Range, cut_range, kept_segments, segments_length
 
 DEFAULT_DB = -35.0          # sound quieter than this counts as silence
@@ -88,8 +89,8 @@ def detect_silences(ffmpeg: str, source: Path, noise_db: float = DEFAULT_DB, min
     text = "".join(lines)
     if proc.returncode != 0:
         if "matches no streams" in text:
-            raise ConversionError("This file has no sound, so there are no silences to remove.")
-        message = "".join(list(lines)[-10:]).strip() or f"ffmpeg exited with code {proc.returncode}"
+            raise ConversionError(tr("This file has no sound, so there are no silences to remove."))
+        message = "".join(list(lines)[-10:]).strip() or tr("ffmpeg exited with code {code}", code=proc.returncode)
         raise ConversionError(message)
     return parse_silences(text, duration)
 
@@ -167,10 +168,11 @@ def plan_silence_removal(keep: list[Range], silences: Iterable[Range], start: Op
 def summary(plan: SilencePlan) -> str:
     """One plain sentence about what removing the silences does."""
     if not plan.cuts:
-        return 'No pauses found. Try raising "Quieter than" or lowering "Longer than".'
-    count = len(plan.cuts)
-    return (f"Found {count} {'pause' if count == 1 else 'pauses'}, {_length(plan.removed)} in total. "
-            f"The video goes from {_clock(plan.before)} to {_clock(plan.after)}.")
+        return tr('No pauses found. Try raising "Quieter than" or lowering "Longer than".')
+    return ntr(len(plan.cuts),
+               "Found {n} pause, {length} in total. The video goes from {before} to {after}.",
+               "Found {n} pauses, {length} in total. The video goes from {before} to {after}.",
+               length=_length(plan.removed), before=_clock(plan.before), after=_clock(plan.after))
 
 
 def _length(seconds: float) -> str:

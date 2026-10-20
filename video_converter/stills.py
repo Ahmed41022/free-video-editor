@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from .core import _NO_WINDOW, ConversionError, MediaInfo
+from .i18n import tr
 from .video import VideoEdit, plan_geometry, render_frame
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg")
@@ -19,9 +20,9 @@ def save_frame(ffmpeg: str, source: Path, output: Path, at: float, edit: VideoEd
     Stabilization is left out, as in the preview, since it needs the whole clip."""
     extension = output.suffix.lower()
     if extension not in IMAGE_EXTENSIONS:
-        raise ConversionError("A frame can be saved as a PNG or a JPG: end the file name with .png or .jpg.")
+        raise ConversionError(tr("A frame can be saved as a PNG or a JPG: end the file name with .png or .jpg."))
     if not info.has_video:
-        raise ConversionError("This file has no video track.")
+        raise ConversionError(tr("This file has no video track."))
     geometry = plan_geometry(info.width, info.height, edit)
     size = (geometry.out_width, geometry.out_height)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -36,5 +37,5 @@ def save_frame(ffmpeg: str, source: Path, output: Path, at: float, edit: VideoEd
                                 stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, timeout=60)
     if result.returncode != 0 or not output.is_file():
         output.unlink(missing_ok=True)
-        raise ConversionError(result.stderr.strip() or "Couldn't save the frame as a JPG.")
+        raise ConversionError(result.stderr.strip() or tr("Couldn't save the frame as a JPG."))
     return output

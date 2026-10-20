@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
 from .core import _NO_WINDOW
+from .i18n import N_, tr
 
 log = logging.getLogger(__name__)
 
@@ -38,13 +39,13 @@ HEVC_ENCODERS: dict[str, Callable[[int, float], list[str]]] = {
 }
 # What to tell the user, in the order to prefer them.
 LABELS = {
-    "h264_nvenc": "NVIDIA graphics card",
-    "h264_qsv": "Intel graphics",
-    "h264_amf": "AMD graphics card",
+    "h264_nvenc": N_("NVIDIA graphics card"),
+    "h264_qsv": N_("Intel graphics"),
+    "h264_amf": N_("AMD graphics card"),
 }
 
 PROBE_SECONDS = 15        # a graphics card that wakes up slowly still gets a fair chance
-CPU_FALLBACK_NOTE = "Exported on the CPU because the graphics card failed"
+CPU_FALLBACK_NOTE = N_("Exported on the CPU because the graphics card failed")     # show it with tr()
 
 
 def encoder_codec(encoder: str) -> str:
@@ -144,7 +145,7 @@ def choose_encoder(ffmpeg: str, use_gpu: bool, codec: str = "h264") -> Optional[
 def gpu_name(encoder: str) -> str:
     """A readable name for the hardware behind `encoder`: the card's own name where the driver tells
     us (NVIDIA), otherwise the maker."""
-    label = LABELS.get(encoder) or LABELS.get(encoder.replace("hevc", "h264"), "graphics card")
+    label = LABELS.get(encoder) or LABELS.get(encoder.replace("hevc", "h264"), N_("graphics card"))
     if encoder.endswith("_nvenc"):
         try:
             result = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
@@ -155,10 +156,10 @@ def gpu_name(encoder: str) -> str:
             name = ""
         if name:
             return name
-    return label
+    return tr(label)
 
 
 def describe_gpu(ffmpeg: str) -> str:
     """What the Video quality section shows next to the option."""
     encoder = best_encoder(ffmpeg)
-    return gpu_name(encoder) if encoder else "No supported graphics card found"
+    return gpu_name(encoder) if encoder else tr("No supported graphics card found")

@@ -266,7 +266,7 @@ class WindowTests(unittest.TestCase):
         self.assertIn(APP_NAME, about.call_args.args[1])
 
     def test_the_window_title_has_the_new_version(self):
-        self.assertIn("2.9.0", self.new_window().windowTitle())
+        self.assertIn("3.0.0", self.new_window().windowTitle())
 
 
 class CrashBoxTests(unittest.TestCase):

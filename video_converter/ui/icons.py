@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import QByteArray, QRectF, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtWidgets import QApplication
 
 from . import theme
 
@@ -43,8 +44,14 @@ _SHAPES = {
 }
 
 
+# Arrows that point back or forward in the user's writing direction: drawn flipped in a right-to-left language.
+# (Icons tied to the timeline, like the trim marks and the skip buttons, stay as they are: time runs left to right.)
+MIRRORED_IN_RTL = frozenset({"undo", "redo"})
+
+
 def icon(name: str, color: str | None = None, size: int = 20) -> QIcon:
     color = color or theme.colors()["text"]
+    mirror = name in MIRRORED_IN_RTL and QApplication.layoutDirection() == Qt.LayoutDirection.RightToLeft
     shape = _SHAPES[name].replace('"C"', f'"{color}"')
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="{color}" '
            f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{shape}</svg>')
@@ -54,6 +61,9 @@ def icon(name: str, color: str | None = None, size: int = 20) -> QIcon:
         pixmap = QPixmap(size * scale, size * scale)
         pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
+        if mirror:
+            painter.translate(size * scale, 0)
+            painter.scale(-1, 1)
         renderer.render(painter, QRectF(0, 0, size * scale, size * scale))
         painter.end()
         pixmap.setDevicePixelRatio(scale)

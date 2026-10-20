@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .core import ConversionError, format_time
+from .i18n import N_, tr
 
 
 @dataclass(frozen=True)
@@ -21,14 +22,14 @@ class OutputFormat:
 
 
 OUTPUT_FORMATS = {
-    "mp4": OutputFormat("MP4 (H.264, plays everywhere)", "MP4", ".mp4", "h264", "aac"),
-    "hevc": OutputFormat("MP4 (H.265, smaller files)", "H.265", ".mp4", "hevc", "aac",
-                         "H.265 files are smaller, but older phones and programs can't play them."),
-    "webm": OutputFormat("WebM (VP9, for the web)", "WebM", ".webm", "vp9", "opus",
-                         "WebM plays in browsers and most players. Exporting takes longer."),
-    "mov": OutputFormat("MOV (H.264, for Apple and editors)", "MOV", ".mov", "h264", "aac"),
-    "gif": OutputFormat("GIF (animated picture, no sound)", "GIF", ".gif", "gif", "",
-                        "A GIF has no sound and gets big quickly, so it suits short clips."),
+    "mp4": OutputFormat(N_("MP4 (H.264, plays everywhere)"), "MP4", ".mp4", "h264", "aac"),
+    "hevc": OutputFormat(N_("MP4 (H.265, smaller files)"), "H.265", ".mp4", "hevc", "aac",
+                         N_("H.265 files are smaller, but older phones and programs can't play them.")),
+    "webm": OutputFormat(N_("WebM (VP9, for the web)"), "WebM", ".webm", "vp9", "opus",
+                         N_("WebM plays in browsers and most players. Exporting takes longer.")),
+    "mov": OutputFormat(N_("MOV (H.264, for Apple and editors)"), "MOV", ".mov", "h264", "aac"),
+    "gif": OutputFormat(N_("GIF (animated picture, no sound)"), "GIF", ".gif", "gif", "",
+                        N_("A GIF has no sound and gets big quickly, so it suits short clips.")),
 }
 DEFAULT_VIDEO_FORMAT = "mp4"
 
@@ -46,8 +47,8 @@ def gif_warning(seconds: Optional[float]) -> str:
     """What to say about a GIF that runs `seconds`, or "" when it is short enough not to need it."""
     if seconds is None or seconds <= GIF_LONG_SECONDS:
         return ""
-    return (f"This GIF runs {format_time(seconds)}, and GIFs get big fast: it may come out at tens of megabytes. "
-            "Shorten the clip, or lower the width or frame rate.")
+    return tr("This GIF runs {length}, and GIFs get big fast: it may come out at tens of megabytes. "
+              "Shorten the clip, or lower the width or frame rate.", length=format_time(seconds))
 
 
 def gif_rate(cap: int, source_fps: Optional[float]) -> float:
@@ -63,7 +64,7 @@ def gif_scale(width: int) -> str:
 # ----- fitting a file size --------------------------------------------------------
 
 MB = 1_000_000                 # a megabyte, counted the way file sizes are advertised
-TARGET_PRESETS = {"Discord (10 MB)": 10.0, "WhatsApp (16 MB)": 16.0, "Email (25 MB)": 25.0}
+TARGET_PRESETS = {"Discord (10 MB)": 10.0, "WhatsApp (16 MB)": 16.0, N_("Email (25 MB)"): 25.0}
 DEFAULT_TARGET_MB = 10.0
 TARGET_RANGE = (0.5, 5000.0)
 
@@ -119,7 +120,7 @@ def fit_plan(target: int, seconds: float, codec: str, audio: str, fps: float,
     width, height). The first one that leaves the picture enough bits per pixel wins, and its note
     says so when it isn't the first. Raises ConversionError when not even the smallest does."""
     if seconds <= 0:
-        raise ConversionError("Can't fit this into a file size: it has no length.")
+        raise ConversionError(tr("Can't fit this into a file size: it has no length."))
     total = total_kbps(target, seconds)
     sound = audio_kbps(audio, total)
     kbps = int(total - sound)
@@ -129,21 +130,23 @@ def fit_plan(target: int, seconds: float, codec: str, audio: str, fps: float,
         need = max(MIN_VIDEO_KBPS, minimum * width * height * fps / 1000)
         if kbps >= need:
             if index and short:
-                return SizeFit(target, kbps, sound, seconds, f"Made smaller ({short}p) so it fits in {target / MB:g} MB",
-                               short)
+                return SizeFit(target, kbps, sound, seconds,
+                               tr("Made smaller ({short}p) so it fits in {limit:g} MB", short=short,
+                                  limit=target / MB), short)
             return SizeFit(target, kbps, sound, seconds)
     _, width, height = rungs[-1]
     need = max(MIN_VIDEO_KBPS, minimum * width * height * fps / 1000)
     fits = seconds * (total - sound) / need if total > sound else 0
-    raise ConversionError(
-        f"This video is too long to fit in {target / MB:g} MB. Squeezed that far, the picture would look "
-        f"terrible: about {format_time(fits)} of it fits. Shorten the video, or choose a bigger size.")
+    raise ConversionError(tr(
+        "This video is too long to fit in {limit:g} MB. Squeezed that far, the picture would look "
+        "terrible: about {length} of it fits. Shorten the video, or choose a bigger size.",
+        limit=target / MB, length=format_time(fits)))
 
 
 def fit_note(plan: SizeFit) -> str:
     """A sentence about a plan, for the panel: what the picture will get."""
-    text = f"The picture gets about {plan.kbps / 1000:.1f} Mbps" if plan.kbps >= 1000 else \
-        f"The picture gets about {plan.kbps} kbps"
+    text = tr("The picture gets about {rate:.1f} Mbps", rate=plan.kbps / 1000) if plan.kbps >= 1000 else \
+        tr("The picture gets about {rate} kbps", rate=plan.kbps)
     return f"{text}. {plan.note}." if plan.note else f"{text}."
 
 

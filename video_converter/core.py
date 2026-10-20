@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+from .i18n import N_, tr
 from .sound import Loudness, Sound, master_filters, music_args, parse_loudness, voice_filters
 from .timing import Range, Segment, kept_segments, output_duration
 
@@ -33,8 +34,8 @@ QUALITY_PRESETS = {
     "192 kbps": ["-b:a", "192k"],
     "256 kbps": ["-b:a", "256k"],
     "320 kbps": ["-b:a", "320k"],
-    "VBR (high quality)": ["-q:a", "0"],
-    "VBR (standard)": ["-q:a", "4"],
+    N_("VBR (high quality)"): ["-q:a", "0"],
+    N_("VBR (standard)"): ["-q:a", "4"],
 }
 DEFAULT_QUALITY = "192 kbps"
 
@@ -128,15 +129,15 @@ def parse_time(text: str) -> Optional[float]:
         return None
     parts = text.split(":")
     if len(parts) > 3:
-        raise ValueError(f"Invalid time: {text!r}")
+        raise ValueError(tr("Invalid time: {text}", text=repr(text)))
     try:
         seconds = 0.0
         for part in parts:
             seconds = seconds * 60 + float(part)
     except ValueError:
-        raise ValueError(f"Invalid time: {text!r} (use seconds, m:ss or h:mm:ss)") from None
+        raise ValueError(tr("Invalid time: {text} (use seconds, m:ss or h:mm:ss)", text=repr(text))) from None
     if seconds < 0:
-        raise ValueError(f"Invalid time: {text!r}")
+        raise ValueError(tr("Invalid time: {text}", text=repr(text)))
     return seconds
 
 
@@ -363,12 +364,12 @@ def run_ffmpeg(
         raise ConversionCancelled()
     if proc.returncode != 0:
         remove_file(output)
-        message = "".join(errors).strip() or f"ffmpeg exited with code {proc.returncode}"
+        message = "".join(errors).strip() or tr("ffmpeg exited with code {code}", code=proc.returncode)
         log.error("ffmpeg exited with code %s. Last lines of its output: %s", proc.returncode, message)
         if "matches no streams" in message:
-            message = "This file has no audio track."
+            message = tr("This file has no audio track.")
         elif "No such filter" in message and "vidstab" in message:
-            message = "This copy of ffmpeg can't stabilize video (it was built without libvidstab)."
+            message = tr("This copy of ffmpeg can't stabilize video (it was built without libvidstab).")
         raise ConversionError(message)
 
     if on_progress:
@@ -393,11 +394,11 @@ class ConversionJob:
 
 def check_trim(start: Optional[float], end: Optional[float]) -> None:
     if start is not None and end is not None and end <= start:
-        raise ConversionError("The trim end time must be after the start time.")
+        raise ConversionError(tr("The trim end time must be after the start time."))
 
 
 def no_segments_error() -> ConversionError:
-    return ConversionError("Nothing is left to export: the trim and cuts remove the whole video.")
+    return ConversionError(tr("Nothing is left to export: the trim and cuts remove the whole video."))
 
 
 def check_music(ffmpeg: str, sound: Sound, muted: bool = False) -> None:
@@ -407,14 +408,14 @@ def check_music(ffmpeg: str, sound: Sound, muted: bool = False) -> None:
         return
     path = Path(sound.music)
     if not path.is_file():
-        raise ConversionError(f"The background music file can't be found: {path}. "
-                              "Choose it again under Sound, or remove it.")
+        raise ConversionError(tr("The background music file can't be found: {path}. "
+                                 "Choose it again under Sound, or remove it.", path=path))
     if not probe_media(ffmpeg, path).has_audio:
-        raise ConversionError(f"{path.name} has no sound, so it can't be used as background music.")
+        raise ConversionError(tr("{name} has no sound, so it can't be used as background music.", name=path.name))
 
 
 def music_length_error() -> ConversionError:
-    return ConversionError("Can't add background music: the length of this file is unknown.")
+    return ConversionError(tr("Can't add background music: the length of this file is unknown."))
 
 
 # Where the first loudness pass sits in the progress bar. It only reads and filters the sound, so it is
@@ -490,7 +491,7 @@ def convert(
     With `job.sound` the volume, noise reduction and background music are applied too, and the
     loudness is evened out in two passes: measuring first, then converting."""
     if not job.source.is_file():
-        raise ConversionError(f"File not found: {job.source}")
+        raise ConversionError(tr("File not found: {path}", path=job.source))
     check_trim(job.start, job.end)
 
     info = probe_media(ffmpeg, job.source)

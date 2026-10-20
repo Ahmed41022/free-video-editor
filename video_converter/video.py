@@ -37,6 +37,7 @@ from .core import (
     trim_args,
 )
 from .gpu import CPU_FALLBACK_NOTE, encoder_args, encoder_codec
+from .i18n import N_, tr
 from .output import (
     DEFAULT_VIDEO_FORMAT,
     GIF_FPS,
@@ -94,9 +95,9 @@ DEFAULT_FORMAT = "Phone: Stories, Reels, TikTok, Shorts (9:16)"
 FORMAT_TAGS = {None: "edited", (9, 16): "phone", (1, 1): "square", (4, 5): "portrait", (16, 9): "widescreen"}
 
 FIT_MODES = {
-    "crop": "Crop to fill the frame",
-    "blur": "Fit inside, blurred background",
-    "bars": "Fit inside, black bars",
+    "crop": N_("Crop to fill the frame"),
+    "blur": N_("Fit inside, blurred background"),
+    "bars": N_("Fit inside, black bars"),
 }
 
 ROTATIONS = {"None": 0, "90° clockwise": 90, "180°": 180, "90° counter-clockwise": 270}
@@ -106,16 +107,16 @@ UP_TO_1080 = -1080
 
 # Length of the short side of the output. None = as large as the picture being exported, never
 # enlarged: see plan_geometry. UP_TO_1080 = the same, but never above 1080.
-RESOLUTIONS = {"Same as source": None, "Up to 1080p": UP_TO_1080, "1080p": 1080, "720p": 720, "480p": 480}
+RESOLUTIONS = {N_("Same as source"): None, N_("Up to 1080p"): UP_TO_1080, "1080p": 1080, "720p": 720, "480p": 480}
 
 # Steady frame rates the user can ask for; None keeps the source's own (which may vary).
-FRAME_RATES = {"Same as source": None, "Steady 60 fps": 60, "Steady 30 fps": 30}
+FRAME_RATES = {N_("Same as source"): None, N_("Steady 60 fps"): 60, N_("Steady 30 fps"): 30}
 
 # With "Same as source", phone, portrait and square videos are not made bigger than this (short side).
 SHORT_SIDE_CAP = 1080
 
 # x264 CRF: lower = better quality and bigger files.
-VIDEO_QUALITY = {"High": 18, "Balanced": 23, "Smaller file": 28}
+VIDEO_QUALITY = {N_("High"): 18, N_("Balanced"): 23, N_("Smaller file"): 28}
 DEFAULT_VIDEO_QUALITY = "Balanced"
 
 # Picture adjustments: field -> (lowest, highest, neutral value).
@@ -130,12 +131,12 @@ ADJUSTMENTS = {
 
 # Color looks: key -> (label, ffmpeg filters).
 LOOKS = {
-    "none": ("None", []),
-    "bw": ("Black and white", ["hue=s=0"]),
-    "warm": ("Warm", ["colorbalance=rs=0.08:gs=0.02:bs=-0.08:rm=0.06:bm=-0.06"]),
-    "cool": ("Cool", ["colorbalance=rs=-0.08:bs=0.08:rm=-0.06:bm=0.06"]),
-    "vintage": ("Vintage", ["curves=preset=vintage", "eq=saturation=0.85"]),
-    "contrast": ("High contrast", ["curves=preset=strong_contrast"]),
+    "none": (N_("None"), []),
+    "bw": (N_("Black and white"), ["hue=s=0"]),
+    "warm": (N_("Warm"), ["colorbalance=rs=0.08:gs=0.02:bs=-0.08:rm=0.06:bm=-0.06"]),
+    "cool": (N_("Cool"), ["colorbalance=rs=-0.08:bs=0.08:rm=-0.06:bm=0.06"]),
+    "vintage": (N_("Vintage"), ["curves=preset=vintage", "eq=saturation=0.85"]),
+    "contrast": (N_("High contrast"), ["curves=preset=strong_contrast"]),
 }
 
 # Stabilization strength -> (vidstabdetect shakiness, vidstabtransform smoothing), or None for off.
@@ -338,10 +339,11 @@ def frame_rate_hint(info: MediaInfo) -> str:
     """What to tell the user about a source whose frame rate may not play on a phone, or "" when
     there is nothing to say. Shown while the frame rate is left at "Same as source"."""
     if info.variable_frame_rate and info.max_fps:
-        return (f"This video's frame rate changes (up to {info.max_fps:g} fps), which some phones can't play. "
-                "Choose Steady 60 fps.")
+        return tr("This video's frame rate changes (up to {fps:g} fps), which some phones can't play. "
+                  "Choose Steady 60 fps.", fps=info.max_fps)
     if info.fps and info.fps > FAST_FRAME_RATE:
-        return f"This video runs at {info.fps:g} fps, which some phones can't play. Choose Steady 60 fps."
+        return tr("This video runs at {fps:g} fps, which some phones can't play. Choose Steady 60 fps.",
+                  fps=info.fps)
     return ""
 
 
@@ -386,8 +388,8 @@ def reverse_warning(nbytes: int) -> str:
     """The warning to show next to a reversed clip that needs `nbytes`, or "" when that is fine."""
     if nbytes <= REVERSE_WARN_BYTES:
         return ""
-    return (f"Reversing this needs about {format_memory(nbytes)} of memory. "
-            "Shorten the clip or lower the size if your PC has less.")
+    return tr("Reversing this needs about {memory} of memory. Shorten the clip or lower the size if your PC "
+              "has less.", memory=format_memory(nbytes))
 
 
 def orientation_filters(edit: VideoEdit) -> list[str]:
@@ -686,7 +688,7 @@ def plan_fit(edit: VideoEdit, info: MediaInfo, seconds: Optional[float], sound: 
     if edit.target_mb <= 0 or fmt.codec == "gif":
         return edit, None
     if seconds is None:
-        raise ConversionError("Can't fit this into a file size: its length is unknown.")
+        raise ConversionError(tr("Can't fit this into a file size: its length is unknown."))
     if seconds <= 0:
         raise no_segments_error()
     geometry = plan_geometry(info.width, info.height, edit)
@@ -782,7 +784,7 @@ def _encode(command: Callable[[Optional[str]], list[str]], encoder: Optional[str
             raise ConversionCancelled() from None
         log.warning("The graphics card encoder %s failed (%s); trying again on the CPU", encoder, exc)
         if on_note:
-            on_note(CPU_FALLBACK_NOTE)
+            on_note(tr(CPU_FALLBACK_NOTE))
     return run_ffmpeg(command(None), output, duration, on_progress, cancel_event, cwd)
 
 
@@ -831,7 +833,7 @@ def _finish(command: Callable[[dict[int, str], Optional[str], Optional[Loudness]
                 raise ConversionCancelled() from None
             log.warning("The graphics card encoder %s failed (%s); trying again on the CPU", encoder, exc)
             if on_note:
-                on_note(CPU_FALLBACK_NOTE)
+                on_note(tr(CPU_FALLBACK_NOTE))
             encoder = None
             continue
         size = output.stat().st_size
@@ -854,8 +856,9 @@ def _finish(command: Callable[[dict[int, str], Optional[str], Optional[Loudness]
         fit.kbps = more
     remove_file(output)
     if best is None:
-        raise ConversionError(f"The video came out at {size / 1e6:.1f} MB, over the {fit.target_bytes / 1e6:g} MB "
-                              "limit, even after trying again. Shorten the video, or choose a bigger size.")
+        raise ConversionError(tr("The video came out at {size:.1f} MB, over the {limit:g} MB limit, even after "
+                                 "trying again. Shorten the video, or choose a bigger size.",
+                                 size=size / 1e6, limit=fit.target_bytes / 1e6))
     shutil.move(str(best), str(output))
     return output
 
@@ -927,11 +930,11 @@ def convert_video(
     fails the export is run again on the CPU and `on_note` hears about it. With `job.edit.target_mb` the
     file is made to fit that size (see `plan_fit`), and `on_note` hears when the picture had to be made smaller."""
     if not job.source.is_file():
-        raise ConversionError(f"File not found: {job.source}")
+        raise ConversionError(tr("File not found: {path}", path=job.source))
     check_trim(job.edit.start, job.edit.end)
     info = info or probe_media(ffmpeg, job.source)
     if not info.has_video:
-        raise ConversionError("This file has no video track.")
+        raise ConversionError(tr("This file has no video track."))
     gif = job.edit.output_format.codec == "gif"
     if not gif:
         check_music(ffmpeg, job.edit.sound, job.edit.mute)
@@ -1003,8 +1006,8 @@ def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]]
     picture = video and not measure
     first = parts[0]
     if video and first.edit.output_format.codec == "gif":
-        raise ConversionError("Joined clips can't be saved as a GIF. Export the clips one at a time, "
-                              "or choose another format for the first clip.")
+        raise ConversionError(tr("Joined clips can't be saved as a GIF. Export the clips one at a time, "
+                                 "or choose another format for the first clip."))
     frame = fps = level = None
     steady = None
     if picture:
@@ -1019,7 +1022,7 @@ def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]]
     if first_pass:
         any_audio, music = False, None
     if not video and not any_audio and not music:
-        raise ConversionError("None of these files have sound.")
+        raise ConversionError(tr("None of these files have sound."))
     sound = first.edit.sound
     mastered = (any_audio or bool(music)) and (bool(music) or (sound.normalize and loudness is not None))
     voice = "[voice]" if mastered else "[a]"
@@ -1028,12 +1031,13 @@ def join_command(ffmpeg: str, job: JoinJob, transforms: Optional[dict[int, str]]
     for i, part in enumerate(parts):
         segments = part.edit.segments(part.info.duration, part.info.fps if picture else None)
         if not segments:
-            raise ConversionError(f"Nothing is left of {part.source.name}: the trim and cuts remove all of it.")
+            raise ConversionError(tr("Nothing is left of {name}: the trim and cuts remove all of it.",
+                                     name=part.source.name))
         graph = clip_graph(i, part.edit, part.info, segments, video=video, audio=any_audio, frame=frame,
                            fps=fps, v_out=f"[v{i}]", a_out=f"[sound{i}]", transforms=(transforms or {}).get(i),
                            picture=picture)
         if graph.duration is None:
-            raise ConversionError(f"Couldn't read the length of {part.source.name}.")
+            raise ConversionError(tr("Couldn't read the length of {name}.", name=part.source.name))
         inputs += input_args(segments, part.source)
         filters += graph.filters
         total += graph.duration
@@ -1082,14 +1086,14 @@ def join_clips(
     """Export several clips, in order, as one MP4 (or one MP3 with `job.audio_only`), or in the first
     clip's other format and file size (see `join_command`). `encoder` and `on_note` work as in `convert_video`."""
     if len(job.parts) < 2:
-        raise ConversionError("Joining needs at least two clips.")
+        raise ConversionError(tr("Joining needs at least two clips."))
     for part in job.parts:
         if not part.source.is_file():
-            raise ConversionError(f"File not found: {part.source}")
+            raise ConversionError(tr("File not found: {path}", path=part.source))
         check_trim(part.edit.start, part.edit.end)
         part.info = part.info or probe_media(ffmpeg, part.source)
         if not job.audio_only and not part.info.has_video:
-            raise ConversionError(f"{part.source.name} has no video track.")
+            raise ConversionError(tr("{name} has no video track.", name=part.source.name))
         part.source = part.source.resolve()     # ffmpeg may run in another folder
     first = job.parts[0].edit
     check_music(ffmpeg, first.sound, first.mute and not job.audio_only)
@@ -1136,7 +1140,7 @@ def _grab_frames(ffmpeg: str, source: Path, at: float, graph: str, outputs: dict
         stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, timeout=60,
     )
     if result.returncode != 0 or not all(png.is_file() for png in outputs.values()):
-        raise ConversionError(result.stderr.strip() or "Couldn't read a frame from this video.")
+        raise ConversionError(result.stderr.strip() or tr("Couldn't read a frame from this video."))
 
 
 def _shrink(max_size: tuple[int, int]) -> str:

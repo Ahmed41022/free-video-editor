@@ -13,6 +13,7 @@ from typing import Callable, Optional
 
 from .core import ConversionCancelled, ConversionError, ConversionJob, MediaInfo, convert
 from .gpu import choose_encoder
+from .i18n import N_, tr
 from .project import OUTPUT_AUDIO, ClipSettings, describe, describe_join, output_file_for
 from .video import DEFAULT_FPS, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, reverse_memory
 
@@ -20,11 +21,16 @@ log = logging.getLogger(__name__)
 
 
 class JobState(Enum):
-    QUEUED = "Queued"
-    RUNNING = "Exporting"
-    DONE = "Done"
-    FAILED = "Failed"
-    CANCELLED = "Cancelled"
+    QUEUED = N_("Queued")
+    RUNNING = N_("Exporting")
+    DONE = N_("Done")
+    FAILED = N_("Failed")
+    CANCELLED = N_("Cancelled")
+
+    @property
+    def label(self) -> str:
+        """The state's name in the user's language (the value is the English name)."""
+        return tr(self.value)
 
     @property
     def finished(self) -> bool:
@@ -63,7 +69,7 @@ class Job:
     @property
     def title(self) -> str:
         more = len(self.clips) - 1
-        return f"{self.source.name} + {more} more" if more > 0 else self.source.name
+        return tr("{name} + {n} more", name=self.source.name, n=more) if more > 0 else self.source.name
 
     @property
     def summary(self) -> str:
@@ -263,7 +269,7 @@ class JobQueue:
                 state = JobState.FAILED
             except Exception as exc:  # never let one bad job kill the queue
                 log.exception("Export %d crashed", job.id)
-                job.error = f"Unexpected error: {exc}"
+                job.error = tr("Unexpected error: {error}", error=exc)
                 state = JobState.FAILED
             self._log_finish(job, state)
             with self._lock:

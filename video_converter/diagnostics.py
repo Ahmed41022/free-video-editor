@@ -18,6 +18,7 @@ from urllib.parse import quote
 
 from . import APP_NAME, REPO_URL, __version__
 from .core import _NO_WINDOW
+from .i18n import tr
 
 LOG_NAME = "app.log"
 MAX_LOG_BYTES = 1_000_000          # about 10,000 lines; three older files are kept as app.log.1 ... .3
@@ -235,10 +236,12 @@ def issue_url(system: list[str], log_lines: list[str], limit: int = URL_LIMIT) -
 def about_text() -> str:
     """The About box's text, as HTML for a Qt label."""
     return (f"<h3>{APP_NAME} {__version__}</h3>"
-            "<p>A free video editor for your PC: reshape videos for phones, crop, cut, join, speed up, "
-            "color and stabilize them, or turn them into MP3s. Everything happens on your computer.</p>"
-            "<p>Released under the MIT License.<br>"
-            f'Source code and help: <a href="{REPO_URL}">{REPO_URL}</a></p>'
-            '<p>Built with <a href="https://ffmpeg.org">FFmpeg</a> for all the video work and '
-            '<a href="https://www.qt.io/qt-for-python">Qt for Python</a> (PySide6) for the window. '
-            "Thanks to everyone who makes them.</p>")
+            "<p>" + tr("A free video editor for your PC: reshape videos for phones, crop, cut, join, speed up, "
+                       "color and stabilize them, or turn them into MP3s. Everything happens on your "
+                       "computer.") + "</p>"
+            "<p>" + tr("Released under the MIT License.") + "<br>"
+            + tr("Source code and help: {link}", link=f'<a href="{REPO_URL}">{REPO_URL}</a>') + "</p>"
+            "<p>" + tr("Built with {ffmpeg} for all the video work and {qt} (PySide6) for the window. "
+                       "Thanks to everyone who makes them.",
+                       ffmpeg='<a href="https://ffmpeg.org">FFmpeg</a>',
+                       qt='<a href="https://www.qt.io/qt-for-python">Qt for Python</a>') + "</p>")

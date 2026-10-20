@@ -25,7 +25,8 @@ Everything the app needs is built in either way.
 **Install with winget** (once the listing is approved in the Windows Package Manager):
 `winget install AhmedRagab.FreeVideoEditor`. The manifests are in [packaging/winget](packaging/winget/README.md).
 
-The website is also available [in Arabic](https://ahmed41022.github.io/free-video-editor/ar/) (الموقع بالعربية).
+The website is also available [in Arabic](https://ahmed41022.github.io/free-video-editor/ar/) (الموقع بالعربية),
+and so is the app: see **Arabic interface** below.
 
 > Windows SmartScreen may warn about an unrecognized app the first time because the files aren't code-signed.
 > Click **More info → Run anyway**.
@@ -42,6 +43,12 @@ The website is also available [in Arabic](https://ahmed41022.github.io/free-vide
 - Crop box right on the video: drag it to choose what to keep, drag a corner (or scroll) to zoom
 - Before / after view that renders exactly what the export will look like, adjustments and looks included
 - Undo and redo for every change, dark and light themes, and drag-and-drop of files and folders
+- **Arabic interface** (واجهة عربية) from version 3.0: every menu, label, tooltip, message and dialog is in Arabic and
+  the window runs right to left. It follows Windows by default (Arabic if Windows is set to Arabic, otherwise
+  English); choose **View → Language → English / العربية / Same as Windows** at any time, and restart the app to
+  switch. The timeline and the video player stay left to right, because time runs that way. Numbers are written
+  with the digits 0-9, and names like TikTok, MP4 and GIF stay in Latin letters. The translations are in
+  [`video_converter/locales/ar.json`](video_converter/locales/ar.json); a new text only needs an entry there
 - Each file keeps its own settings; **Apply to all files** copies them to the rest (each keeps its own crop,
   trim, cuts, texts and subtitle file; the logo and the subtitle style are copied). Presets never touch the texts
 - Export queue that runs in the background with progress, time left, cancel and "show in folder"

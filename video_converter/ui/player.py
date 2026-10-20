@@ -13,6 +13,7 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QtVideo, QVideoFram
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ..captions import Logo, TextItem, laid_out, text_box
+from ..i18n import tr
 from ..timing import Segment
 from . import theme
 
@@ -207,6 +208,7 @@ class VideoView(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(320, 200)
         self.setMouseTracking(True)
+        self.setLayoutDirection(Qt.LayoutDirection.LeftToRight)      # the picture is never mirrored
         self.raw: Optional[QImage] = None
         self.raw_is_oriented = False
         self.display_rotation = 0        # from file metadata
@@ -214,7 +216,7 @@ class VideoView(QWidget):
         self.mirror = False
         self.after_image: Optional[QImage] = None
         self.show_after = False
-        self.placeholder = "Drop videos here, or click Add files"
+        self.placeholder = tr("Drop videos here, or click Add files")
         # Crop overlay, in oriented source pixels: (frame w, frame h, crop w, crop h, x, y) or None
         self.crop: Optional[tuple[int, int, int, int, int, int]] = None
         self.zoom = 1.0
@@ -549,7 +551,7 @@ class VideoView(QWidget):
             target = fit_rect(QSizeF(self.after_image.size()), QRectF(self.rect()).adjusted(8, 8, -8, -8))
             p.drawImage(target, self.after_image)
             self._paint_overlays(p, content=False)
-            self._badge(p, "After")
+            self._badge(p, tr("After"))
             return
 
         image = self.oriented_image()
@@ -586,7 +588,7 @@ class VideoView(QWidget):
                 p.drawEllipse(corner, 5, 5)
         self._paint_overlays(p, content=True)
         if self.show_after:
-            self._badge(p, "Rendering preview…")
+            self._badge(p, tr("Rendering preview…"))
 
     def _badge(self, p: QPainter, text: str) -> None:
         p.setRenderHint(QPainter.RenderHint.Antialiasing)

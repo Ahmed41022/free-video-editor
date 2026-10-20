@@ -14,17 +14,18 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, QSettings, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QImage, QKeySequence, QPixmap, QUndoCommand, QUndoStack
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QImage, QKeySequence, QPixmap, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter,
     QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
-from .. import APP_NAME, __version__, diagnostics, gpu, updates
+from .. import APP_NAME, __version__, diagnostics, gpu, i18n, updates
 from ..core import (
     AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_media_file, probe_media,
 )
+from ..i18n import ntr, tr
 from ..jobs import Clip, Job, JobQueue
 from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
@@ -38,7 +39,7 @@ from ..video import (
     REVERSE_WARN_BYTES, fit_summary, format_memory, format_warning, frame_rate_hint, plan_geometry, render_frame,
     reverse_memory, reverse_warning,
 )
-from . import icons, theme
+from . import icons, language, theme
 from .inspector import Inspector
 from .player import Player, VideoView
 from .queue_panel import QueueBridge, QueuePanel
@@ -47,7 +48,13 @@ from .timeline import Timeline
 
 FRAME_STEP = 1 / 30
 FILE_FILTER = "Videos and audio ({});;All files (*.*)".format(
-    " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS))
+    " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS))      # the English one; see file_filter()
+
+
+def file_filter() -> str:
+    """The Add files dialog's filter, in the user's language."""
+    patterns = " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS)
+    return tr("Videos and audio ({patterns})", patterns=patterns) + ";;" + tr("All files (*.*)")
 
 
 @dataclass(eq=False)
@@ -174,7 +181,7 @@ class MainWindow(QMainWindow):
     # ----- layout -------------------------------------------------------------
 
     def _build(self) -> None:
-        toolbar = QToolBar("Main")
+        toolbar = QToolBar(tr("Main"))
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(18, 18))
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -190,39 +197,39 @@ class MainWindow(QMainWindow):
             toolbar.addAction(act)
             return act
 
-        self.add_action = action("Add files", "add", self.choose_files, "Ctrl+O")
-        self.folder_action = action("Add folder", "folder", self.choose_folder)
-        self.remove_action = action("Remove", "trash", self.remove_selected, tip="Remove the selected file")
+        self.add_action = action(tr("Add files"), "add", self.choose_files, "Ctrl+O")
+        self.folder_action = action(tr("Add folder"), "folder", self.choose_folder)
+        self.remove_action = action(tr("Remove"), "trash", self.remove_selected, tip=tr("Remove the selected file"))
         toolbar.addSeparator()
-        self.undo_action = self.undo_stack.createUndoAction(self, "Undo")
+        self.undo_action = self.undo_stack.createUndoAction(self, tr("Undo"))
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
         self.undo_action.setData("undo")
-        self.redo_action = self.undo_stack.createRedoAction(self, "Redo")
+        self.redo_action = self.undo_stack.createRedoAction(self, tr("Redo"))
         self.redo_action.setShortcuts([QKeySequence.StandardKey.Redo, QKeySequence("Ctrl+Y")])
         self.redo_action.setData("redo")
         toolbar.addAction(self.undo_action)
         toolbar.addAction(self.redo_action)
         toolbar.addSeparator()
-        self.frame_action = action("Save frame", "camera", self.save_frame_image, "Ctrl+Shift+S",
-                                   tip="Save the frame at the playhead as an image, with your edits")
+        self.frame_action = action(tr("Save frame"), "camera", self.save_frame_image, "Ctrl+Shift+S",
+                                   tip=tr("Save the frame at the playhead as an image, with your edits"))
         self.frame_action.setEnabled(False)
         toolbar.addSeparator()
-        self.theme_action = action("Theme", "moon", self.toggle_theme, tip="Switch between dark and light")
+        self.theme_action = action(tr("Theme"), "moon", self.toggle_theme, tip=tr("Switch between dark and light"))
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
-        self.join_button = QPushButton("Join into one")
-        self.join_button.setToolTip("Export the files as one video, in list order: the selected files, or all of "
-                                    "them. Drag files in the list to reorder them. (Ctrl+J)")
+        self.join_button = QPushButton(tr("Join into one"))
+        self.join_button.setToolTip(tr("Export the files as one video, in list order: the selected files, or all of "
+                                       "them. Drag files in the list to reorder them. (Ctrl+J)"))
         self.join_button.clicked.connect(self.join_clips)
         toolbar.addWidget(self.join_button)
-        self.export_all_button = QPushButton("Export all")
-        self.export_all_button.setToolTip("Export every file in the list (Ctrl+Shift+E)")
+        self.export_all_button = QPushButton(tr("Export all"))
+        self.export_all_button.setToolTip(tr("Export every file in the list (Ctrl+Shift+E)"))
         self.export_all_button.clicked.connect(self.export_all)
-        self.export_button = QPushButton("Export")
+        self.export_button = QPushButton(tr("Export"))
         self.export_button.setObjectName("primary")
-        self.export_button.setToolTip("Export the selected file (Ctrl+E)")
+        self.export_button.setToolTip(tr("Export the selected file (Ctrl+E)"))
         self.export_button.clicked.connect(self.export_current)
         toolbar.addWidget(self.export_all_button)
         toolbar.addWidget(self.export_button)
@@ -244,6 +251,7 @@ class MainWindow(QMainWindow):
 
         # center: preview, transport, timeline
         center = QWidget()
+        center.setLayoutDirection(Qt.LayoutDirection.LeftToRight)     # time runs left to right in every language
         center_layout = QVBoxLayout(center)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(0)
@@ -263,20 +271,21 @@ class MainWindow(QMainWindow):
             row.addWidget(button)
             return button
 
-        self.back_button = tool("back", "Back 5 seconds (J)", lambda: self.player.step(-5))
-        self.play_button = tool("play", "Play / pause (Space)", self.player.toggle)
-        self.forward_button = tool("forward", "Forward 5 seconds (L)", lambda: self.player.step(5))
+        self.back_button = tool("back", tr("Back 5 seconds (J)"), lambda: self.player.step(-5))
+        self.play_button = tool("play", tr("Play / pause (Space)"), self.player.toggle)
+        self.forward_button = tool("forward", tr("Forward 5 seconds (L)"), lambda: self.player.step(5))
         self.time_label = QLabel("0:00.0 / 0:00.0")
         row.addWidget(self.time_label)
         row.addStretch(1)
-        self.in_button = tool("mark_in", "Start the trim here (I)", lambda: self.trim_at_playhead("start"))
-        self.out_button = tool("mark_out", "End the trim here (O)", lambda: self.trim_at_playhead("end"))
-        self.split_button = tool("split", "Split at the playhead (S)", lambda: self.cut_at("split"))
-        self.cut_button = tool("scissors", "Cut out the part under the playhead (X)", lambda: self.cut_at("remove"))
-        self.compare_button = tool("compare", "Show the result (B)", self._compare_toggled, checkable=True)
-        self.compare_button.setText("Before / after")
+        self.in_button = tool("mark_in", tr("Start the trim here (I)"), lambda: self.trim_at_playhead("start"))
+        self.out_button = tool("mark_out", tr("End the trim here (O)"), lambda: self.trim_at_playhead("end"))
+        self.split_button = tool("split", tr("Split at the playhead (S)"), lambda: self.cut_at("split"))
+        self.cut_button = tool("scissors", tr("Cut out the part under the playhead (X)"),
+                               lambda: self.cut_at("remove"))
+        self.compare_button = tool("compare", tr("Show the result (B)"), self._compare_toggled, checkable=True)
+        self.compare_button.setText(tr("Before / after"))
         self.compare_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.mute_button = tool("volume", "Mute the preview", self._preview_mute_toggled, checkable=True)
+        self.mute_button = tool("volume", tr("Mute the preview"), self._preview_mute_toggled, checkable=True)
         center_layout.addWidget(transport)
         self.timeline = Timeline()
         center_layout.addWidget(self.timeline)
@@ -306,30 +315,74 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.preview_status)
         self._build_update_banner()
         self._build_menus()
-        self.statusBar().showMessage("Add videos to get started: drop them here or press Ctrl+O.")
+        self.statusBar().showMessage(tr("Add videos to get started: drop them here or press Ctrl+O."))
         self.refresh_icons()
 
     def _build_menus(self) -> None:
-        view = self.menuBar().addMenu("&View")
-        self.smooth_action = view.addAction("Smooth previews for large videos")
+        view = self.menuBar().addMenu(tr("&View"))
+        self.smooth_action = view.addAction(tr("Smooth previews for large videos"))
         self.smooth_action.setCheckable(True)
         self.smooth_action.setChecked(self.smooth_previews)
-        self.smooth_action.setToolTip("Play a small copy of 4K and other very large videos, so the preview "
-                                      "doesn't stutter. Exports always use the original.")
+        self.smooth_action.setToolTip(tr("Play a small copy of 4K and other very large videos, so the preview "
+                                         "doesn't stutter. Exports always use the original."))
         self.smooth_action.setStatusTip(self.smooth_action.toolTip())
         self.smooth_action.toggled.connect(self.set_smooth_previews)
-        help_menu = self.menuBar().addMenu("&Help")
-        help_menu.addAction("Open the log folder", self.open_log_folder)
-        help_menu.addAction("Report a problem…", self.report_problem)
+        self._build_language_menu(view)
+        help_menu = self.menuBar().addMenu(tr("&Help"))
+        help_menu.addAction(tr("Open the log folder"), self.open_log_folder)
+        help_menu.addAction(tr("Report a problem…"), self.report_problem)
         help_menu.addSeparator()
-        self.updates_action = help_menu.addAction("Check for updates")
+        self.updates_action = help_menu.addAction(tr("Check for updates"))
         self.updates_action.setCheckable(True)
         self.updates_action.setChecked(self.check_updates)
-        self.updates_action.setToolTip("Once a day, ask GitHub whether a newer version is out. Nothing else is sent.")
+        self.updates_action.setToolTip(tr("Once a day, ask GitHub whether a newer version is out. "
+                                          "Nothing else is sent."))
         self.updates_action.setStatusTip(self.updates_action.toolTip())
         self.updates_action.toggled.connect(self.set_check_updates)
         help_menu.addSeparator()
-        help_menu.addAction(f"About {APP_NAME}", self.show_about)
+        help_menu.addAction(tr("About {app}", app=APP_NAME), self.show_about)
+
+    def _build_language_menu(self, view: QMenu) -> None:
+        """View > Language: English, Arabic, or whatever Windows uses. The choice takes effect on the next start."""
+        menu = view.addMenu(tr("&Language"))
+        menu.setToolTip(tr("The language of the app's menus and messages"))
+        self.language_actions: dict[str, QAction] = {}
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        choice = i18n.saved_choice(self.store)
+        for code, label in ((i18n.SYSTEM, tr("Same as Windows")), *i18n.LANGUAGES.items()):
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(code == choice)
+            act.setProperty("language", code)
+            group.addAction(act)
+            act.triggered.connect(lambda _=False, code=code: self.set_language_choice(code))
+            self.language_actions[code] = act
+
+    def set_language_choice(self, choice: str) -> None:
+        """Remember the language the user picked. It is used from the next start, so offer to restart now."""
+        self.store.setValue(i18n.SETTING_KEY, choice)
+        if i18n.resolve(choice) != i18n.language() and self._ask_restart():
+            self.restart_app()
+
+    def _ask_restart(self) -> bool:
+        """Say that the language changes at the next start; True if the user wants to restart now."""
+        box = QMessageBox(QMessageBox.Icon.Question, tr("Language"),
+                          tr("The new language is used the next time the app starts."), parent=self)
+        box.setInformativeText(tr("Restart now? Your files are opened again, but the edits you made to them "
+                                  "are not kept."))
+        restart = box.addButton(tr("Restart now"), QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(tr("Later"), QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        answer = box.clickedButton() is restart
+        box.deleteLater()
+        return answer
+
+    def restart_app(self) -> None:
+        """Close the window (asking about exports still running), then start the app again with the same files."""
+        paths = [str(item.path) for item in self.items]
+        if self.close():
+            language.restart(paths)
 
     def _connect(self) -> None:
         self.media_list.currentRowChanged.connect(lambda row: self.select(self._item_at(row)))
@@ -441,13 +494,13 @@ class MainWindow(QMainWindow):
 
     def choose_files(self) -> None:
         last = self._saved_text("lastDir")
-        names, _ = QFileDialog.getOpenFileNames(self, "Add videos or audio", last, FILE_FILTER)
+        names, _ = QFileDialog.getOpenFileNames(self, tr("Add videos or audio"), last, file_filter())
         if names:
             self.store.setValue("lastDir", str(Path(names[0]).parent))
             self.add_paths([Path(n) for n in names])
 
     def choose_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Add a folder of videos or audio",
+        folder = QFileDialog.getExistingDirectory(self, tr("Add a folder of videos or audio"),
                                                   self._saved_text("lastDir"))
         if folder:
             self.store.setValue("lastDir", folder)
@@ -477,11 +530,11 @@ class MainWindow(QMainWindow):
             added += 1
         if added:
             self._update_list_actions()
-            self.statusBar().showMessage(f"Added {added} file{'s' if added != 1 else ''}.", 4000)
+            self.statusBar().showMessage(ntr(added, "Added {n} file.", "Added {n} files."), 4000)
             if self.current is None:
                 self.media_list.setCurrentRow(len(self.items) - added)
         elif paths:
-            self.statusBar().showMessage("No new video or audio files there.", 4000)
+            self.statusBar().showMessage(tr("No new video or audio files there."), 4000)
         return added
 
     def _update_list_actions(self) -> None:
@@ -521,22 +574,22 @@ class MainWindow(QMainWindow):
         if self.media_list.itemAt(point) is None:
             return
         menu = QMenu(self)
-        menu.addAction("Export", self.export_current)
+        menu.addAction(tr("Export"), self.export_current)
         many = len(self.media_list.selectedItems()) > 1
-        join = menu.addAction("Join the selected files into one" if many else "Join all files into one",
+        join = menu.addAction(tr("Join the selected files into one") if many else tr("Join all files into one"),
                               self.join_clips)
         join.setEnabled(len(self.items) > 1)
-        menu.addAction("Remove from list", self.remove_selected)
+        menu.addAction(tr("Remove from list"), self.remove_selected)
         menu.exec(self.media_list.mapToGlobal(point))
 
     def _item_text(self, item: MediaItem) -> str:
         if item.error:
             meta = item.error
         elif item.loading or item.info is None:
-            meta = "Loading…"
+            meta = tr("Loading…")
         else:
             info = item.info
-            size = f" · {info.width}×{info.height}" if info.has_video else " · audio only"
+            size = f" · {info.width}×{info.height}" if info.has_video else " · " + tr("audio only")
             meta = f"{format_time(info.duration or 0)}{size}"
         return f"{item.path.name}\n{meta}\n{describe(item.settings, item.info.duration if item.info else None)}"
 
@@ -557,14 +610,14 @@ class MainWindow(QMainWindow):
                 wave = extract_waveform(self.ffmpeg, item.path, info.duration)
         except (OSError, ConversionError, ValueError) as exc:
             info, thumbs, wave = MediaInfo(duration=None), [], []
-            item.error = f"Can't read this file ({exc})"
+            item.error = tr("Can't read this file ({error})", error=exc)
         self.signals.loaded.emit(item, info, thumbs, wave)
         self._remove_tmpdir_if_closed()
 
     def _on_loaded(self, item: MediaItem, info: MediaInfo, thumbs: list[Path], wave: list[float]) -> None:
         item.info, item.loading = info, False
         if not item.error and not info.has_video and not info.has_audio:
-            item.error = "Not a video or audio file"
+            item.error = tr("Not a video or audio file")
         if not info.has_video and info.has_audio:
             item.settings.output = OUTPUT_AUDIO
         item.thumbs = [QPixmap(str(p)) for p in thumbs]
@@ -595,7 +648,7 @@ class MainWindow(QMainWindow):
         if item is None:
             self.player.load(None)
             self._update_preview_status()
-            self.view.clear("Drop videos here, or click Add files")
+            self.view.clear(tr("Drop videos here, or click Add files"))
             self.timeline.clear()
             self.inspector.set_settings(None, None)
             self.inspector.set_reverse_warning("")
@@ -604,7 +657,7 @@ class MainWindow(QMainWindow):
             return
         self.setWindowTitle(f"{item.path.name} · {APP_NAME} {__version__}")
         if changed or reload:
-            self.view.clear("Loading…")
+            self.view.clear(tr("Loading…"))
             self.compare_button.setChecked(False)
             copy = self._preview_copy(item)
             self.player.load(copy or item.path, upright=copy is not None)
@@ -614,7 +667,7 @@ class MainWindow(QMainWindow):
         self.timeline.setThumbnails(item.thumbs)
         self.timeline.setWaveform(item.waveform)
         if info is not None and not info.has_video:
-            self.view.clear(item.error or "Audio only: there's no picture to preview.")
+            self.view.clear(item.error or tr("Audio only: there's no picture to preview."))
         self._show_settings(item)
         self._prepare_preview_copy(item)
 
@@ -710,7 +763,7 @@ class MainWindow(QMainWindow):
         if self.current:
             new = self.current.settings.copy()
             new.edit.pos_x, new.edit.pos_y = pos_x, pos_y
-            self.push_settings(new, "Move crop", final=False)
+            self.push_settings(new, tr("Move crop"), final=False)
 
     def _overlay_picked(self, kind: str, index: int) -> None:
         if kind == "text":
@@ -723,10 +776,10 @@ class MainWindow(QMainWindow):
         new = item.settings.copy()
         if kind == "text" and index < len(new.edit.texts):
             new.edit.texts[index].x, new.edit.texts[index].y = x, y
-            self.push_settings(new, "Move text", final=False)
+            self.push_settings(new, tr("Move text"), final=False)
         elif kind == "logo":
             new.edit.logo.corner, new.edit.logo.x, new.edit.logo.y = "custom", x, y
-            self.push_settings(new, "Move logo", final=False)
+            self.push_settings(new, tr("Move logo"), final=False)
 
     def _text_selected(self, index: int) -> None:
         self.view.set_selected_overlay(("text", index) if index >= 0 else None)
@@ -740,40 +793,40 @@ class MainWindow(QMainWindow):
             return
         t = self._overlay_time(item)
         if t is None:
-            self.statusBar().showMessage("The playhead is on a part that is cut out.", 4000)
+            self.statusBar().showMessage(tr("The playhead is on a part that is cut out."), 4000)
             return
         t = round(t, 3)
         new = item.settings.copy()
         text = new.edit.texts[index]
         if which == "start":
             if text.end is not None and t >= text.end:
-                self.statusBar().showMessage("The text has to start before it ends.", 4000)
+                self.statusBar().showMessage(tr("The text has to start before it ends."), 4000)
                 return
             text.start = t
         else:
             if t <= text.start:
-                self.statusBar().showMessage("The text has to end after it starts.", 4000)
+                self.statusBar().showMessage(tr("The text has to end after it starts."), 4000)
                 return
             text.end = t
-        self.push_settings(new, "Text time")
+        self.push_settings(new, tr("Text time"))
 
     def _zoom_changed(self, zoom: float) -> None:
         if self.current:
             new = self.current.settings.copy()
             new.edit.zoom = zoom
-            self.push_settings(new, "Zoom", final=False)
+            self.push_settings(new, tr("Zoom"), final=False)
 
     def _timeline_trim(self, start: Optional[float], end: Optional[float]) -> None:
         if self.current:
             new = self.current.settings.copy()
             new.edit.start, new.edit.end = start, end
-            self.push_settings(new, "Trim", final=False)
+            self.push_settings(new, tr("Trim"), final=False)
 
     def _timeline_keep(self, keep: list) -> None:
         if self.current:
             new = self.current.settings.copy()
             new.edit.keep = list(keep)
-            self.push_settings(new, "Cut", final=False)
+            self.push_settings(new, tr("Cut"), final=False)
 
     def cut_at(self, action: str, t: Optional[float] = None) -> None:
         """Split, cut out ("remove") or put back ("restore") the part at `t` (default: the
@@ -785,17 +838,17 @@ class MainWindow(QMainWindow):
         t = self.player.position if t is None else t
         keep = item.settings.edit.keep
         if action == "split":
-            new_keep, label = split_at(keep, t, duration), "Split"
-            problem = ("This moment is cut out." if part_index(keep, t, duration) is None
-                       else "Too close to the start or end of a part to split there.")
+            new_keep, label = split_at(keep, t, duration), tr("Split")
+            problem = (tr("This moment is cut out.") if part_index(keep, t, duration) is None
+                       else tr("Too close to the start or end of a part to split there."))
         elif action == "remove":
-            new_keep, label = remove_part_at(keep, t, duration), "Cut out part"
-            problem = ("This moment is already cut out." if part_index(keep, t, duration) is None
-                       else "Split the video first (S), then remove the part you don't want.")
+            new_keep, label = remove_part_at(keep, t, duration), tr("Cut out part")
+            problem = (tr("This moment is already cut out.") if part_index(keep, t, duration) is None
+                       else tr("Split the video first (S), then remove the part you don't want."))
         elif action == "restore":
-            new_keep, label, problem = restore_part_at(keep, t, duration), "Put back part", ""
+            new_keep, label, problem = restore_part_at(keep, t, duration), tr("Put back part"), ""
         else:
-            new_keep, label, problem = [], "Put back all parts", ""
+            new_keep, label, problem = [], tr("Put back all parts"), ""
         if new_keep == keep:
             if problem:
                 self.statusBar().showMessage(problem, 4000)
@@ -810,7 +863,7 @@ class MainWindow(QMainWindow):
         if item is None or item.info is None or not item.info.duration:
             return
         if not item.info.has_audio:
-            self.statusBar().showMessage("This file has no sound, so there are no silences to remove.", 4000)
+            self.statusBar().showMessage(tr("This file has no sound, so there are no silences to remove."), 4000)
             return
         edit = item.settings.edit
         dialog = SilenceDialog(self.ffmpeg, item.path, item.info.duration, edit.keep, edit.start, edit.end, self)
@@ -819,7 +872,7 @@ class MainWindow(QMainWindow):
         if accepted and item is self.current:
             new = item.settings.copy()
             new.edit.keep = dialog.keep
-            self.push_settings(new, "Remove silences")
+            self.push_settings(new, tr("Remove silences"))
 
     def _timeline_menu(self, t: float, pos) -> None:
         item = self.current
@@ -828,14 +881,14 @@ class MainWindow(QMainWindow):
         keep, duration = item.settings.edit.keep, item.info.duration
         menu = QMenu(self)
         if part_index(keep, t, duration) is None:
-            menu.addAction("Put back this part", lambda: self.cut_at("restore", t))
+            menu.addAction(tr("Put back this part"), lambda: self.cut_at("restore", t))
         else:
-            split = menu.addAction("Split here", lambda: self.cut_at("split", t))
+            split = menu.addAction(tr("Split here"), lambda: self.cut_at("split", t))
             split.setEnabled(split_at(keep, t, duration) != keep)
-            remove = menu.addAction("Cut out this part", lambda: self.cut_at("remove", t))
+            remove = menu.addAction(tr("Cut out this part"), lambda: self.cut_at("remove", t))
             remove.setEnabled(remove_part_at(keep, t, duration) != keep)
         menu.addSeparator()
-        restore = menu.addAction("Put back all cut parts", lambda: self.cut_at("restore_all"))
+        restore = menu.addAction(tr("Put back all cut parts"), lambda: self.cut_at("restore_all"))
         restore.setEnabled(bool(keep))
         menu.exec(pos)
 
@@ -848,51 +901,52 @@ class MainWindow(QMainWindow):
         start, end = new.edit.start, new.edit.end
         if which == "start":
             if end is not None and t >= end:
-                self.statusBar().showMessage("The start has to be before the end of the trim.", 4000)
+                self.statusBar().showMessage(tr("The start has to be before the end of the trim."), 4000)
                 return
             new.edit.start = t if t > 0.05 else None
         else:
             if t <= (start or 0.0):
-                self.statusBar().showMessage("The end has to be after the start of the trim.", 4000)
+                self.statusBar().showMessage(tr("The end has to be after the start of the trim."), 4000)
                 return
             new.edit.end = t if t < item.info.duration - 0.05 else None
-        self.push_settings(new, "Trim")
+        self.push_settings(new, tr("Trim"))
 
     def apply_to_all(self) -> None:
         source = self.current
         if source is None or len(self.items) < 2:
-            self.statusBar().showMessage("Add more files to copy these settings to them.", 4000)
+            self.statusBar().showMessage(tr("Add more files to copy these settings to them."), 4000)
             return
-        self.undo_stack.beginMacro("Apply to all files")
+        self.undo_stack.beginMacro(tr("Apply to all files"))
         for item in self.items:
             if item is not source:
                 new = apply_to(item.settings, source.settings)
                 if item.info is not None and not item.info.has_video:
                     new.output = OUTPUT_AUDIO
-                self.undo_stack.push(SettingsCommand(self, item, item.settings, new, "Apply to all", False))
+                self.undo_stack.push(SettingsCommand(self, item, item.settings, new, tr("Apply to all"), False))
         self.undo_stack.endMacro()
-        self.statusBar().showMessage(f"Copied the settings to {len(self.items) - 1} other files.", 4000)
+        self.statusBar().showMessage(ntr(len(self.items) - 1, "Copied the settings to {n} other file.",
+                                         "Copied the settings to {n} other files."), 4000)
 
     def save_preset(self) -> None:
         if self.current is None:
             return
-        name, ok = QInputDialog.getText(self, "Save preset", "Name for these settings:")
+        name, ok = QInputDialog.getText(self, tr("Save preset"), tr("Name for these settings:"))
         name = name.strip()
         if ok and name:
             self.user_presets[name] = self.current.settings.to_dict()
             self.inspector.set_presets(self.user_presets)
             self._save_preferences()
-            self.statusBar().showMessage(f"Saved the preset “{name}”.", 4000)
+            self.statusBar().showMessage(tr("Saved the preset “{name}”.", name=name), 4000)
 
     def choose_output_folder(self) -> None:
         menu = QMenu(self)
-        menu.addAction("Choose a folder…", self._pick_output_folder)
-        reset = menu.addAction("Next to each original file", lambda: self._set_output_folder(None))
+        menu.addAction(tr("Choose a folder…"), self._pick_output_folder)
+        reset = menu.addAction(tr("Next to each original file"), lambda: self._set_output_folder(None))
         reset.setEnabled(self.output_dir is not None)
         menu.exec(self.cursor().pos())
 
     def _pick_output_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Save exports to", str(self.output_dir or ""))
+        folder = QFileDialog.getExistingDirectory(self, tr("Save exports to"), str(self.output_dir or ""))
         if folder:
             self._set_output_folder(Path(folder))
 
@@ -902,7 +956,7 @@ class MainWindow(QMainWindow):
         self._save_preferences()
 
     def _show_output_folder(self) -> None:
-        self.inspector.set_output_folder(str(self.output_dir) if self.output_dir else "Next to each original file")
+        self.inspector.set_output_folder(str(self.output_dir) if self.output_dir else tr("Next to each original file"))
 
     # ----- smooth previews ------------------------------------------------------
 
@@ -926,7 +980,8 @@ class MainWindow(QMainWindow):
     def _update_preview_status(self) -> None:
         item = self.current
         progress = item.proxy_progress if item is not None else None
-        self.preview_status.setText(f"Preparing a smooth preview… {progress:.0%}" if progress is not None else "")
+        self.preview_status.setText(tr("Preparing a smooth preview… {percent:.0%}", percent=progress)
+                                    if progress is not None else "")
 
     def _on_proxy_progress(self, item: MediaItem, fraction: float) -> None:
         if item in self.items and item.proxy_progress is not None:
@@ -943,12 +998,12 @@ class MainWindow(QMainWindow):
         if path is None:
             item.proxy_failed = True
             if item is self.current:
-                self.statusBar().showMessage("Couldn't prepare a smooth preview, so the original plays instead.", 6000)
+                self.statusBar().showMessage(tr("Couldn't prepare a smooth preview, so the original plays instead."), 6000)
         else:
             item.proxy = path
             if item is self.current and self.smooth_previews:
                 self.player.swap_source(path, upright=True)
-                self.statusBar().showMessage("The smooth preview is ready.", 4000)
+                self.statusBar().showMessage(tr("The smooth preview is ready."), 4000)
         self._update_preview_status()
 
     def set_smooth_previews(self, on: bool) -> None:
@@ -997,9 +1052,9 @@ class MainWindow(QMainWindow):
             item.proxy_failed = True
             item.proxy = None
             self.player.swap_source(item.path, upright=False)
-            self.statusBar().showMessage("The smooth preview wouldn't play, so the original plays instead.", 6000)
+            self.statusBar().showMessage(tr("The smooth preview wouldn't play, so the original plays instead."), 6000)
             return
-        self.statusBar().showMessage(f"Can't play this file: {message}")
+        self.statusBar().showMessage(tr("Can't play this file: {error}", error=message))
 
     # ----- graphics card and help -----------------------------------------------
 
@@ -1028,17 +1083,17 @@ class MainWindow(QMainWindow):
     def report_problem(self) -> None:
         """Open GitHub's new-issue page in the browser, once the user has seen what it will contain."""
         answer = QMessageBox.question(
-            self, "Report a problem",
-            "This opens GitHub in your browser with a new problem report already filled in: the app and "
-            "Windows versions, and the last lines of the log (which can include the names of files you "
-            "worked on).\n\nNothing is sent until you press Submit there, and you can edit or delete "
-            "anything first. You need a GitHub account to submit it.\n\nOpen it?",
+            self, tr("Report a problem"),
+            tr("This opens GitHub in your browser with a new problem report already filled in: the app and "
+               "Windows versions, and the last lines of the log (which can include the names of files you "
+               "worked on).\n\nNothing is sent until you press Submit there, and you can edit or delete "
+               "anything first. You need a GitHub account to submit it.\n\nOpen it?"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
         if answer == QMessageBox.StandardButton.Yes:
             QDesktopServices.openUrl(QUrl(self.problem_report_url()))
 
     def show_about(self) -> None:
-        QMessageBox.about(self, f"About {APP_NAME}", diagnostics.about_text())
+        QMessageBox.about(self, tr("About {app}", app=APP_NAME), diagnostics.about_text())
 
     # ----- playback -----------------------------------------------------------
 
@@ -1101,14 +1156,15 @@ class MainWindow(QMainWindow):
         if isinstance(result, QImage) and not result.isNull():
             self.view.set_after(result, True)
         else:
-            self.statusBar().showMessage("Couldn't render the preview.", 4000)
+            self.statusBar().showMessage(tr("Couldn't render the preview."), 4000)
 
     # ----- exporting ----------------------------------------------------------
 
     def _make_job(self, item: MediaItem) -> Optional[Job]:
         """A job for exporting `item`, or None (with a message) if it can't be exported yet."""
         if item.loading:
-            self.statusBar().showMessage(f"{item.path.name} is still loading; try again in a moment.", 4000)
+            self.statusBar().showMessage(tr("{name} is still loading; try again in a moment.",
+                                            name=item.path.name), 4000)
             return None
         if item.error:
             return None
@@ -1119,14 +1175,16 @@ class MainWindow(QMainWindow):
         if not self.confirm_heavy_exports:
             return True
         if len(jobs) == 1:
-            text = f"Reversing {jobs[0].title} needs about {format_memory(jobs[0].reverse_memory)} of memory."
+            text = tr("Reversing {title} needs about {memory} of memory.", title=jobs[0].title,
+                      memory=format_memory(jobs[0].reverse_memory))
         else:
-            lines = "\n".join(f"{job.title}: about {format_memory(job.reverse_memory)}" for job in jobs[:6])
-            more = f"\nand {len(jobs) - 6} more" if len(jobs) > 6 else ""
-            text = f"These exports play clips backwards, which needs a lot of memory:\n\n{lines}{more}"
+            lines = "\n".join(tr("{title}: about {memory}", title=job.title, memory=format_memory(job.reverse_memory))
+                              for job in jobs[:6])
+            more = "\n" + tr("and {n} more", n=len(jobs) - 6) if len(jobs) > 6 else ""
+            text = tr("These exports play clips backwards, which needs a lot of memory:") + f"\n\n{lines}{more}"
         answer = QMessageBox.question(
-            self, "This needs a lot of memory",
-            f"{text}\n\nIf your PC has less, the export can fail or make everything slow. Export anyway?",
+            self, tr("This needs a lot of memory"),
+            text + "\n\n" + tr("If your PC has less, the export can fail or make everything slow. Export anyway?"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
         return answer == QMessageBox.StandardButton.Yes
 
@@ -1137,19 +1195,20 @@ class MainWindow(QMainWindow):
         if heavy and not self._confirm_heavy(heavy):
             skipped = {job.id for job in heavy}
             jobs = [job for job in jobs if job.id not in skipped]
-            self.statusBar().showMessage("Left out the exports that need a lot of memory.", 6000)
+            self.statusBar().showMessage(tr("Left out the exports that need a lot of memory."), 6000)
         return [self.queue.add(job) for job in jobs]
 
     def export_current(self) -> None:
         job = self._make_job(self.current) if self.current is not None else None
         if job and self._queue_jobs([job]):
-            self.statusBar().showMessage(f"Exporting {self.current.path.name}…", 4000)
+            self.statusBar().showMessage(tr("Exporting {name}…", name=self.current.path.name), 4000)
 
     def export_all(self) -> None:
         jobs = [job for job in (self._make_job(item) for item in list(self.items)) if job]
         count = len(self._queue_jobs(jobs))
         if count:
-            self.statusBar().showMessage(f"Added {count} export{'s' if count != 1 else ''} to the queue.", 4000)
+            self.statusBar().showMessage(ntr(count, "Added {n} export to the queue.",
+                                             "Added {n} exports to the queue."), 4000)
 
     def join_clips(self) -> None:
         """Export the selected files (or all of them, if one or none is selected) as one file,
@@ -1157,35 +1216,39 @@ class MainWindow(QMainWindow):
         selected = {id(self._item_at(self.media_list.row(li))) for li in self.media_list.selectedItems()}
         chosen = [item for item in self.items if id(item) in selected] if len(selected) > 1 else list(self.items)
         if len(chosen) < 2:
-            self.statusBar().showMessage("Add two or more files to join them into one.", 4000)
+            self.statusBar().showMessage(tr("Add two or more files to join them into one."), 4000)
             return
         loading = next((item for item in chosen if item.loading), None)
         if loading is not None:
-            self.statusBar().showMessage(f"{loading.path.name} is still loading; try again in a moment.", 4000)
+            self.statusBar().showMessage(tr("{name} is still loading; try again in a moment.",
+                                            name=loading.path.name), 4000)
             return
         broken = next((item for item in chosen if item.error), None)
         if broken is not None:
-            self.statusBar().showMessage(f"Can't join {broken.path.name}: {broken.error}", 6000)
+            self.statusBar().showMessage(tr("Can't join {name}: {error}", name=broken.path.name,
+                                            error=broken.error), 6000)
             return
         first = chosen[0]
         audio = first.settings.output == OUTPUT_AUDIO
         if not audio and first.settings.edit.output_format.codec == "gif":
-            self.statusBar().showMessage("Joined clips can't be saved as a GIF: choose another format for the "
-                                         "first file.", 6000)
+            self.statusBar().showMessage(tr("Joined clips can't be saved as a GIF: choose another format for the "
+                                            "first file."), 6000)
             return
         silent = next((item for item in chosen if not audio and not item.info.has_video), None)
         if silent is not None:
-            self.statusBar().showMessage(f"{silent.path.name} has no picture, so it can only be joined as "
-                                         "MP3: set the first file's output to Audio (MP3).", 6000)
+            self.statusBar().showMessage(tr("{name} has no picture, so it can only be joined as MP3: set the "
+                                            "first file's output to Audio (MP3).", name=silent.path.name), 6000)
             return
         clips = [Clip(item.path, item.settings.copy(), item.info) for item in chosen]
         job = Job(first.path, first.settings.copy(), self.output_dir, first.info, clips=clips)
         if self._queue_jobs([job]):
-            self.statusBar().showMessage(f"Joining {len(chosen)} files into one {'MP3' if audio else 'video'}…", 4000)
+            self.statusBar().showMessage(
+                ntr(len(chosen), "Joining {n} file into one {kind}…", "Joining {n} files into one {kind}…",
+                    kind="MP3" if audio else tr("video")), 4000)
 
     def _job_updated(self, job: Job) -> None:
         if job.state.finished and job.state.value == "Failed":
-            self.statusBar().showMessage(f"Export failed: {job.source.name}", 6000)
+            self.statusBar().showMessage(tr("Export failed: {name}", name=job.source.name), 6000)
 
     # ----- saving a frame ---------------------------------------------------------
 
@@ -1194,13 +1257,13 @@ class MainWindow(QMainWindow):
         every edit applied (not the smaller picture the preview shows)."""
         item = self.current
         if item is None or item.info is None or not item.info.has_video:
-            self.statusBar().showMessage("Open a video to save a frame of it.", 4000)
+            self.statusBar().showMessage(tr("Open a video to save a frame of it."), 4000)
             return
         at = self.player.position
         folder = self._saved_text("lastFrameDir") or str(self.output_dir or item.path.parent)
         name = f"{item.path.stem} (frame {at:.1f} s).png"
-        path, _ = QFileDialog.getSaveFileName(self, "Save frame as image", str(Path(folder) / name),
-                                              "PNG image (*.png);;JPEG image (*.jpg *.jpeg)")
+        path, _ = QFileDialog.getSaveFileName(self, tr("Save frame as image"), str(Path(folder) / name),
+                                              tr("PNG image (*.png)") + ";;" + tr("JPEG image (*.jpg *.jpeg)"))
         if not path:
             return
         target = Path(path)
@@ -1208,7 +1271,7 @@ class MainWindow(QMainWindow):
             target = Path(f"{path}.png")
         self.store.setValue("lastFrameDir", str(target.parent))
         edit, info, source = item.settings.copy().edit, item.info, item.path
-        self.statusBar().showMessage("Saving the frame…")
+        self.statusBar().showMessage(tr("Saving the frame…"))
 
         def work() -> None:
             try:
@@ -1223,10 +1286,10 @@ class MainWindow(QMainWindow):
         if self.closed:
             return
         if path:
-            self.statusBar().showMessage(f"Saved the frame as {Path(path).name}.", 8000)
+            self.statusBar().showMessage(tr("Saved the frame as {name}.", name=Path(path).name), 8000)
         else:
-            self.statusBar().showMessage(f"Couldn't save the frame: {error.splitlines()[-1] if error else 'unknown error'}",
-                                         8000)
+            self.statusBar().showMessage(tr("Couldn't save the frame: {error}",
+                                            error=error.splitlines()[-1] if error else tr("unknown error")), 8000)
 
     # ----- updates --------------------------------------------------------------------
 
@@ -1237,13 +1300,13 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(6, 0, 6, 0)
         row.setSpacing(6)
         self.update_label = QLabel()
-        self.update_download = QPushButton("Download")
-        self.update_skip = QPushButton("Not now")
+        self.update_download = QPushButton(tr("Download"))
+        self.update_skip = QPushButton(tr("Not now"))
         for button in (self.update_download, self.update_skip):
             button.setObjectName("chip")
             button.setMinimumWidth(0)
-        self.update_download.setToolTip("Open the download page in your browser")
-        self.update_skip.setToolTip("Don't mention this version again")
+        self.update_download.setToolTip(tr("Open the download page in your browser"))
+        self.update_skip.setToolTip(tr("Don't mention this version again"))
         self.update_download.clicked.connect(self._download_update)
         self.update_skip.clicked.connect(self._skip_update)
         for widget in (self.update_label, self.update_download, self.update_skip):
@@ -1288,7 +1351,7 @@ class MainWindow(QMainWindow):
             self.store.setValue(updates.LAST_CHECK_KEY, made)
         if release is not None and self.check_updates:
             self.update_release = release
-            self.update_label.setText(f"{APP_NAME} {release.version} is available")
+            self.update_label.setText(tr("{app} {version} is available", app=APP_NAME, version=release.version))
             self.update_banner.show()
 
     def _download_update(self) -> None:
@@ -1313,6 +1376,8 @@ class MainWindow(QMainWindow):
         if self.current is None:
             return super().eventFilter(obj, event)
         key = event.key()
+        if not (Qt.Key.Key_A <= key <= Qt.Key.Key_Z) and 0x41 <= event.nativeVirtualKey() <= 0x5A:
+            key = event.nativeVirtualKey()      # the letter's key on an Arabic or other non-Latin keyboard layout
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         handlers = {
             Qt.Key.Key_Space: self.player.toggle,
@@ -1349,8 +1414,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         if self.queue.busy:
-            answer = QMessageBox.question(self, "Exports still running",
-                                          "Some exports haven't finished. Stop them and quit?")
+            answer = QMessageBox.question(self, tr("Exports still running"),
+                                          tr("Some exports haven't finished. Stop them and quit?"))
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return

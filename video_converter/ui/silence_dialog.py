@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import ConversionCancelled
+from ..i18n import tr
 from ..silence import (
     DB_RANGE, DEFAULT_DB, DEFAULT_MIN, DEFAULT_PAD, MIN_RANGE, PAD_RANGE, SilencePlan, detect_silences,
     plan_silence_removal, summary,
@@ -33,7 +34,7 @@ class SilenceDialog(QDialog):
     def __init__(self, ffmpeg: str, source: Path, duration: float, keep: list[Range], start: Optional[float],
                  end: Optional[float], parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setWindowTitle("Remove silences")
+        self.setWindowTitle(tr("Remove silences"))
         self.setModal(True)
         self.setMinimumWidth(440)
         self.ffmpeg, self.source, self.duration = ffmpeg, source, duration
@@ -47,8 +48,8 @@ class SilenceDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
-        intro = QLabel("Cuts out the quiet stretches, like pauses between sentences. "
-                       "You can still adjust the cuts on the timeline afterwards.")
+        intro = QLabel(tr("Cuts out the quiet stretches, like pauses between sentences. "
+                          "You can still adjust the cuts on the timeline afterwards."))
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -56,27 +57,28 @@ class SilenceDialog(QDialog):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(10)
         grid.setColumnStretch(1, 1)
-        self.db_slider, self.db_label = self._slider(grid, 0, "Quieter than", DB_RANGE[0], DB_RANGE[1], 1.0, DEFAULT_DB)
-        self.db_slider.setToolTip("Sound below this level counts as silence. Raise it if background noise "
-                                  "keeps pauses from being found.")
-        self.min_slider, self.min_label = self._slider(grid, 1, "Longer than", MIN_RANGE[0], MIN_RANGE[1], MIN_STEP,
-                                                       DEFAULT_MIN)
-        self.min_slider.setToolTip("Only pauses at least this long are cut")
-        self.pad_slider, self.pad_label = self._slider(grid, 2, "Keep a little silence", PAD_RANGE[0], PAD_RANGE[1],
-                                                       PAD_STEP, DEFAULT_PAD)
-        self.pad_slider.setToolTip("Silence left on each side of the speech, so words aren't clipped")
+        self.db_slider, self.db_label = self._slider(grid, 0, tr("Quieter than"), DB_RANGE[0], DB_RANGE[1], 1.0,
+                                                     DEFAULT_DB)
+        self.db_slider.setToolTip(tr("Sound below this level counts as silence. Raise it if background noise "
+                                     "keeps pauses from being found."))
+        self.min_slider, self.min_label = self._slider(grid, 1, tr("Longer than"), MIN_RANGE[0], MIN_RANGE[1],
+                                                       MIN_STEP, DEFAULT_MIN)
+        self.min_slider.setToolTip(tr("Only pauses at least this long are cut"))
+        self.pad_slider, self.pad_label = self._slider(grid, 2, tr("Keep a little silence"), PAD_RANGE[0],
+                                                       PAD_RANGE[1], PAD_STEP, DEFAULT_PAD)
+        self.pad_slider.setToolTip(tr("Silence left on each side of the speech, so words aren't clipped"))
         layout.addLayout(grid)
 
-        self.summary_label = QLabel("Listening…")
+        self.summary_label = QLabel(tr("Listening…"))
         self.summary_label.setWordWrap(True)
         self.summary_label.setMinimumHeight(40)
         layout.addWidget(self.summary_label)
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Cancel)
         self.apply_button = self.buttons.button(QDialogButtonBox.StandardButton.Apply)
-        self.apply_button.setText("Apply")
+        self.apply_button.setText(tr("Apply"))
         self.apply_button.setEnabled(False)
-        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancel")
+        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("Cancel"))
         self.buttons.clicked.connect(self._button_clicked)
         layout.addWidget(self.buttons)
 
@@ -136,7 +138,7 @@ class SilenceDialog(QDialog):
         self.silences = None
         self.plan = None
         self.apply_button.setEnabled(False)
-        self._say("Listening…")
+        self._say(tr("Listening…"))
         self._debounce.start()
 
     def _padding_changed(self) -> None:
@@ -157,7 +159,7 @@ class SilenceDialog(QDialog):
             except ConversionCancelled:
                 return
             except Exception as exc:     # a message in the window beats a thread dying quietly
-                problem = str(exc) or "Couldn't listen to this file."
+                problem = str(exc) or tr("Couldn't listen to this file.")
             if not cancel.is_set():
                 try:
                     self.analysed.emit(run, found, problem)
