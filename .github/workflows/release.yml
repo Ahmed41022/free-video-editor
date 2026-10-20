@@ -48,6 +48,8 @@ jobs:
     env:
       VERSION: ${{ needs.check-version.outputs.version }}
       PYTHONUTF8: "1"
+      # "true" switches on SignPath code signing (set the repository variable SIGNING_ENABLED); anything else = unsigned.
+      SIGNING_ENABLED: ${{ vars.SIGNING_ENABLED }}
     steps:
       - uses: actions/checkout@v4
 
@@ -73,8 +75,87 @@ jobs:
           "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           & $iscc /? | Select-Object -First 2
 
+      # Code signing is OFF unless the repository variable SIGNING_ENABLED is "true". It stays off until the owner
+      # has an approved SignPath project; see docs/code-signing.md for the (config-only) switch-on steps.
+      - name: Say whether the files will be signed
+        shell: bash
+        run: |
+          if [ "$SIGNING_ENABLED" = "true" ]; then
+            echo "Code signing is ON (SignPath)."
+          else
+            echo "Code signing is off (repository variable SIGNING_ENABLED is not \"true\"); building unsigned files."
+          fi
+
       - name: Build the exe and the installer
+        if: env.SIGNING_ENABLED != 'true'
         run: python build_exe.py --installer
+
+      # Signing path: build the exe, sign it, then build the installer around the signed exe, then sign the installer.
+      - name: Build the exe (to be signed)
+        if: env.SIGNING_ENABLED == 'true'
+        run: python build_exe.py
+
+      - name: Upload the unsigned exe
+        if: env.SIGNING_ENABLED == 'true'
+        id: unsigned-exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-exe
+          path: dist/Free Video Editor.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign the exe with SignPath
+        if: env.SIGNING_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed/exe
+
+      - name: Use the signed exe and build the installer
+        if: env.SIGNING_ENABLED == 'true'
+        shell: bash
+        run: |
+          cp "signed/exe/Free Video Editor.exe" "dist/Free Video Editor.exe"
+          python build_exe.py --installer-only
+
+      - name: Upload the unsigned installer
+        if: env.SIGNING_ENABLED == 'true'
+        id: unsigned-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer
+          path: dist/FreeVideoEditor-Setup-${{ env.VERSION }}.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign the installer with SignPath
+        if: env.SIGNING_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed/installer
+
+      - name: Use the signed installer and check both signatures
+        if: env.SIGNING_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          Copy-Item "signed/installer/FreeVideoEditor-Setup-$env:VERSION.exe" "dist/FreeVideoEditor-Setup-$env:VERSION.exe" -Force
+          foreach ($f in @("dist/Free Video Editor.exe", "dist/FreeVideoEditor-Setup-$env:VERSION.exe")) {
+            $sig = Get-AuthenticodeSignature -FilePath $f
+            "$f : $($sig.Status) ($($sig.SignerCertificate.Subject))"
+            if ($sig.Status -ne "Valid") { throw "$f is not validly signed: $($sig.Status)" }
+          }
 
       - name: Collect the release files
         shell: bash
