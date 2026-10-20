@@ -21,8 +21,14 @@ Get either file from the [latest release](https://github.com/Ahmed41022/free-vid
 
 Everything the app needs is built in either way.
 
+**Install with winget** (once the listing is approved in the Windows Package Manager):
+`winget install AhmedRagab.FreeVideoEditor`. The manifests are in [packaging/winget](packaging/winget/README.md).
+
+The website is also available [in Arabic](https://ahmed41022.github.io/free-video-editor/ar/) (الموقع بالعربية).
+
 > Windows SmartScreen may warn about an unrecognized app the first time because the files aren't code-signed.
 > Click **More info → Run anyway**.
+> Code signing is being prepared; see [docs/code-signing.md](docs/code-signing.md).
 
 ## Features
 
