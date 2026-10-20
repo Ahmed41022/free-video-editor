@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 from .. import diagnostics
 from ..core import format_time
 from ..gpu import CPU_FALLBACK_NOTE
-from ..i18n import tr
+from ..i18n import isolate, join_parts, tr
 from ..jobs import Job, JobQueue, JobState
 from . import icons
 
@@ -28,13 +28,16 @@ class QueueBridge(QObject):
 def status_text(job: Job) -> str:
     if job.state is JobState.RUNNING:
         remaining = job.remaining_seconds()
-        left = " · " + tr("{time} left", time=format_time(remaining)) if remaining is not None else ""
-        retry = " · " + tr("the graphics card failed, trying the CPU") if tr(CPU_FALLBACK_NOTE) in job.note else ""
-        return f"{job.progress:.0%}{left}{retry}"
+        parts = [f"{job.progress:.0%}"]
+        if remaining is not None:
+            parts.append(tr("{time} left", time=format_time(remaining)))
+        if tr(CPU_FALLBACK_NOTE) in job.note:
+            parts.append(tr("the graphics card failed, trying the CPU"))
+        return join_parts(parts)
     if job.state is JobState.FAILED:
         return tr("Failed: {error}", error=job.error.splitlines()[-1] if job.error else tr("unknown error"))
     if job.state is JobState.DONE and job.output:
-        return tr("Saved as {name}", name=job.output.name) + (f" · {job.note}" if job.note else "")
+        return join_parts([tr("Saved as {name}", name=isolate(job.output.name)), *([job.note] if job.note else [])])
     return job.state.label
 
 
@@ -61,7 +64,7 @@ class JobRow(QFrame):
         layout.setContentsMargins(8, 4, 8, 4)
         text = QVBoxLayout()
         text.setSpacing(2)
-        self.title = QLabel(f"{job.title}  ·  {job.summary}")
+        self.title = QLabel(join_parts([job.title, job.summary], "  ·  "))
         self.status = QLabel()
         self.status.setObjectName("muted")
         text.addWidget(self.title)

@@ -104,6 +104,8 @@ class Inspector(QScrollArea):
     outputFolderRequested = Signal()
     textSelected = Signal(int)               # the selected text's index (-1: none), to show it on the preview
     textTimeRequested = Signal(str)          # "start" or "end": use the playhead as the selected text's time
+    autoCaptionsRequested = Signal()         # make captions from the speech
+    editCaptionsRequested = Signal()         # open the caption editor
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -162,18 +164,18 @@ class Inspector(QScrollArea):
 
         # Frame
         self.frame_section = Section(tr("Frame"))
-        shapes = QHBoxLayout()
+        shapes = QGridLayout()          # three to a row: five side by side would not fit the panel
         shapes.setSpacing(4)
+        shapes.setContentsMargins(0, 0, 0, 0)
         self.shape_group = QButtonGroup(self)
         for i, (text, aspect) in enumerate(SHAPES):
             button = QPushButton(tr(text))
             button.setObjectName("chip")
-            button.setMinimumWidth(0)
-            button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             button.setCheckable(True)
             button.setToolTip(tr(SHAPE_HINTS[aspect]))
             self.shape_group.addButton(button, i)
-            shapes.addWidget(button)
+            shapes.addWidget(button, i // 3, i % 3)
         self.shape_group.idClicked.connect(
             lambda i: self._edit(lambda s: setattr(s.edit, "aspect", SHAPES[i][1]), tr("Change shape")))
         self.frame_section.grid.addLayout(shapes, 0, 0, 1, 2)
@@ -213,6 +215,8 @@ class Inspector(QScrollArea):
                                                 tr("Rotate")))
         right.clicked.connect(lambda: self._edit(lambda s: setattr(s.edit, "rotate", (s.edit.rotate + 90) % 360),
                                                  tr("Rotate")))
+        for button in (left, right):
+            button.setMinimumWidth(44)         # a real minimum: the style's 75 px would not fit the panel
         self.mirror_box = QCheckBox(tr("Mirror"))
         self.mirror_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "flip", on), tr("Mirror")))
         rotate_row.addWidget(left)
@@ -361,7 +365,7 @@ class Inspector(QScrollArea):
         for value in (0.5, 1.0, 2.0):
             chip = QPushButton(f"{value:g}×")
             chip.setObjectName("chip")
-            chip.setMinimumWidth(0)
+            chip.setMinimumWidth(36)           # a real minimum: the style's 75 px would not fit the panel
             chip.clicked.connect(lambda _=False, value=value: self.speed_box.setValue(value))
             speed_row.addWidget(chip)
         speed_holder = QWidget()
@@ -392,6 +396,7 @@ class Inspector(QScrollArea):
                 box.setSingleStep(0.5)
                 box.setDecimals(1)
                 box.setSuffix(" s")
+                box.setMinimumWidth(64)
                 box.setSpecialValueText(tr("Off"))
                 box.setKeyboardTracking(False)
                 box.setToolTip(tr("Seconds to fade in from black or silence") if word == "in"
@@ -415,6 +420,8 @@ class Inspector(QScrollArea):
         self.captions.edited.connect(lambda change, label, final: self._edit(change, label, final))
         self.captions.selectionChanged.connect(self.textSelected)
         self.captions.timeRequested.connect(self.textTimeRequested)
+        self.captions.autoCaptionsRequested.connect(self.autoCaptionsRequested)
+        self.captions.editCaptionsRequested.connect(self.editCaptionsRequested)
         self.captions_section.grid.addWidget(self.captions, 0, 0, 1, 2)
 
         # Sound
@@ -637,11 +644,6 @@ class Inspector(QScrollArea):
         change.clicked.connect(self.outputFolderRequested)
         self.export_section.grid.addWidget(change, 1, 0, 1, 2)
 
-        for combo in self.findChildren(QComboBox):
-            # Long option names shouldn't force the panel wider than the window allows.
-            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-            combo.setMinimumContentsLength(8)
-
         self.sections = [self.preset_section, self.output_section, self.frame_section, self.adjust_section,
                          self.trim_section,
                          self.speed_section, self.fade_section, self.captions_section, self.audio_section,
@@ -649,6 +651,10 @@ class Inspector(QScrollArea):
         for section in self.sections + [self.export_section]:
             layout.addWidget(section)
         layout.addStretch(1)
+        for combo in self.findChildren(QComboBox):
+            # Long option names shouldn't force the panel wider than the window allows.
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(8)
         self.set_presets({})
         self.set_settings(None, None)
 

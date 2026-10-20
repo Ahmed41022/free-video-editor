@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 from .captions import drawable, keep_own_captions, load_logo, load_subtitles, load_texts
 from .core import DEFAULT_QUALITY, QUALITY_PRESETS, output_path_for
-from .i18n import N_, ntr, tr
+from .i18n import N_, join_parts, ntr, tr
 from .output import GIF_FPS_RANGE, GIF_WIDTH_RANGE, OUTPUT_FORMATS, TARGET_RANGE
 from .sound import AUDIO_DENOISE, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, normalize_keep, removed_parts
@@ -296,7 +296,7 @@ def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
     video_fades = settings.output != OUTPUT_AUDIO and (edit.fade_in or edit.fade_out)
     if video_fades or edit.audio_fade_in or edit.audio_fade_out:
         parts.append(tr("fades"))
-    return " · ".join(parts)
+    return join_parts(parts)
 
 
 def sound_words(edit: VideoEdit) -> list[str]:
@@ -320,4 +320,4 @@ def describe_join(settings: ClipSettings, count: int) -> str:
     else:
         aspect = settings.edit.aspect
         parts = [settings.edit.output_format.short, f"{aspect[0]}:{aspect[1]}" if aspect else tr("original shape")]
-    return " · ".join(parts + [ntr(count, "{n} clip joined", "{n} clips joined")])
+    return join_parts(parts + [ntr(count, "{n} clip joined", "{n} clips joined")])

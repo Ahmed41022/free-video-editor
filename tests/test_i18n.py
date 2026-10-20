@@ -49,7 +49,7 @@ KEPT_LATIN = re.compile(
     r"(?<![A-Za-z])(?:Qt for Python|TikTok|Reels|Shorts|Stories|YouTube|WhatsApp|Discord|Instagram|Spotify|Apple|GitHub|Windows|Intel|AMD|NVIDIA"
     r"|MP4|MP3|GIF|PNG|JPG|JPEG|srt|vtt|ass|H\.26[45]|WebM|MOV|VP9|AAC|VBR|LUFS|ffmpeg|FFmpeg|libvidstab|Qt|PySide6"
     r"|MIT|CPU|HTML|Ctrl|Shift|Enter|Space|Submit|Mbps|kbps|fps|MB|GB|dB|px|Segoe|UI|winget|install|pip|imageio"
-    r"|Gyan|Python|English|High)(?![A-Za-z])")
+    r"|Gyan|Python|English|High|Hugging Face|Hugging|Face|huggingface|co)(?![A-Za-z])")
 
 
 def translatable(text: str) -> bool:
@@ -471,6 +471,42 @@ class MessageTests(unittest.TestCase):
         for label in labels:
             self.assertEqual(english_words(tr(label)), [], label)
 
+    def test_the_parts_of_a_summary_are_isolated_in_arabic(self):
+        from video_converter.i18n import FSI, PDI
+        from video_converter.project import ClipSettings, describe, describe_join
+        from video_converter.video import VideoEdit
+
+        edit = VideoEdit(keep=[(0, 2), (3, 10)], mute=True, start=1.0, end=4.0)
+        parts = [i18n.tr("crop"), i18n.tr("no sound"), "1:00"]
+        text = describe(ClipSettings(edit=edit), 10.0)
+        pieces = text.split(" · ")
+        self.assertGreaterEqual(len(pieces), 5)
+        for piece in pieces:                                   # every part sits between FSI and PDI
+            self.assertTrue(piece.startswith(FSI) and piece.endswith(PDI), repr(piece))
+        self.assertEqual(pieces[0], f"{FSI}MP4{PDI}")          # the Latin and numeric parts keep their own order
+        self.assertEqual(pieces[1], f"{FSI}9:16{PDI}")
+        times = [p for p in pieces if "–" in p]
+        self.assertEqual(len(times), 1)
+        self.assertTrue(times[0].startswith(f"{FSI}0:01") and times[0].endswith(f"0:04.0{PDI}"), times)
+        self.assertIn(f"{FSI}{parts[0]}{PDI}", pieces)
+        self.assertIn(f"{FSI}{parts[1]}{PDI}", pieces)
+        for piece in pieces:                                   # nothing else was added to the words
+            self.assertEqual(piece.replace(FSI, "").replace(PDI, "").count(FSI), 0)
+        self.assertEqual(text.replace(FSI, "").replace(PDI, "").split(" · ")[:2], ["MP4", "9:16"])
+        joined = describe_join(ClipSettings(), 3)
+        self.assertTrue(all(p.startswith(FSI) and p.endswith(PDI) for p in joined.split(" · ")), joined)
+        self.assertEqual(i18n.isolate("a.mp4"), f"{FSI}a.mp4{PDI}")
+        self.assertEqual(i18n.isolate(""), "")
+
+    def test_nothing_is_isolated_in_english(self):
+        from video_converter.i18n import FSI, PDI
+
+        i18n.set_language("en")
+        self.assertEqual(i18n.isolate("a.mp4"), "a.mp4")
+        self.assertEqual(i18n.join_parts(["MP4", "9:16"]), "MP4 · 9:16")
+        self.assertNotIn(FSI, i18n.join_parts(["MP4", "9:16"]))
+        self.assertNotIn(PDI, i18n.join_parts(["MP4", "9:16"]))
+
     def test_in_english_the_texts_are_unchanged(self):
         i18n.set_language("en")
         from video_converter.project import ClipSettings, describe
@@ -726,6 +762,45 @@ class ArabicInterfaceTests(WindowCase):
         dialog.reject()
         dialog.deleteLater()
 
+    def test_the_captions_dialogs_are_in_arabic(self):
+        from video_converter.autocaptions import LANGUAGES, CaptionResult
+        from video_converter.captions import Cue
+        from video_converter.speech_models import MODELS
+        from video_converter.ui.auto_captions_dialog import AutoCaptionsDialog
+        from video_converter.ui.captions_editor import CaptionsEditor
+
+        window = self.new_window("ar")
+        dialog = AutoCaptionsDialog(FFMPEG, self.video, 3.0, None, None, None, window, models_root=self.tmp / "models")
+        # no model on disk: every accuracy level says that it needs a download
+        self.check_all_arabic(dialog, "the automatic captions window")
+        for index in range(dialog.model_box.count()):
+            dialog.model_box.setCurrentIndex(index)
+            self.check_all_arabic(dialog, "the automatic captions window")
+            self.assertRegex(dialog.model_note.text(), ARABIC_LETTER)
+        for code, name in LANGUAGES.items():
+            self.assertRegex(dialog.language_box.itemText(dialog.language_box.findData(code)), ARABIC_LETTER, name)
+        for key, model in MODELS.items():
+            self.assertRegex(model.display_label, ARABIC_LETTER, key)
+        for phase, fraction, text in (("prepare", 0.2, ""), ("download", 0.3, tr_text("{done} of {total} MB")),
+                                      ("load", 0.0, ""), ("listen", 0.4, "")):
+            dialog._running, dialog._run = True, 1
+            dialog._progressed(1, phase, fraction, text)
+            self.check_all_arabic(dialog, f"the automatic captions window ({phase})")
+        dialog._running = False
+        dialog._worked(1, CaptionResult([]), "")                     # no speech found
+        self.assertRegex(dialog.error.text(), ARABIC_LETTER)
+        self.check_all_arabic(dialog, "the automatic captions window (no speech)")
+
+        editor = CaptionsEditor([Cue(0.0, 1.5, "hello"), Cue(2.0, 3.0, "world")], window)
+        self.check_all_arabic(editor, "the captions editor", extra=("hello", "world"))
+        editor.table.item(0, 0).setText("nonsense")
+        self.assertRegex(editor.message.text(), ARABIC_LETTER)
+        self.check_all_arabic(editor, "the captions editor (a bad time)", extra=("hello", "world"))
+        self.assertRegex(editor.count_label.text(), ARABIC_LETTER)
+
+        panel = window.inspector.captions
+        self.check_all_arabic(panel, "the captions panel")
+
     def test_the_language_menu_has_three_choices(self):
         window = self.new_window("ar", load=False)
         actions = window.language_actions
@@ -737,10 +812,55 @@ class ArabicInterfaceTests(WindowCase):
         self.assertEqual(sum(a.isChecked() for a in actions.values()), 1)
 
 
+def tr_text(key):
+    return i18n.tr(key, done="30", total="120")
+
+
 def mock_text():
     from video_converter.captions import TextItem
 
     return TextItem(text="مرحبا hello")
+
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class SettingsPanelFitTests(WindowCase):
+    """The settings panel (Inspector) has to fit its width at the window's default size, in every language:
+    nothing may be cut off on the right (English) or on the left (Arabic)."""
+
+    def test_the_default_width_is_not_below_the_narrowest(self):
+        from video_converter.ui.inspector import Inspector
+        from video_converter.ui.main_window import INSPECTOR_WIDTH
+
+        self.assertGreaterEqual(INSPECTOR_WIDTH, Inspector().minimumWidth() + 30)
+
+    @unittest.skipUnless(sys.platform == "win32", "needs the fonts of the real Windows platform")
+    def test_every_section_fits_in_english_and_in_arabic(self):
+        """Measured in another process on the real platform: the "offscreen" one used by the other tests has no
+        fonts, so its widths mean nothing. (The panel is never shown on the screen.)"""
+        from video_converter.ui.main_window import INSPECTOR_WIDTH
+
+        probe, results = Path(__file__).with_name("panel_fit_probe.py"), []
+        for code in ("en", "ar"):
+            answer = self.tmp / f"panel-fit-{code}.json"
+            try:
+                done = subprocess.run([sys.executable, str(probe), code, str(answer)], timeout=120,
+                                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                      env={**os.environ, "QT_QPA_PLATFORM": "windows"})
+            except subprocess.TimeoutExpired:
+                self.skipTest("the real Windows platform did not answer")
+            if done.returncode != 0 or not answer.is_file():
+                self.skipTest("the real Windows platform is not available here")
+            report = json.loads(answer.read_text(encoding="utf-8"))
+            if report["platform"] != "windows":
+                self.skipTest("the real Windows platform is not available here")
+            results += report["results"]
+        self.assertEqual({r["language"] for r in results}, {"en", "ar"})
+        for r in results:
+            where = f"{r['language']} / {r['state']}: widest section {r['widest']}"
+            self.assertLessEqual(r["needs"], r["viewport"], f"the settings panel needs {r['needs']} px, has {r['viewport']} ({where})")
+            self.assertLessEqual(r["content"], r["viewport"], where)
+            self.assertAlmostEqual(r["panel"], INSPECTOR_WIDTH, delta=6, msg=f"at the default size ({where})")
+            self.assertEqual(r["outside"], [], f"cut off ({where})")
 
 
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")

@@ -1,0 +1,23 @@
+Automatic captions: third-party components
+==========================================
+
+The speech-to-text feature of Free Video Editor is built from these open-source components. Each is used
+unmodified, as a separate library inside the application (or inside the temporary folder the single-file exe
+unpacks to at startup).
+
+faster-whisper          MIT License             https://github.com/SYSTRAN/faster-whisper
+CTranslate2             MIT License             https://github.com/OpenNMT/CTranslate2
+PyAV (av)               BSD 3-Clause License    https://github.com/PyAV-Org/PyAV
+                        Its wheels include FFmpeg libraries (LGPL v2.1 or later): https://ffmpeg.org
+ONNX Runtime            MIT License             https://github.com/microsoft/onnxruntime
+tokenizers              Apache License 2.0      https://github.com/huggingface/tokenizers
+huggingface_hub         Apache License 2.0      https://github.com/huggingface/huggingface_hub
+NumPy                   BSD 3-Clause License    https://numpy.org
+Silero VAD (voice       MIT License             https://github.com/snakers4/silero-vad
+activity detector,
+bundled with faster-whisper)
+
+The Whisper speech models are released by OpenAI under the MIT License (https://github.com/openai/whisper) and
+converted to the CTranslate2 format by Systran (https://huggingface.co/Systran). They are not part of this
+program: they are downloaded once, on request, from huggingface.co, and every file is checked against a
+SHA-256 hash that is built into the program.

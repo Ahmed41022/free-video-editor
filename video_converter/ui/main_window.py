@@ -25,12 +25,13 @@ from .. import APP_NAME, __version__, diagnostics, gpu, i18n, updates
 from ..core import (
     AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_media_file, probe_media,
 )
-from ..i18n import ntr, tr
+from ..i18n import isolate, join_parts, ntr, tr
 from ..jobs import Clip, Job, JobQueue
 from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
 from ..proxy import ProxyMaker, needs_proxy
-from ..captions import Logo
+from ..autocaptions import captions_file_for, save_captions
+from ..captions import Logo, format_srt, parse_cues, read_text, subtitle_kind
 from ..stills import IMAGE_EXTENSIONS, save_frame
 from ..timing import (
     output_spans_to_source, part_index, remove_part_at, restore_part_at, source_to_output, split_at,
@@ -40,6 +41,8 @@ from ..video import (
     reverse_memory, reverse_warning,
 )
 from . import icons, language, theme
+from .auto_captions_dialog import AutoCaptionsDialog
+from .captions_editor import CaptionsEditor
 from .inspector import Inspector
 from .player import Player, VideoView
 from .queue_panel import QueueBridge, QueuePanel
@@ -49,6 +52,11 @@ from .timeline import Timeline
 FRAME_STEP = 1 / 30
 FILE_FILTER = "Videos and audio ({});;All files (*.*)".format(
     " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS))      # the English one; see file_filter()
+
+
+# The width the settings panel starts with. Every section fits in it, in English and in Arabic (it fits even in
+# the narrowest the panel can be made, 330), with room for longer words.
+INSPECTOR_WIDTH = 380
 
 
 def file_filter() -> str:
@@ -102,6 +110,31 @@ class SettingsCommand(QUndoCommand):
         self.window.apply_settings(self.item, self.before)
 
 
+class CaptionsFileCommand(QUndoCommand):
+    """One undoable rewrite of a subtitle file: undo puts back the bytes it had."""
+
+    def __init__(self, window: "MainWindow", item: MediaItem, path: Path, before: bytes, after: bytes, label: str):
+        super().__init__(label)
+        self.window, self.item, self.path = window, item, path
+        self.before, self.after = before, after
+
+    def redo(self) -> None:
+        self._write(self.after)
+
+    def undo(self) -> None:
+        self._write(self.before)
+
+    def _write(self, data: bytes) -> None:
+        try:
+            temp = self.path.with_name(self.path.name + ".part")
+            temp.write_bytes(data)
+            temp.replace(self.path)
+        except OSError as exc:
+            self.window.statusBar().showMessage(
+                tr("Couldn't update {name}: {reason}", name=isolate(self.path.name), reason=exc.strerror or exc), 6000)
+        self.window.captions_file_changed(self.item)
+
+
 class MediaList(QListWidget):
     """The list of files. Dragging an item reorders the list (the order of a joined export);
     files dragged in from outside are left to the window."""
@@ -142,6 +175,7 @@ class MainWindow(QMainWindow):
         self.user_presets: dict[str, dict] = {}
         self.merge_open = False
         self.theme_mode = "dark"
+        self.models_root: Optional[Path] = None       # where the speech models are kept (None = the app's own folder)
         self.tmpdir = Path(tempfile.mkdtemp(prefix="videoconverter-"))
         self.closed = False
         self.confirm_heavy_exports = True     # ask before an export that needs a lot of memory
@@ -299,7 +333,7 @@ class MainWindow(QMainWindow):
         top.setStretchFactor(0, 0)
         top.setStretchFactor(1, 1)
         top.setStretchFactor(2, 0)
-        top.setSizes([230, 760, 330])
+        top.setSizes([230, 1320 - 230 - INSPECTOR_WIDTH, INSPECTOR_WIDTH])
         top.setChildrenCollapsible(False)
 
         self.queue_panel = QueuePanel(self.queue, self.bridge)
@@ -412,6 +446,8 @@ class MainWindow(QMainWindow):
         self.inspector.cutRequested.connect(self.cut_at)
         self.inspector.removeSilencesRequested.connect(self.remove_silences)
         self.inspector.outputFolderRequested.connect(self.choose_output_folder)
+        self.inspector.autoCaptionsRequested.connect(self.make_captions)
+        self.inspector.editCaptionsRequested.connect(self.edit_captions)
         self.inspector.textSelected.connect(self._text_selected)
         self.inspector.textTimeRequested.connect(self.text_time_at_playhead)
         self.bridge.jobUpdated.connect(self._job_updated)
@@ -589,9 +625,9 @@ class MainWindow(QMainWindow):
             meta = tr("Loading…")
         else:
             info = item.info
-            size = f" · {info.width}×{info.height}" if info.has_video else " · " + tr("audio only")
-            meta = f"{format_time(info.duration or 0)}{size}"
-        return f"{item.path.name}\n{meta}\n{describe(item.settings, item.info.duration if item.info else None)}"
+            size = f"{info.width}×{info.height}" if info.has_video else tr("audio only")
+            meta = join_parts([format_time(info.duration or 0), size])
+        return f"{isolate(item.path.name)}\n{meta}\n{describe(item.settings, item.info.duration if item.info else None)}"
 
     def _show_item_text(self, item: MediaItem) -> None:
         # The summary line is often cut short in the list, so the tooltip repeats it in full.
@@ -873,6 +909,78 @@ class MainWindow(QMainWindow):
             new = item.settings.copy()
             new.edit.keep = dialog.keep
             self.push_settings(new, tr("Remove silences"))
+
+    def make_captions(self) -> None:
+        """Ask how to listen, make captions from the video's speech, save them as an .srt next to the video
+        and burn them in: one undoable change."""
+        item = self.current
+        if item is None or item.info is None:
+            return
+        if not item.info.has_audio:
+            self.statusBar().showMessage(tr("This file has no sound, so there are no captions to make."), 4000)
+            return
+        edit = item.settings.edit
+        dialog = AutoCaptionsDialog(self.ffmpeg, item.path, item.info.duration, edit.start, edit.end, self.store, self,
+                                    models_root=self.models_root)
+        accepted = dialog.exec() == AutoCaptionsDialog.DialogCode.Accepted
+        outcome = dialog.outcome
+        dialog.deleteLater()
+        if not accepted or outcome is None or item not in self.items:
+            return
+        try:
+            path = save_captions(outcome.cues, item.path)
+        except ConversionError as exc:
+            QMessageBox.warning(self, APP_NAME, str(exc))
+            return
+        new = item.settings.copy()
+        new.edit.subtitles.file = str(path)
+        self.undo_stack.push(SettingsCommand(self, item, item.settings, new, tr("Make captions"), mergeable=False))
+        self.merge_open = False
+        count = len(outcome.cues)
+        self.statusBar().showMessage(
+            ntr(count, "Added {n} caption, saved as {name}. Use Edit captions to fix any words.",
+                "Added {n} captions, saved as {name}. Use Edit captions to fix any words.", name=isolate(path.name)), 8000)
+
+    def edit_captions(self) -> None:
+        """Open the subtitle file's captions in a table; saving rewrites the file as one undoable change."""
+        item = self.current
+        if item is None:
+            return
+        path = Path(item.settings.edit.subtitles.file or "")
+        try:
+            before = path.read_bytes()
+            cues = parse_cues(read_text(path), subtitle_kind(path, read_text(path)))
+        except OSError:
+            self.statusBar().showMessage(tr("The subtitle file can't be read."), 4000)
+            return
+        dialog = CaptionsEditor(cues, self)
+        accepted = dialog.exec() == CaptionsEditor.DialogCode.Accepted
+        edited = dialog.cues
+        dialog.deleteLater()
+        if not accepted or item not in self.items:
+            return
+        if [(c.start, c.end, c.text) for c in edited] == [(c.start, c.end, c.text) for c in cues]:
+            return
+        data = format_srt(edited).encode("utf-8")
+        if path.suffix.lower() == ".srt":
+            self.undo_stack.push(CaptionsFileCommand(self, item, path, before, data, tr("Edit captions")))
+        else:
+            # Only .srt is written; a WebVTT file is left alone and the edited captions go to a new .srt.
+            try:
+                new_path = captions_file_for(path)
+                new_path.write_bytes(data)
+            except OSError as exc:
+                QMessageBox.warning(self, APP_NAME, tr("Couldn't save the captions: {reason}", reason=exc.strerror or exc))
+                return
+            new = item.settings.copy()
+            new.edit.subtitles.file = str(new_path)
+            self.undo_stack.push(SettingsCommand(self, item, item.settings, new, tr("Edit captions"), mergeable=False))
+        self.merge_open = False
+
+    def captions_file_changed(self, item: MediaItem) -> None:
+        """The text of the item's subtitle file was rewritten (or restored): refresh what shows it."""
+        if item is self.current:
+            self._show_settings(item)
 
     def _timeline_menu(self, t: float, pos) -> None:
         item = self.current
@@ -1164,7 +1272,7 @@ class MainWindow(QMainWindow):
         """A job for exporting `item`, or None (with a message) if it can't be exported yet."""
         if item.loading:
             self.statusBar().showMessage(tr("{name} is still loading; try again in a moment.",
-                                            name=item.path.name), 4000)
+                                            name=isolate(item.path.name)), 4000)
             return None
         if item.error:
             return None
@@ -1201,7 +1309,7 @@ class MainWindow(QMainWindow):
     def export_current(self) -> None:
         job = self._make_job(self.current) if self.current is not None else None
         if job and self._queue_jobs([job]):
-            self.statusBar().showMessage(tr("Exporting {name}…", name=self.current.path.name), 4000)
+            self.statusBar().showMessage(tr("Exporting {name}…", name=isolate(self.current.path.name)), 4000)
 
     def export_all(self) -> None:
         jobs = [job for job in (self._make_job(item) for item in list(self.items)) if job]
@@ -1221,11 +1329,11 @@ class MainWindow(QMainWindow):
         loading = next((item for item in chosen if item.loading), None)
         if loading is not None:
             self.statusBar().showMessage(tr("{name} is still loading; try again in a moment.",
-                                            name=loading.path.name), 4000)
+                                            name=isolate(loading.path.name)), 4000)
             return
         broken = next((item for item in chosen if item.error), None)
         if broken is not None:
-            self.statusBar().showMessage(tr("Can't join {name}: {error}", name=broken.path.name,
+            self.statusBar().showMessage(tr("Can't join {name}: {error}", name=isolate(broken.path.name),
                                             error=broken.error), 6000)
             return
         first = chosen[0]
@@ -1237,7 +1345,7 @@ class MainWindow(QMainWindow):
         silent = next((item for item in chosen if not audio and not item.info.has_video), None)
         if silent is not None:
             self.statusBar().showMessage(tr("{name} has no picture, so it can only be joined as MP3: set the "
-                                            "first file's output to Audio (MP3).", name=silent.path.name), 6000)
+                                            "first file's output to Audio (MP3).", name=isolate(silent.path.name)), 6000)
             return
         clips = [Clip(item.path, item.settings.copy(), item.info) for item in chosen]
         job = Job(first.path, first.settings.copy(), self.output_dir, first.info, clips=clips)
@@ -1248,7 +1356,7 @@ class MainWindow(QMainWindow):
 
     def _job_updated(self, job: Job) -> None:
         if job.state.finished and job.state.value == "Failed":
-            self.statusBar().showMessage(tr("Export failed: {name}", name=job.source.name), 6000)
+            self.statusBar().showMessage(tr("Export failed: {name}", name=isolate(job.source.name)), 6000)
 
     # ----- saving a frame ---------------------------------------------------------
 
@@ -1286,7 +1394,7 @@ class MainWindow(QMainWindow):
         if self.closed:
             return
         if path:
-            self.statusBar().showMessage(tr("Saved the frame as {name}.", name=Path(path).name), 8000)
+            self.statusBar().showMessage(tr("Saved the frame as {name}.", name=isolate(Path(path).name)), 8000)
         else:
             self.statusBar().showMessage(tr("Couldn't save the frame: {error}",
                                             error=error.splitlines()[-1] if error else tr("unknown error")), 8000)

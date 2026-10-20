@@ -82,6 +82,24 @@ def tr(text: str, /, **fmt) -> str:
     return value.format(**fmt) if fmt else value
 
 
+# Unicode isolates: a stretch of text between FSI and PDI is laid out on its own, in the direction of its first
+# strong letter, and does not reorder the text around it.
+FSI, PDI = "⁨", "⁩"
+
+
+def isolate(text: object) -> str:
+    """`text` kept together in a right-to-left interface, so a file name, a number or "MP4" inside an Arabic
+    sentence keeps its own order. Unchanged in a left-to-right language."""
+    text = str(text)
+    return f"{FSI}{text}{PDI}" if text and is_rtl() else text
+
+
+def join_parts(parts, separator: str = " · ") -> str:
+    """A line made of short parts ("MP4 · 9:16 · crop"). In a right-to-left interface every part is isolated, so
+    the Latin and numeric ones ("MP4", "9:16", "0:05–0:20") are not shuffled between the Arabic ones."""
+    return separator.join(isolate(part) for part in parts)
+
+
 def plural_category(count: int, code: Optional[str] = None) -> str:
     """CLDR's plural category of a whole number: "zero", "one", "two", "few", "many" or "other"."""
     code = code or _language
