@@ -180,3 +180,21 @@ details .answer p { margin-block: 0.6rem; }
 @media (forced-colors: active) {
   .btn { border: 2px solid ButtonText; }
 }
+
+/* Language switcher (English / العربية) */
+.nav a.lang-switch { border: 1px solid var(--border); margin-inline-start: 0.4rem; font-size: 0.95rem; }
+.nav a.lang-switch:hover { border-color: var(--accent); }
+.app-note { margin: 1rem auto 0; max-inline-size: 42rem; padding: 0.7rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: 0.95rem; color: var(--muted); }
+.page-title .app-note { margin-inline: 0; }
+
+/* Arabic (right-to-left) pages. Arabic letters join, so letter-spacing must stay at zero. */
+html[lang="ar"] body {
+  font-family: "Segoe UI", Tahoma, "Noto Naskh Arabic", "Noto Sans Arabic", "Geeza Pro", system-ui, sans-serif;
+  line-height: 1.85;
+}
+html[lang="ar"] * { letter-spacing: 0; }
+html[lang="ar"] h1, html[lang="ar"] h2, html[lang="ar"] h3 { line-height: 1.5; }
+html[lang="ar"] .hero h1 { line-height: 1.25; }
+/* App button names stay in English (the app is English for now); keep them readable inside Arabic text. */
+html[lang="ar"] .ui[lang="en"] { font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; font-size: 0.95em; }
+html[lang="ar"] code, html[lang="ar"] kbd { font-size: 0.85em; }

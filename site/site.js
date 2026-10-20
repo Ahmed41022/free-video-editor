@@ -6,8 +6,10 @@
 
   var API = "https://api.github.com/repos/Ahmed41022/free-video-editor/releases/latest";
 
+  var AR = (document.documentElement.lang || "").toLowerCase().indexOf("ar") === 0;
+
   function mb(bytes) {
-    return (bytes / (1024 * 1024)).toFixed(0) + " MB";
+    return (bytes / (1024 * 1024)).toFixed(0) + (AR ? " ميغابايت" : " MB");
   }
 
   function setNote(id, text) {
@@ -29,10 +31,12 @@
     if (installer && installer.browser_download_url) {
       var links = document.querySelectorAll("[data-download='installer']");
       for (var a = 0; a < links.length; a++) links[a].href = installer.browser_download_url;
-      setNote("installer", "Installer, version " + version + ", " + mb(installer.size));
+      setNote("installer", AR ? "المثبّت، الإصدار " + version + "، " + mb(installer.size)
+        : "Installer, version " + version + ", " + mb(installer.size));
     }
     if (portable) {
-      setNote("portable", "Portable, no install, " + mb(portable.size));
+      setNote("portable", AR ? "نسخة محمولة بلا تثبيت، " + mb(portable.size)
+        : "Portable, no install, " + mb(portable.size));
     }
     var versions = document.querySelectorAll("[data-version]");
     for (var v = 0; v < versions.length; v++) versions[v].textContent = version;
