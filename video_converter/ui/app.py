@@ -12,10 +12,11 @@ from PySide6.QtCore import QObject, QSettings, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from .. import APP_NAME, diagnostics, i18n
+from .. import APP_NAME, diagnostics, i18n, tempclean
 from ..core import find_ffmpeg
+from ..decoding import force_software_decoding
 from ..i18n import tr
-from . import language
+from . import language, single_instance
 
 CRASH_DIALOG_GAP = 10.0       # seconds; a burst of errors shows one box, not a hundred
 
@@ -104,9 +105,16 @@ def main(paths: Optional[list[str]] = None) -> int:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("VideoConverter.Editor")
         except (OSError, AttributeError):
             pass
+    # The preview turns frames into pictures on the CPU, so the graphics card must not decode them (Qt reads this
+    # when the first player is made, so it has to be set before anything multimedia exists).
+    force_software_decoding()
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("VideoConverter")
+    # Only one window per user: a second start hands its files to the first and exits.
+    instance = single_instance.claim([Path(p) for p in paths or []])
+    if instance is None:
+        return 0
     choose_language(QSettings("VideoConverter", "Video Converter"), app)
     if _icon_path().is_file():
         app.setWindowIcon(QIcon(str(_icon_path())))
@@ -128,13 +136,19 @@ def main(paths: Optional[list[str]] = None) -> int:
                                 "Install it (for example: winget install Gyan.FFmpeg) or run\n"
                                 "    pip install imageio-ffmpeg\n"
                                 "and start the app again."))
+        instance.close()
         return 1
 
     from .main_window import MainWindow
 
     window = MainWindow(ffmpeg)
+    window.watch_for_other_copies(instance)
+    tempclean.sweep_in_background(keep=[window.tmpdir])      # folders earlier runs left behind, once they are a day old
     window.show()
     if paths:
         window.add_paths([Path(p) for p in paths])
     window.start_update_check()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        instance.close()

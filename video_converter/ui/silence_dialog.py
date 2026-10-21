@@ -151,9 +151,14 @@ class SilenceDialog(QDialog):
         run, cancel = self._run, threading.Event()
         self._cancel = cancel
         level, length = self.noise_db, self.min_length
+        previous = self._thread       # its ffmpeg is being stopped; this run starts only once that has finished
 
         def work() -> None:
             found, problem = None, ""
+            if previous is not None and previous is not threading.current_thread():
+                previous.join()       # on this thread, never the window's: at most one ffmpeg listens at a time
+            if cancel.is_set():
+                return
             try:
                 found = detect_silences(self.ffmpeg, self.source, level, length, self.duration, cancel)
             except ConversionCancelled:
@@ -213,9 +218,8 @@ class SilenceDialog(QDialog):
         super().accept()
 
     def done(self, result: int) -> None:
-        """Stop ffmpeg however the window closes."""
+        """Stop ffmpeg however the window closes. The listening thread ends the run in the background; its result is
+        ignored (nobody is waiting for it), so the window closes at once."""
         self._stop_listening()
-        thread = self._thread
-        if thread is not None and thread.is_alive():
-            thread.join(2.0)
+        self._run += 1
         super().done(result)

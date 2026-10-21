@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import itertools
 import json
+import logging
+import os
 import shutil
 import subprocess
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -21,13 +23,14 @@ from PySide6.QtWidgets import (
     QPushButton, QSizePolicy, QSplitter, QTextEdit, QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
-from .. import APP_NAME, __version__, diagnostics, gpu, i18n, updates
+from .. import APP_NAME, __version__, diagnostics, gpu, i18n, tempclean, updates
 from ..core import (
-    AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_media_file, probe_media,
+    AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, ConversionCancelled, ConversionError, MediaInfo, format_time, is_media_file,
 )
 from ..i18n import isolate, join_parts, ntr, tr, trc
 from ..jobs import Clip, Job, JobQueue
-from ..media import extract_thumbnails, extract_waveform
+from ..media import ReadTimeout, extract_still, extract_thumbnails, extract_waveform, probe_file
+from ..procs import DaemonPool, ProcessRegistry
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
 from ..proxy import ProxyMaker, needs_proxy
 from ..autocaptions import captions_file_for, save_captions, save_captions_anywhere
@@ -49,7 +52,14 @@ from .queue_panel import QueueBridge, QueuePanel
 from .silence_dialog import SilenceDialog
 from .timeline import Timeline
 
+log = logging.getLogger(__name__)
+
 FRAME_STEP = 1 / 30
+# The search for graphics-card encoders starts a few seconds after the first file has loaded (or at the latest this
+# long after the window opened), so it never competes with the first playback.
+GPU_SEARCH_DELAY_MS = 4000
+GPU_SEARCH_LATEST_MS = 20000
+UNDO_LIMIT = 300
 FILE_FILTER = "Videos and audio ({});;All files (*.*)".format(
     " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS))      # the English one; see file_filter()
 
@@ -65,6 +75,9 @@ def file_filter() -> str:
     return tr("Videos and audio ({patterns})", patterns=patterns) + ";;" + tr("All files (*.*)")
 
 
+_item_numbers = itertools.count(1)
+
+
 @dataclass(eq=False)
 class MediaItem:
     path: Path
@@ -78,6 +91,18 @@ class MediaItem:
     proxy: Optional[Path] = None             # the smooth preview copy, once it is ready
     proxy_progress: Optional[float] = None   # how far along the copy is, while it is being made
     proxy_failed: bool = False
+    serial: int = field(default_factory=lambda: next(_item_numbers))     # never reused, unlike id(): names its folder
+    _resolved: Optional[Path] = field(default=None, repr=False)
+
+    @property
+    def resolved(self) -> Path:
+        """The file's full path, worked out once: on a network drive each look-up is slow."""
+        if self._resolved is None:
+            try:
+                self._resolved = self.path.resolve()
+            except OSError:
+                self._resolved = self.path
+        return self._resolved
 
 
 class SettingsCommand(QUndoCommand):
@@ -196,6 +221,7 @@ class Signals(QObject):
     """Results from background threads, delivered on the UI thread."""
     loaded = Signal(object, object, object, object)   # item, info, thumbnail paths, waveform
     afterReady = Signal(int, object)                   # request token, QImage or error text
+    stillReady = Signal(object, object)                # item, the first picture of its video (a QImage) to show meanwhile
     gpuReady = Signal(object)                          # the graphics card's name, or None if there is none
     proxyProgress = Signal(object, float)              # item, how much of its smooth preview is made
     proxyDone = Signal(object, object, str)            # item, the preview copy or None, why not
@@ -218,6 +244,7 @@ class MainWindow(QMainWindow):
         self.theme_choice = "system"          # the theme asked for: "system", "dark" or "light" (what is saved)
         self.models_root: Optional[Path] = None       # where the speech models are kept (None = the app's own folder)
         self.tmpdir = Path(tempfile.mkdtemp(prefix="videoconverter-"))
+        tempclean.mark_owner(self.tmpdir)     # so a later start doesn't sweep this folder up while the window is open
         self.closed = False
         self._restarting = False              # closing to start the app again, after the user agreed to stop exports
         self.confirm_heavy_exports = True     # ask before an export that needs a lot of memory
@@ -225,10 +252,15 @@ class MainWindow(QMainWindow):
         self.check_updates = True             # look for a newer version once a day (Help menu)
         self.update_release: Optional[updates.Release] = None     # the newer version the banner is about
         self.gpu_encoders: Optional[tuple[str, ...]] = None     # None until the search has finished
-        self.loader = ThreadPoolExecutor(max_workers=2, thread_name_prefix="media-loader")
+        # Daemon threads, and the ffmpeg runs they start are remembered so closing can end them: neither may keep the
+        # process alive after the window is gone.
+        self.loader = DaemonPool(2, "media-loader")
+        self.procs = ProcessRegistry()
+        self.instance = None                  # listens for other copies of the app (see watch_for_other_copies)
         self.signals = Signals()
         self.signals.loaded.connect(self._on_loaded)
         self.signals.afterReady.connect(self._on_after_ready)
+        self.signals.stillReady.connect(self._on_still_ready)
         self.signals.gpuReady.connect(self._on_gpu_ready)
         self.signals.proxyProgress.connect(self._on_proxy_progress)
         self.signals.proxyDone.connect(self._on_proxy_done)
@@ -237,9 +269,14 @@ class MainWindow(QMainWindow):
         self.proxies = ProxyMaker(ffmpeg, self.tmpdir / "preview", self.signals.proxyProgress.emit,
                                   self.signals.proxyDone.emit)
         self._after_token = 0
+        self._after_busy = False              # a before/after picture is being rendered: at most one at a time
+        self._after_again = False             # ...and another was asked for meanwhile
         self._after_timer = QTimer(self, singleShot=True, interval=250, timeout=self._render_after)
+        self._gpu_started = False
+        self._gpu_timer = QTimer(self, singleShot=True, interval=GPU_SEARCH_LATEST_MS, timeout=self.start_gpu_search)
 
         self.undo_stack = QUndoStack(self)
+        self.undo_stack.setUndoLimit(UNDO_LIMIT)       # steps hold copies of settings: don't keep them forever
         self.bridge = QueueBridge()
         self.queue = JobQueue(ffmpeg, on_update=self.bridge.jobUpdated.emit)
         self.player = Player(self)
@@ -252,7 +289,7 @@ class MainWindow(QMainWindow):
         self._connect()
         QApplication.instance().installEventFilter(self)
         self.select(None)
-        threading.Thread(target=self._find_gpu, name="gpu-search", daemon=True).start()
+        self._gpu_timer.start()
 
     # ----- layout -------------------------------------------------------------
 
@@ -462,8 +499,14 @@ class MainWindow(QMainWindow):
                 self, tr("Exports still running"), tr("Some exports haven't finished. Stop them and quit?")
         ) != QMessageBox.StandardButton.Yes:
             return
-        # Start the new copy first: if it can't be started, this window stays open instead of just vanishing.
+        # Free the "one window per user" name first, so the new copy takes it instead of handing its files to this
+        # window while it closes. Then start the new copy before closing: if it can't be started, this window stays
+        # open (and listens again) instead of just vanishing.
+        if self.instance is not None:
+            self.instance.close()
         if not language.restart(paths):
+            if self.instance is not None:
+                self.instance.listen()
             QMessageBox.warning(self, APP_NAME, tr("Couldn't restart the app. Close it and open it again yourself "
                                                    "to use the new language."))
             return
@@ -476,6 +519,8 @@ class MainWindow(QMainWindow):
         self.media_list.model().rowsMoved.connect(self._rows_moved)
         self.media_list.customContextMenuRequested.connect(self._media_menu)
         self.player.frameReady.connect(self.view.set_frame)
+        self.view.framePainted.connect(self.player.frame_painted)
+        self.player.frame_limit = self._frame_limit
         self.player.positionChanged.connect(self._on_position)
         self.player.durationChanged.connect(self._on_duration)
         self.player.playingChanged.connect(self._on_playing)
@@ -504,6 +549,11 @@ class MainWindow(QMainWindow):
         self.inspector.textSelected.connect(self._text_selected)
         self.inspector.textTimeRequested.connect(self.text_time_at_playhead)
         self.bridge.jobUpdated.connect(self._job_updated)
+
+    def _frame_limit(self) -> int:
+        """How many pixels on its longer side a video frame can usefully have: what the preview shows, more when
+        it is zoomed in. Bigger frames are shrunk when they arrive."""
+        return int(max(self.view.width(), self.view.height()) * self.view.devicePixelRatioF() * max(self.view.zoom, 1.0))
 
     def refresh_icons(self) -> None:
         for act in self.findChildren(QAction):
@@ -606,13 +656,13 @@ class MainWindow(QMainWindow):
                 files.extend(sorted(p for p in path.iterdir() if p.is_file() and is_media_file(p)))
             elif path.is_file():
                 (files if is_media_file(path) else skipped).append(path)
-        known = {item.path.resolve() for item in self.items}
+        known = {item.resolved for item in self.items}      # each item resolves its path once, not on every add
         added = 0
         for path in files:
-            if path.resolve() in known:
-                continue
-            known.add(path.resolve())
             item = MediaItem(path)
+            if item.resolved in known:
+                continue
+            known.add(item.resolved)
             item.list_item = QListWidgetItem(icons.icon("film", size=48), "")
             self._show_item_text(item)
             item.list_item.setData(Qt.ItemDataRole.UserRole, id(item))
@@ -722,23 +772,64 @@ class MainWindow(QMainWindow):
         item.list_item.setText(text)
         item.list_item.setToolTip(f"{item.path}\n{text.splitlines()[-1]}")
 
+    def _thumb_folder(self, item: MediaItem) -> Path:
+        """Where `item`'s thumbnails are kept: a folder of its own, named by a number that is never reused."""
+        return self.tmpdir / f"thumbs-{item.serial}"
+
     def _load_item(self, item: MediaItem) -> None:
-        """Background thread: read the file's details, thumbnails and waveform."""
+        """Background thread: read the file's details, thumbnails and waveform. However it goes, the window is told
+        (with an error to show when the file couldn't be read), so a file is never left on "Loading…"."""
+        if self.closed or item not in self.items:       # the window closed, or the file was removed while it waited
+            return
+        info, thumbs, wave = MediaInfo(duration=None), [], []
         try:
-            info = probe_media(self.ffmpeg, item.path)
-            thumbs, wave = [], []
+            info = probe_file(self.ffmpeg, item.path, self.procs)
             if info.has_video and info.duration:
-                thumbs = extract_thumbnails(self.ffmpeg, item.path, self.tmpdir / f"{id(item)}", info.duration)
+                thumbs = self._optionally(extract_thumbnails, self.ffmpeg, item.path, self._thumb_folder(item),
+                                          info.duration, registry=self.procs) or []
             if info.has_audio:
-                wave = extract_waveform(self.ffmpeg, item.path, info.duration)
-        except (OSError, ConversionError, ValueError) as exc:
+                wave = self._optionally(extract_waveform, self.ffmpeg, item.path, info.duration,
+                                        registry=self.procs) or []
+        except ConversionCancelled:         # the window is closing
+            self._remove_tmpdir_if_closed()
+            return
+        except ReadTimeout as exc:
+            info, thumbs, wave = MediaInfo(duration=None), [], []
+            item.error = str(exc)
+        except Exception as exc:            # whatever it was, the file must not stay on "Loading…"
+            log.error("Couldn't read %s", item.path, exc_info=True)
             info, thumbs, wave = MediaInfo(duration=None), [], []
             item.error = tr("Can't read this file ({error})", error=exc)
-        self.signals.loaded.emit(item, info, thumbs, wave)
-        self._remove_tmpdir_if_closed()
+        try:
+            if self.closed or item not in self.items:
+                self._remove_folder(self._thumb_folder(item))       # removed while it was being read
+            else:
+                self.signals.loaded.emit(item, info, thumbs, wave)
+        finally:
+            self._remove_tmpdir_if_closed()
+
+    def _optionally(self, read, *args, **kwargs):
+        """Run one of the readings that only add to the picture (thumbnails, waveform): if it fails or takes too
+        long the file is still fine, just shown without them."""
+        try:
+            return read(*args, **kwargs)
+        except ConversionCancelled:
+            raise
+        except Exception as exc:
+            log.info("%s for %s didn't work (%s: %s)", getattr(read, "__name__", "reading"), args[1],
+                        type(exc).__name__, exc)
+            return None
+
+    def _remove_folder(self, folder: Path) -> None:
+        shutil.rmtree(folder, ignore_errors=True)
 
     def _on_loaded(self, item: MediaItem, info: MediaInfo, thumbs: list[Path], wave: list[float]) -> None:
+        if self.closed or item not in self.items:
+            self._remove_folder(self._thumb_folder(item))
+            return
         item.info, item.loading = info, False
+        if not self._gpu_started:
+            self._gpu_timer.start(GPU_SEARCH_DELAY_MS)       # a few seconds from now, not while playback begins
         if not item.error and not info.has_video and not info.has_audio:
             item.error = tr("Not a video or audio file")
         if not info.has_video and info.has_audio:
@@ -750,6 +841,7 @@ class MainWindow(QMainWindow):
                 item.list_item.setIcon(item.thumbs[len(item.thumbs) // 2])
             self._show_item_text(item)
         if item is self.current:
+            self._begin_playback(item)       # the file's details are known now: the right file to play can be chosen
             self.select(item, reload=False)
 
     # ----- selection ----------------------------------------------------------
@@ -766,9 +858,16 @@ class MainWindow(QMainWindow):
         self.frame_action.setEnabled(False)      # until the file's details say it has a picture
         self._update_list_actions()
         if changed:
-            # Don't keep a queue of big copies for files the user has already moved on from.
-            for other in self.proxies.cancel_waiting(keep=item):
-                other.proxy_progress = None
+            # Don't keep a queue of big copies for files the user has already moved on from. A file that can't
+            # play until its copy is ready must not wait behind another file's copy either.
+            if item is not None and self._awaiting_copy(item):
+                cancelled = [other for other in self.items if other is not item and self.proxies.active(other)]
+                for other in cancelled:
+                    self.proxies.cancel(other)
+                    other.proxy_progress = None
+            else:
+                for other in self.proxies.cancel_waiting(keep=item):
+                    other.proxy_progress = None
         if item is None:
             self.player.load(None)
             self._update_preview_status()
@@ -783,8 +882,7 @@ class MainWindow(QMainWindow):
         if changed or reload:
             self.view.clear(tr("Loading…"))
             self.compare_button.setChecked(False)
-            copy = self._preview_copy(item)
-            self.player.load(copy or item.path, upright=copy is not None)
+            self._begin_playback(item)
         info = item.info
         self.timeline.setDuration(info.duration or 0.0 if info else 0.0)
         self.time_label.setText(f"{format_time(self.player.position)} / {format_time(info.duration or 0 if info else 0)}")
@@ -1190,6 +1288,62 @@ class MainWindow(QMainWindow):
             return item.proxy
         return None
 
+    def _awaiting_copy(self, item: MediaItem) -> bool:
+        """Whether `item` is a video too big (or too fast) to play as it is, whose smooth preview copy isn't ready
+        yet. Playing the original meanwhile is what made the app crash inside Qt's decoder, so it waits."""
+        return bool(self.smooth_previews and not item.loading and not item.error and not item.proxy_failed
+                    and self._preview_copy(item) is None and needs_proxy(item.info))
+
+    def _begin_playback(self, item: MediaItem) -> None:
+        """Load into the player what `item` should play: the smooth copy if there is one, nothing while the file's
+        details are still being read or while its copy is made (the first picture is shown meanwhile), otherwise
+        the file itself."""
+        copy = self._preview_copy(item)
+        if item.loading:
+            self.player.load(None)
+        elif copy is not None:
+            self.player.load(copy, upright=True)
+        elif self._awaiting_copy(item):
+            self.player.load(None)
+            self._show_still(item)
+        else:
+            self.player.load(item.path)
+
+    def _switch_player(self, path: Path, upright: bool) -> None:
+        """Play `path` from here on: carrying on from the same moment, or from the start if nothing was loaded."""
+        if self.player.source is None:
+            self.player.load(path, upright=upright)
+        else:
+            self.player.swap_source(path, upright=upright)
+
+    def _show_still(self, item: MediaItem) -> None:
+        """Show the first picture of a video whose smooth copy is being made (read in the background)."""
+        target = self._thumb_folder(item) / "still.png"
+
+        def work() -> None:
+            image = None
+            try:
+                if not self.closed and extract_still(self.ffmpeg, item.path, target, 0.0, registry=self.procs):
+                    image = QImage(str(target))
+                    target.unlink(missing_ok=True)
+            except ConversionCancelled:
+                pass
+            except Exception:
+                log.info("Couldn't read the first picture of %s", item.path, exc_info=True)
+            if not self.closed and image is not None and not image.isNull():
+                self.signals.stillReady.emit(item, image)
+            self._remove_tmpdir_if_closed()
+
+        try:
+            self.loader.submit(work)
+        except RuntimeError:        # the loader is already shut down
+            pass
+
+    def _on_still_ready(self, item: MediaItem, image: QImage) -> None:
+        if self.closed or item is not self.current or self.player.source is not None or self.view.raw is not None:
+            return
+        self.view.set_frame(image, True)       # ffmpeg turned it upright already
+
     def _prepare_preview_copy(self, item: MediaItem) -> None:
         """Start making a smooth preview copy of `item` if it is a big video and has none yet."""
         if (self.closed or not self.smooth_previews or item.loading or item.error or item.proxy is not None
@@ -1222,11 +1376,13 @@ class MainWindow(QMainWindow):
         if path is None:
             item.proxy_failed = True
             if item is self.current:
+                if self.player.source is None:      # the original was held back for the copy: play it after all
+                    self.player.load(item.path)
                 self.statusBar().showMessage(tr("Couldn't prepare a smooth preview, so the original plays instead."), 6000)
         else:
             item.proxy = path
             if item is self.current and self.smooth_previews:
-                self.player.swap_source(path, upright=True)
+                self._switch_player(path, upright=True)
                 self.statusBar().showMessage(tr("The smooth preview is ready."), 4000)
         self._update_preview_status()
 
@@ -1241,18 +1397,19 @@ class MainWindow(QMainWindow):
             self.proxies.cancel_all()
             for other in self.items:
                 other.proxy_progress = None
-            if item is not None:
-                self.player.swap_source(item.path, upright=False)
+            if item is not None and not item.loading:
+                self._switch_player(item.path, upright=False)
         elif item is not None:
             copy = self._preview_copy(item)
             if copy is not None:
-                self.player.swap_source(copy, upright=True)
+                self._switch_player(copy, upright=True)
             else:
                 self._prepare_preview_copy(item)
         self._update_preview_status()
 
     def _drop_preview_copy(self, item: MediaItem) -> None:
-        """Stop making (and delete) the smooth preview of a file that was removed from the list."""
+        """Stop making (and delete) the smooth preview, and delete the thumbnails, of a file that was removed from
+        the list."""
         self.proxies.cancel(item)
         item.proxy_progress = None
         if item.proxy is not None:
@@ -1260,6 +1417,7 @@ class MainWindow(QMainWindow):
                 self.player.load(None)      # let go of the file first
             self._delete_soon(item.proxy)
             item.proxy = None
+        self._remove_folder(self._thumb_folder(item))
 
     def _delete_soon(self, path: Path, attempts: int = 20) -> None:
         """Delete a file the player may keep open for a moment after being told to let go of it."""
@@ -1278,9 +1436,26 @@ class MainWindow(QMainWindow):
             self.player.swap_source(item.path, upright=False)
             self.statusBar().showMessage(tr("The smooth preview wouldn't play, so the original plays instead."), 6000)
             return
+        if (item is not None and self.smooth_previews and item.proxy is not None and item.proxy.is_file()
+                and self.player.source == item.path):
+            # The original won't play (or the decoder gave up on it) but there is a smooth copy: play that.
+            self.player.swap_source(item.proxy, upright=True)
+            return
         self.statusBar().showMessage(tr("Can't play this file: {error}", error=message))
 
     # ----- graphics card and help -----------------------------------------------
+
+    def start_gpu_search(self) -> None:
+        """Look for graphics-card encoders in the background, once. It is started a few seconds after the first
+        file loaded rather than when the window opens, so it doesn't compete with the first playback."""
+        if self._gpu_started or self.closed:
+            return
+        self._gpu_started = True
+        self._gpu_timer.stop()
+        if os.environ.get("VIDEO_EDITOR_NO_GPU_SEARCH") == "1":      # set by the tests: never touch the card
+            self.signals.gpuReady.emit(((), None))
+            return
+        threading.Thread(target=self._find_gpu, name="gpu-search", daemon=True).start()
 
     def _find_gpu(self) -> None:
         """Background thread: find out which hardware encoders work (checked once per run)."""
@@ -1357,24 +1532,36 @@ class MainWindow(QMainWindow):
         if (self.closed or item is None or item.info is None or not item.info.has_video
                 or not self.compare_button.isChecked()):
             return
+        if self._after_busy:
+            # One render at a time: when it finishes, the newest request (this one, or a later one) is rendered.
+            self._after_again = True
+            return
         self._after_token += 1
         token, settings, at = self._after_token, item.settings.copy(), self.player.position
         ratio = self.view.devicePixelRatioF()
         size = (int(min(self.view.width() * ratio, 1600)), int(min(self.view.height() * ratio, 1600)))
         target = self.tmpdir / f"after_{token}.png"
+        self._after_busy, self._after_again = True, False
 
         def work() -> None:
             try:
                 render_frame(self.ffmpeg, item.path, target, at, size, settings.edit, item.info)
                 image = QImage(str(target))
                 target.unlink(missing_ok=True)
-                self.signals.afterReady.emit(token, image)
-            except (ConversionError, OSError) as exc:
-                self.signals.afterReady.emit(token, str(exc))
+                result = image
+            except Exception as exc:       # whatever happens, the window must hear back or it never renders again
+                result = str(exc)
+            if not self.closed:
+                self.signals.afterReady.emit(token, result)
             self._remove_tmpdir_if_closed()
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=work, name="render-after", daemon=True).start()
 
     def _on_after_ready(self, token: int, result) -> None:
+        self._after_busy = False
+        if self._after_again and not self.closed:
+            self._after_again = False
+            self._render_after()
+            return
         if token != self._after_token or not self.compare_button.isChecked():
             return
         if isinstance(result, QImage) and not result.isNull():
@@ -1644,6 +1831,23 @@ class MainWindow(QMainWindow):
         handler()
         return True
 
+    def watch_for_other_copies(self, instance) -> None:
+        """Take the files that another start of the app hands over (see single_instance.py)."""
+        self.instance = instance
+        instance.pathsReceived.connect(self.open_forwarded)
+
+    def open_forwarded(self, paths: list) -> None:
+        """Another copy of the app was started (for example "Open with" on some files): add its files and come
+        to the front."""
+        if self.closed:
+            return
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        if paths:
+            self.add_paths([Path(p) for p in paths])
+
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -1666,8 +1870,11 @@ class MainWindow(QMainWindow):
         self.queue.shutdown()
         self.player.load(None)          # lets go of the preview copy's file
         self.closed = True
-        self.proxies.shutdown()
+        if self.instance is not None:
+            self.instance.close()       # free the name at once, so a restart's new copy doesn't hand its files to this one
         self.loader.shutdown(wait=False, cancel_futures=True)
+        self.procs.kill_all()           # the ffmpeg runs reading files would otherwise keep going for a long time
+        self.proxies.shutdown()
         self._remove_tmpdir()
         event.accept()
 

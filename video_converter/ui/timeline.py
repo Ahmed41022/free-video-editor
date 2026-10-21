@@ -115,6 +115,7 @@ class Timeline(QWidget):
         self.end: Optional[float] = None
         self.keep: list[Range] = []
         self.thumbnails: list[QPixmap] = []
+        self._thumb_cache: dict[tuple[int, int], QPixmap] = {}       # (picture, width) -> the picture scaled to fit
         self.waveform: list[float] = []
         self.waveform_loading = False
         self.text_spans: list[list[Range]] = []     # for each text, the parts of the source it is shown over
@@ -130,6 +131,7 @@ class Timeline(QWidget):
         self.keep = []
         self.thumbnails, self.waveform = [], []
         self.waveform_loading = False
+        self._thumb_cache.clear()
         self.text_spans, self.text_selected = [], -1
         self.update()
 
@@ -160,7 +162,20 @@ class Timeline(QWidget):
 
     def setThumbnails(self, pixmaps: list[QPixmap]) -> None:
         self.thumbnails = pixmaps
+        self._thumb_cache.clear()
         self.update()
+
+    def _scaled_thumbnail(self, pix: QPixmap, width: int) -> QPixmap:
+        """`pix` scaled to fill a slot `width` wide, remembered: painting happens many times a second while
+        playing, and smooth scaling of every thumbnail each time cost over 10 ms."""
+        key = (pix.cacheKey(), width)
+        scaled = self._thumb_cache.get(key)
+        if scaled is None:
+            if len(self._thumb_cache) > 4 * max(len(self.thumbnails), 1):      # sizes from a resize that is long past
+                self._thumb_cache.clear()
+            scaled = self._thumb_cache[key] = pix.scaled(
+                width, THUMBS_H, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+        return scaled
 
     def setWaveform(self, levels: list[float], loading: bool = False) -> None:
         """Show the sound's levels. `loading` says they are still being read, so an empty lane means "wait"
@@ -317,8 +332,7 @@ class Timeline(QWidget):
             slot = width / len(self.thumbnails)
             for i, pix in enumerate(self.thumbnails):
                 target = QRectF(left + i * slot, thumbs.top(), slot + 1, THUMBS_H)
-                scaled = pix.scaled(int(target.width()) + 1, THUMBS_H, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                                    Qt.TransformationMode.SmoothTransformation)
+                scaled = self._scaled_thumbnail(pix, int(target.width()) + 1)
                 sx = (scaled.width() - target.width()) / 2
                 p.drawPixmap(target, scaled, QRectF(sx, 0, target.width(), THUMBS_H))
         p.restore()

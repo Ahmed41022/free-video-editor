@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
-from .core import _NO_WINDOW, ConversionCancelled, ConversionError, stop_process
+from .core import _NO_WINDOW, ConversionCancelled, ConversionError, start_process, stop_process
 from .i18n import ntr, tr
 from .timing import MIN_PART, SNAP_EDGE, Range, cut_range, kept_segments, segments_length
 
@@ -66,8 +66,8 @@ def detect_silences(ffmpeg: str, source: Path, noise_db: float = DEFAULT_DB, min
     Setting `cancel_event` stops ffmpeg and raises ConversionCancelled."""
     cmd = [ffmpeg, "-hide_banner", "-nostdin", "-nostats", "-i", str(source), "-map", "0:a:0", "-vn",
            "-af", f"silencedetect=noise={noise_db:g}dB:d={min_length:g}", "-f", "null", "-"]
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-                            errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
+    proc = start_process(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+                         errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
     # silencedetect reports on stderr; read it on another thread so ffmpeg never waits on a full pipe.
     lines: deque[str] = deque()
     reader = threading.Thread(target=lambda: lines.extend(proc.stderr), daemon=True)
@@ -78,6 +78,7 @@ def detect_silences(ffmpeg: str, source: Path, noise_db: float = DEFAULT_DB, min
             proc.wait()
             reader.join(timeout=2)
             proc.stderr.close()
+            proc.fve_job and proc.fve_job.close()
             raise ConversionCancelled()
         try:
             proc.wait(timeout=0.05)
@@ -86,6 +87,7 @@ def detect_silences(ffmpeg: str, source: Path, noise_db: float = DEFAULT_DB, min
             pass
     reader.join(timeout=5)
     proc.stderr.close()
+    proc.fve_job and proc.fve_job.close()
     text = "".join(lines)
     if proc.returncode != 0:
         if "matches no streams" in text:

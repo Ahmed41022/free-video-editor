@@ -89,6 +89,35 @@ class DecisionTests(unittest.TestCase):
             self.assertTrue(needs_proxy(info(320, 180)))
             self.assertFalse(needs_proxy(info(96, 96)))
 
+    @staticmethod
+    def fast(width, height, fps, max_fps=None, kbps=8000):
+        return MediaInfo(duration=60.0, width=width, height=height, has_audio=True, fps=fps, max_fps=max_fps,
+                         bitrate=kbps)
+
+    def test_a_fast_picture_of_720p_or_more_gets_a_copy(self):
+        for size, fps in (((1920, 1080), 60.0), ((1728, 1080), 59.94), ((1280, 720), 60.0), ((1080, 1920), 60.0),
+                          ((1920, 1080), 36.0), ((1920, 1080), 120.0)):
+            with self.subTest(size=size, fps=fps):
+                self.assertTrue(needs_proxy(self.fast(*size, fps)))
+
+    def test_ordinary_rates_and_small_pictures_are_left_alone(self):
+        for size, fps in (((1920, 1080), 30.0), ((1920, 1080), 29.97), ((1920, 1080), 35.0), ((1280, 720), 25.0),
+                          ((640, 360), 120.0), ((854, 480), 60.0)):
+            with self.subTest(size=size, fps=fps):
+                self.assertFalse(needs_proxy(self.fast(*size, fps)))
+
+    def test_a_variable_rate_recording_counts_by_the_highest_rate_it_declares(self):
+        # The owner's game recordings: 1728x1080, an average of 58 fps, up to 120 declared.
+        self.assertTrue(needs_proxy(self.fast(1728, 1080, 57.97, max_fps=120.0)))
+        slow_average = self.fast(1728, 1080, 25.5, max_fps=120.0)
+        self.assertTrue(slow_average.variable_frame_rate)
+        self.assertTrue(needs_proxy(slow_average))
+        # 25 fps that declares 50 (interlaced fields) is not variable, and not fast.
+        self.assertFalse(needs_proxy(self.fast(1920, 1080, 25.0, max_fps=50.0)))
+
+    def test_a_missing_rate_never_makes_a_copy(self):
+        self.assertFalse(needs_proxy(self.fast(1920, 1080, None)))
+
     def test_the_bitrate_is_read_from_ffmpegs_description(self):
         text = ("Input #0, mov,mp4, from 'a.mp4':\n  Duration: 00:00:20.00, start: 0.000000, bitrate: 45123 kb/s\n"
                 "  Stream #0:0[0x1](und): Video: h264 (High), yuv420p, 3840x2160, 44000 kb/s, 30 fps, 30 tbr\n")
@@ -121,6 +150,19 @@ class SizeAndCommandTests(unittest.TestCase):
         self.assertIn("0:a:0?", cmd)                            # no audio is fine
         self.assertEqual(cmd[cmd.index("-i") + 1], "big.mp4")
         self.assertEqual(cmd[-1], "out.mp4")
+        self.assertNotIn("fps=", text, "a 30 fps video needs no rate change")
+
+    def test_a_fast_video_is_copied_at_30_frames_per_second(self):
+        for fps, max_fps in ((60.0, None), (57.97, 120.0), (120.0, None)):
+            with self.subTest(fps=fps):
+                cmd = proxy_command("ffmpeg", Path("game.mp4"), Path("out.mp4"),
+                                    MediaInfo(60.0, 1728, 1080, True, fps=fps, max_fps=max_fps))
+                graph = cmd[cmd.index("-vf") + 1]
+                self.assertTrue(graph.startswith("fps=30,scale="), graph)      # before the scaler, which sees fewer frames
+
+    def test_a_slow_video_keeps_its_own_rate(self):
+        cmd = proxy_command("ffmpeg", Path("a.mp4"), Path("out.mp4"), MediaInfo(60.0, 3840, 2160, True, fps=24.0))
+        self.assertNotIn("fps=", cmd[cmd.index("-vf") + 1])
 
 
 def slowly(*args, **kwargs):
@@ -167,6 +209,20 @@ class ProxyMakerTests(unittest.TestCase):
         self.assertTrue(copy.has_audio)
         self.assertEqual(self.progress[-1], ("a", 1.0))
         self.assertEqual(list(self.folder.glob("*.part.mp4")), [], "the half-made file should be renamed")
+
+    def test_a_60_fps_video_is_copied_at_30_frames_per_second(self):
+        fast = self.tmp / "fast.mp4"
+        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                        "testsrc2=duration=2:size=320x180:rate=60", "-c:v", "libx264", "-preset", "ultrafast",
+                        "-pix_fmt", "yuv420p", str(fast)], check=True)
+        fast_info = probe_media(FFMPEG, fast)
+        self.assertAlmostEqual(fast_info.fps, 60.0, delta=0.5)
+        self.maker.request("f", fast, fast_info)
+        self.assertTrue(self.finished.wait(TIMEOUT), "no copy was made")
+        self.assertEqual(self.done[0][2], "")
+        copy = probe_media(FFMPEG, self.done[0][1])
+        self.assertAlmostEqual(copy.fps, 30.0, delta=0.5)
+        self.assertAlmostEqual(copy.duration, 2.0, delta=0.3)
 
     def test_there_is_a_keyframe_every_second(self):
         self.maker.request("a", self.source, self.info)
@@ -299,6 +355,22 @@ class PlayerSwapTests(unittest.TestCase):
         self.assertFalse(self.player.playing)
         self.assertEqual(self.player.source, self.small)
 
+    def test_a_swap_whose_loading_was_never_reported_still_finishes(self):
+        # Qt sometimes reports the new source as loaded without ever reporting that it started loading.
+        self.open(self.original)
+        self.assertTrue(pump(TIMEOUT, lambda: self.player.media.duration() > 0))
+        from PySide6.QtMultimedia import QMediaPlayer
+        loaded = (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia)
+        self.assertTrue(pump(TIMEOUT, lambda: self.player.media.mediaStatus() in loaded))
+        self.player._resume = (1500, False, True)
+        self.player._new_source_loading = False
+        self.player._check_swap()
+        self.assertIsNone(self.player._resume, self.player.media.mediaStatus().name)
+        self.assertTrue(self.player.upright)
+        self.assertTrue(pump(TIMEOUT, lambda: abs(self.player.position - 1.5) < 0.2))
+        self.player.swap_source(self.small, upright=True)           # and the timer that does it is armed by a swap
+        self.assertTrue(self.player._swap_watch.isActive())
+
     def test_the_position_never_shows_the_new_sources_zero(self):
         self.open(self.original)
         self.player.seek(3.0)
@@ -430,7 +502,8 @@ class MainWindowPreviewTests(unittest.TestCase):
         item = self.window.current
         self.assertTrue(pump(TIMEOUT, lambda: item.proxy_progress is not None))
         self.assertEqual(self.window.preview_status.text(), "Preparing a smooth preview… 0%")
-        self.assertEqual(self.window.player.source, item.path, "the original plays until the copy is ready")
+        self.assertIsNone(self.window.player.source, "the original must not play while its copy is made")
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.view.raw is not None), "no first picture was shown")
         release.set()
         self.assertTrue(pump(TIMEOUT, lambda: item.proxy is not None))
         self.assertTrue(pump(TIMEOUT, lambda: self.window.preview_status.text() == ""))
@@ -446,11 +519,15 @@ class MainWindowPreviewTests(unittest.TestCase):
             self.assertEqual(self.window.player.source, item.path)
 
     def test_playback_carries_on_from_where_it_was_when_the_copy_arrives(self):
-        release = self.hold_copies()
+        self.window.smooth_action.setChecked(False)         # the original plays; the copy is asked for later
         self.load(self.landscape)
         item = self.window.current
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.player.source == item.path))
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.player.media.duration() > 0), "the original never loaded")
         self.window.player.seek(2.0)
         self.assertTrue(pump(TIMEOUT, lambda: abs(self.window.player.position - 2.0) < 0.1))
+        release = self.hold_copies()
+        self.window.smooth_action.setChecked(True)
         release.set()
         self.assertTrue(pump(TIMEOUT, lambda: self.window.player.source == item.proxy and item.proxy))
         self.assertTrue(pump(TIMEOUT, lambda: self.window.player._resume is None))
@@ -607,6 +684,55 @@ class MainWindowPreviewTests(unittest.TestCase):
         self.assertEqual(self.window.player.source, item.path)
         self.assertEqual(self.window.preview_status.text(), "")
         self.assertIn("original", self.window.statusBar().currentMessage())
+
+    def test_the_original_is_never_played_while_its_copy_is_made(self):
+        # Decoding a huge original while the copy was being made crashed Qt: it waits for the copy instead.
+        release = self.hold_copies()
+        loaded = []
+        real_load = self.window.player.load
+        self.window.player.load = lambda path, upright=False: loaded.append(path) or real_load(path, upright=upright)
+        self.load(self.landscape)
+        item = self.window.current
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.proxies.active(item)))
+        pump(0.3)
+        self.assertNotIn(item.path, loaded)
+        self.assertIsNone(self.window.player.source)
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.view.raw is not None), "no first picture while waiting")
+        self.assertFalse(self.window.play_button.isEnabled() and self.window.player.playing)
+        release.set()
+        self.assertTrue(pump(TIMEOUT, lambda: item.proxy is not None and self.window.player.source == item.proxy))
+        self.assertNotIn(item.path, loaded)
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.view.raw is not None and self.window.view.raw.width() == 160))
+
+    def test_pressing_play_while_the_copy_is_made_does_nothing_harmful(self):
+        self.hold_copies()
+        self.load(self.landscape)
+        item = self.window.current
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.proxies.active(item)))
+        self.window.player.toggle()
+        self.assertFalse(self.window.player.playing)
+        self.assertIsNone(self.window.player.source)
+
+    def test_a_file_waiting_for_its_copy_does_not_wait_behind_another_files_copy(self):
+        self.hold_copies()
+        self.load(self.landscape, self.portrait)
+        first, second = self.window.items
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.proxies.active(first)))
+        self.window.media_list.setCurrentRow(1)
+        self.assertFalse(self.window.proxies.active(first), "the copy of the file left behind kept the queue busy")
+        self.assertIsNone(first.proxy_progress)
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.proxies.active(second)))
+
+    def test_when_the_original_will_not_play_the_copy_is_used(self):
+        self.load(self.landscape)
+        item = self.window.current
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.player.source == item.proxy and item.proxy))
+        self.window.player.swap_source(item.path, upright=False)
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.player._resume is None), "the swap never finished")
+        self.assertEqual(self.window.player.source, item.path)
+        self.window._on_player_error("the decoder gave up")
+        self.assertEqual(self.window.player.source, item.proxy)
+        self.assertFalse(item.proxy_failed)
 
     def test_a_copy_that_will_not_play_falls_back_to_the_original(self):
         self.load(self.landscape)
