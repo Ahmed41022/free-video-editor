@@ -20,7 +20,7 @@ os.environ.setdefault("VIDEO_EDITOR_NO_GPU_SEARCH", "1")      # a window never s
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
-    from PySide6.QtCore import QSettings
+    from PySide6.QtCore import QEvent, QSettings
     from PySide6.QtGui import QImage, QPixmap
     from PySide6.QtMultimedia import QVideoFrame
     from PySide6.QtWidgets import QApplication
@@ -158,6 +158,7 @@ class FrameTests(unittest.TestCase):
 
     def tearDown(self):
         self.player.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)     # free it now: pump() alone never runs deleteLater
 
     def test_a_frame_bigger_than_the_view_is_shrunk_and_a_smaller_one_is_not(self):
         self.player.frame_limit = lambda: 500
@@ -226,6 +227,7 @@ class FrameTests(unittest.TestCase):
         view.grab()
         self.assertTrue(drawn)
         view.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 # ----- 3: a file never stays on "Loading…" -----------------------------------------------------------------------
@@ -310,6 +312,7 @@ class WindowCase(unittest.TestCase):
         self.assertFalse(tmpdir.exists(), "the window left its temp folder behind")
         window.deleteLater()
         self.window = None
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)     # free it now: every widget left alive slows each later theme change
         pump(0.05)
 
     def junk(self, *names):
@@ -683,6 +686,7 @@ class SweepTests(unittest.TestCase):
             window.close()
             window.loader.shutdown(wait=True)
             window.deleteLater()
+            QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 # ----- 8: one running copy ------------------------------------------------------------------------------------------
@@ -703,6 +707,7 @@ class SingleInstanceTests(unittest.TestCase):
         for instance in self.instances:
             instance.close()
             instance.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         pump(0.05)
 
     def first_copy(self):
@@ -796,6 +801,7 @@ class WindowInstanceTests(WindowCase):
         super().tearDown()
         self.instance.close()
         self.instance.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def test_files_from_a_second_start_are_added_to_the_open_window(self):
         self.assertEqual(outcome(second_start(self.name, self.lock_dir, self.first, self.second)), "exit")

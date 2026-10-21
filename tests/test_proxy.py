@@ -643,6 +643,7 @@ class MainWindowPreviewTests(unittest.TestCase):
         self.assertFalse(self.window.smooth_previews)
         self.window.close()
         self.window.loader.shutdown(wait=True)
+        self.window.deleteLater()           # freed with the next window in tearDown
         pump(0.1)
         self.window = self.new_window()
         self.assertFalse(self.window.smooth_previews)

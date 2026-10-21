@@ -847,7 +847,9 @@ class SettingsPanelFitTests(WindowCase):
         from video_converter.ui.inspector import Inspector
         from video_converter.ui.main_window import INSPECTOR_WIDTH
 
-        self.assertGreaterEqual(INSPECTOR_WIDTH, Inspector().minimumWidth() + 30)
+        inspector = Inspector()
+        self.addCleanup(shiboken6.delete, inspector)
+        self.assertGreaterEqual(INSPECTOR_WIDTH, inspector.minimumWidth() + 30)
 
     @unittest.skipUnless(sys.platform == "win32", "needs the fonts of the real Windows platform")
     def test_every_section_fits_in_english_and_in_arabic(self):

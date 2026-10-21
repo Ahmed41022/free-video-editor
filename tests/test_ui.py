@@ -685,6 +685,7 @@ class ReverseWarningInspectorTests(unittest.TestCase):
         from video_converter.ui.inspector import Inspector
         self.inspector = Inspector()
         self.inspector.set_settings(ClipSettings(), 10.0)
+        self.addCleanup(shiboken6.delete, self.inspector)     # runs last: free it, so widgets don't pile up
         self.addCleanup(self.inspector.close)
 
     def test_the_warning_sits_with_the_reverse_control_and_hides_again(self):
@@ -711,6 +712,7 @@ class FrameRateInspectorTests(unittest.TestCase):
         self.inspector.set_settings(ClipSettings(), 10.0)
         self.edits = []
         self.inspector.settingsEdited.connect(lambda s, label, final: self.edits.append((s, label, final)))
+        self.addCleanup(shiboken6.delete, self.inspector)     # runs last: free it, so widgets don't pile up
         self.addCleanup(self.inspector.close)
 
     def test_the_combo_offers_the_three_choices_under_size(self):
@@ -863,10 +865,16 @@ class MainWindowTests(unittest.TestCase):
         self.window.show()
 
     def tearDown(self):
+        from video_converter.ui.main_window import MainWindow
         tmpdir = self.window.tmpdir
         self.window.close()
         self.window.loader.shutdown(wait=True)      # a load cut short by closing clears up after itself
         self.assertFalse(tmpdir.exists(), "the window left its temp folder behind")
+        for earlier in QApplication.topLevelWidgets():      # the first window of a test that "restarts" the app
+            if isinstance(earlier, MainWindow) and earlier is not self.window:
+                earlier.close()
+                earlier.loader.shutdown(wait=True)
+                earlier.deleteLater()
         # unittest keeps every test case alive until the run ends, so free the window (and its
         # media player) now instead of letting closed windows pile up and slow later tests.
         self.window.deleteLater()

@@ -202,15 +202,15 @@ class OnDiskTests(unittest.TestCase):
 class DownloadTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
+        # Cleanups run after tearDown and newest first, so this one runs last: after a helper process that holds
+        # the lock (see hold_lock_in_another_process) has been stopped and has let go of the folder.
+        self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
         self.model = tiny_model()
         self.staging = self.root / "tiny.downloading"
         self.patch_chunk = mock.patch.object(sm, "CHUNK", 1000)       # several chunks even for these small files
         self.patch_chunk.start()
-
-    def tearDown(self):
-        self.patch_chunk.stop()
-        self._tmp.cleanup()
+        self.addCleanup(self.patch_chunk.stop)
 
     def test_a_download_puts_an_intact_model_in_place_and_reports_progress(self):
         server, seen = FakeServer(), []
