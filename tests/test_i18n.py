@@ -96,6 +96,11 @@ def scan_keys():
                 text = _literal(node.args[0])
                 if text is not None:
                     keys.setdefault(text, []).append(where)
+            elif name == "trc" and len(node.args) >= 2 and isinstance(node.func, ast.Name):
+                context, text = _literal(node.args[0]), _literal(node.args[1])
+                if context is not None and text is not None:
+                    keys.setdefault(f"{text}|{context}", []).append(where)     # a use of `text` of its own
+                    keys.setdefault(text, []).append(where)                    # and the plain text is the fallback
             elif name == "ntr" and len(node.args) >= 3 and isinstance(node.func, ast.Name):
                 one, other = _literal(node.args[1]), _literal(node.args[2])
                 if one is not None and other is not None:
@@ -120,7 +125,7 @@ UI_SINKS = {
     "QLabel", "QPushButton", "QCheckBox", "QAction", "QToolBar", "QGroupBox", "QToolButton", "QMessageBox",
     "setText", "setToolTip", "setStatusTip", "setWindowTitle", "setPlaceholderText", "setSpecialValueText",
     "setInformativeText", "setDetailedText", "setTitle", "addAction", "addMenu", "addItem", "addButton", "showMessage",
-    "question", "information", "warning", "critical", "about", "getText", "getOpenFileName", "getOpenFileNames",
+    "drawText", "question", "information", "warning", "critical", "about", "getText", "getOpenFileName", "getOpenFileNames",
     "getSaveFileName", "getExistingDirectory", "createUndoAction", "createRedoAction", "beginMacro",
     "Section", "_muted", "_heading", "ColorButton",
 }
@@ -387,6 +392,16 @@ class ArabicFileTests(unittest.TestCase):
         self.assertFalse(unwrapped("f'{value} fps'"))
         self.assertFalse(unwrapped("'MP4 · GIF'"))
         self.assertFalse(unwrapped("'9:16'"))
+
+    def test_the_scan_notices_text_painted_on_a_widget(self):
+        # drawText(rect, flags, "No sound") is a text the user reads, like a label's.
+        call = ast.parse("p.drawText(rect, Qt.AlignCenter, 'No sound')", mode="eval").body
+        self.assertIn(_call_name(call), UI_SINKS)
+        self.assertTrue(any(_unwrapped_text(argument) for argument in call.args))
+        call = ast.parse("p.drawText(rect, Qt.AlignCenter, tr('No sound'))", mode="eval").body
+        self.assertFalse(any(_unwrapped_text(argument) for argument in call.args))
+        call = ast.parse("p.drawText(rect, flags, format_time(t))", mode="eval").body
+        self.assertFalse(any(_unwrapped_text(argument) for argument in call.args))
 
 
 class MessageTests(unittest.TestCase):
@@ -807,7 +822,7 @@ class ArabicInterfaceTests(WindowCase):
         self.assertEqual(list(actions), ["system", "en", "ar"])
         self.assertEqual(actions["ar"].text(), "العربية")
         self.assertEqual(actions["en"].text(), "English")
-        self.assertEqual(actions["system"].text(), "مثل Windows")
+        self.assertEqual(actions["system"].text(), "حسب لغة Windows")
         self.assertTrue(actions["system"].isChecked())        # nothing saved yet: follow Windows
         self.assertEqual(sum(a.isChecked() for a in actions.values()), 1)
 
@@ -858,6 +873,9 @@ class SettingsPanelFitTests(WindowCase):
         for r in results:
             where = f"{r['language']} / {r['state']}: widest section {r['widest']}"
             self.assertLessEqual(r["needs"], r["viewport"], f"the settings panel needs {r['needs']} px, has {r['viewport']} ({where})")
+            self.assertLessEqual(r["needs"], r["narrowest"],
+                                 f"the panel needs {r['needs']} px but only {r['narrowest']} are left when it is "
+                                 f"as narrow as it goes, as in a 1024x700 window ({where})")
             self.assertLessEqual(r["content"], r["viewport"], where)
             self.assertAlmostEqual(r["panel"], INSPECTOR_WIDTH, delta=6, msg=f"at the default size ({where})")
             self.assertEqual(r["outside"], [], f"cut off ({where})")
@@ -1093,9 +1111,10 @@ class LanguageSettingTests(WindowCase):
         from video_converter.ui import language
 
         window = self.new_window("en", load=False)
-        with mock.patch.object(language, "restart") as restart, mock.patch.object(type(window), "close",
-                                                                                   return_value=False):
-            window.restart_app()           # e.g. exports are running and the user chose to wait
+        with mock.patch.object(language, "restart") as restart, \
+                mock.patch.object(type(window.queue), "busy", new_callable=mock.PropertyMock, return_value=True), \
+                mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
+            window.restart_app()           # exports are running and the user chose to wait
         restart.assert_not_called()
 
     def test_the_restart_command(self):

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 app = QApplication([])
 
 from video_converter import i18n  # noqa: E402
+from video_converter.captions import TextItem  # noqa: E402
 from video_converter.project import ClipSettings  # noqa: E402
 from video_converter.ui import language, theme  # noqa: E402
 from video_converter.video import VideoEdit  # noqa: E402
@@ -33,8 +34,14 @@ def states():
     fit = VideoEdit(target_mb=7.5)
     subs = VideoEdit()
     subs.subtitles.file = "gone.srt"
+    text = VideoEdit(texts=[TextItem(text="Hello world", box=True, bold=True, fade_in=1.5, fade_out=1.5)])
+    everything = VideoEdit(texts=[TextItem(text="Hello", box=True), TextItem(text="مرحبا", box=True, bold=True)],
+                           target_mb=7.5)
+    everything.logo.file = "gone.png"
+    everything.subtitles.file = "gone.srt"
     return {"default": ClipSettings(), "gif": ClipSettings(edit=gif), "fit a size": ClipSettings(edit=fit),
-            "subtitles": ClipSettings(edit=subs)}
+            "subtitles": ClipSettings(edit=subs), "a text selected": ClipSettings(edit=text),
+            "text, logo and subtitles": ClipSettings(edit=everything)}
 
 
 def measure(code: str, window, name: str, settings: ClipSettings) -> dict:
@@ -52,7 +59,11 @@ def measure(code: str, window, name: str, settings: ClipSettings) -> dict:
             if left < 0 or right > viewport:
                 outside.append(f"{type(widget).__name__} {getattr(widget, 'text', lambda: '')()!r}"[:60])
     wide = [(section.header.text(), section.minimumSizeHint().width()) for section in panel.sections]
+    # What the viewport is when the panel is as narrow as it can be made (a 1024x700 window): the minimum width
+    # less the frame and the scroll bar, which shows whenever the sections are taller than the window.
+    narrowest = panel.minimumWidth() - 2 * panel.frameWidth() - panel.verticalScrollBar().sizeHint().width()
     return {"language": code, "state": name, "window": window.width(), "panel": panel.width(), "viewport": viewport,
+            "narrowest": narrowest,
             "needs": content.minimumSizeHint().width(), "content": content.width(),
             "widest": max(wide, key=lambda pair: pair[1]), "outside": outside}
 

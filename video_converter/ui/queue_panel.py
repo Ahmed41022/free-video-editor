@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import diagnostics
+from .. import diagnostics, i18n
 from ..core import format_time
 from ..gpu import CPU_FALLBACK_NOTE
 from ..i18n import isolate, join_parts, tr
@@ -67,6 +67,11 @@ class JobRow(QFrame):
         self.title = QLabel(join_parts([job.title, job.summary], "  ·  "))
         self.status = QLabel()
         self.status.setObjectName("muted")
+        if i18n.is_rtl():
+            # A title that starts with Latin letters and a status in Arabic must line up on the same edge.
+            side = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignAbsolute | Qt.AlignmentFlag.AlignVCenter
+            self.title.setAlignment(side)
+            self.status.setAlignment(side)
         text.addWidget(self.title)
         text.addWidget(self.status)
         layout.addLayout(text, 3)
@@ -85,9 +90,18 @@ class JobRow(QFrame):
         self.cancel_button.setIcon(icons.icon("close"))
         self.cancel_button.setToolTip(tr("Cancel"))
         self.cancel_button.clicked.connect(lambda: self.cancelRequested.emit(self.job_id))
-        layout.addWidget(self.details_button)
-        layout.addWidget(self.open_button)
-        layout.addWidget(self.cancel_button)
+        # The buttons sit in a box of one fixed width, so the progress bars of all rows start and end in the same
+        # places whether a row shows Details, the folder button, Cancel or nothing.
+        actions = QWidget()
+        actions_row = QHBoxLayout(actions)
+        actions_row.setContentsMargins(0, 0, 0, 0)
+        actions_row.setSpacing(4)
+        for button in (self.details_button, self.open_button, self.cancel_button):
+            actions_row.addWidget(button)
+        actions_row.addStretch(1)
+        actions.setFixedWidth(max(self.details_button.sizeHint().width(),
+                                  self.open_button.sizeHint().width() + self.cancel_button.sizeHint().width() + 4))
+        layout.addWidget(actions)
         self.output: Optional[Path] = None
         self.update_job(job)
 
@@ -144,6 +158,14 @@ class QueuePanel(QFrame):
         bridge.jobUpdated.connect(self.on_job_updated)
 
     def on_job_updated(self, job: Job) -> None:
+        if not any(known.id == job.id for known in list(self.queue.jobs)):
+            # An update that was still on its way when "Clear finished" removed the job: don't bring its row back
+            # (nothing could clear it again).
+            stale = self.rows.pop(job.id, None)
+            if stale is not None:
+                stale.deleteLater()
+            self._update_summary()
+            return
         row = self.rows.get(job.id)
         if row is None:
             row = JobRow(job)

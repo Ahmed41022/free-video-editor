@@ -13,19 +13,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QSettings, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QSettings, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QImage, QKeySequence, QPixmap, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
-    QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter,
-    QToolBar, QToolButton, QVBoxLayout, QWidget,
+    QAbstractButton, QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QHBoxLayout,
+    QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
+    QPushButton, QSizePolicy, QSplitter, QTextEdit, QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .. import APP_NAME, __version__, diagnostics, gpu, i18n, updates
 from ..core import (
     AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_media_file, probe_media,
 )
-from ..i18n import isolate, join_parts, ntr, tr
+from ..i18n import isolate, join_parts, ntr, tr, trc
 from ..jobs import Clip, Job, JobQueue
 from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
@@ -87,11 +87,13 @@ class SettingsCommand(QUndoCommand):
     MERGE_ID = 1001
 
     def __init__(self, window: "MainWindow", item: MediaItem, before: ClipSettings, after: ClipSettings,
-                 label: str, mergeable: bool):
+                 label: str, mergeable: bool, reveal: bool = True):
         super().__init__(label)
         self.window, self.item = window, item
         self.before, self.after = before.copy(), after.copy()
         self.mergeable = mergeable
+        self.reveal = reveal            # undo and redo select the file they changed, so the change is seen
+        self._pushed = False            # the first redo is the edit itself, on the file already shown
 
     def id(self) -> int:
         return self.MERGE_ID if self.mergeable else -1
@@ -105,9 +107,14 @@ class SettingsCommand(QUndoCommand):
 
     def redo(self) -> None:
         self.window.apply_settings(self.item, self.after)
+        if self._pushed and self.reveal:
+            self.window.reveal(self.item)
+        self._pushed = True
 
     def undo(self) -> None:
         self.window.apply_settings(self.item, self.before)
+        if self.reveal:
+            self.window.reveal(self.item)
 
 
 class CaptionsFileCommand(QUndoCommand):
@@ -119,10 +126,14 @@ class CaptionsFileCommand(QUndoCommand):
         super().__init__(label)
         self.window, self.item, self.path = window, item, path
         self.before, self.after = before, after
+        self._pushed = False
 
     def redo(self) -> None:
         self._keep_backup()
         self._write(self.after)
+        if self._pushed:
+            self.window.reveal(self.item)
+        self._pushed = True
 
     def _keep_backup(self) -> None:
         backup = self.path.with_name(self.path.name + ".bak")
@@ -136,6 +147,7 @@ class CaptionsFileCommand(QUndoCommand):
 
     def undo(self) -> None:
         self._write(self.before)
+        self.window.reveal(self.item)
 
     def _write(self, data: bytes) -> None:
         try:
@@ -146,6 +158,21 @@ class CaptionsFileCommand(QUndoCommand):
             self.window.statusBar().showMessage(
                 tr("Couldn't update {name}: {reason}", name=isolate(self.path.name), reason=exc.strerror or exc), 6000)
         self.window.captions_file_changed(self.item)
+
+
+class RemoveFilesCommand(QUndoCommand):
+    """Taking files out of the list, which undo puts back: each at the row it was in, with its settings and
+    thumbnails (the items themselves are kept)."""
+
+    def __init__(self, window: "MainWindow", entries: list[tuple[int, MediaItem]], label: str):
+        super().__init__(label)
+        self.window, self.entries = window, sorted(entries, key=lambda entry: entry[0])
+
+    def redo(self) -> None:
+        self.window.take_items([item for _row, item in self.entries])
+
+    def undo(self) -> None:
+        self.window.restore_items(self.entries)
 
 
 class MediaList(QListWidget):
@@ -187,10 +214,12 @@ class MainWindow(QMainWindow):
         self.output_dir: Optional[Path] = None
         self.user_presets: dict[str, dict] = {}
         self.merge_open = False
-        self.theme_mode = "dark"
+        self.theme_mode = "dark"              # the theme in use: "dark" or "light"
+        self.theme_choice = "system"          # the theme asked for: "system", "dark" or "light" (what is saved)
         self.models_root: Optional[Path] = None       # where the speech models are kept (None = the app's own folder)
         self.tmpdir = Path(tempfile.mkdtemp(prefix="videoconverter-"))
         self.closed = False
+        self._restarting = False              # closing to start the app again, after the user agreed to stop exports
         self.confirm_heavy_exports = True     # ask before an export that needs a lot of memory
         self.smooth_previews = True           # play a small copy of big videos (View menu)
         self.check_updates = True             # look for a newer version once a day (Help menu)
@@ -246,7 +275,7 @@ class MainWindow(QMainWindow):
 
         self.add_action = action(tr("Add files"), "add", self.choose_files, "Ctrl+O")
         self.folder_action = action(tr("Add folder"), "folder", self.choose_folder)
-        self.remove_action = action(tr("Remove"), "trash", self.remove_selected, tip=tr("Remove the selected file"))
+        self.remove_action = action(trc("toolbar", "Remove"), "trash", self.remove_selected, tip=tr("Remove the selected file"))
         toolbar.addSeparator()
         self.undo_action = self.undo_stack.createUndoAction(self, tr("Undo"))
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
@@ -304,7 +333,7 @@ class MainWindow(QMainWindow):
         center_layout.setSpacing(0)
         self.view = VideoView()
         center_layout.addWidget(self.view, 1)
-        transport = QWidget()
+        transport = self.transport = QWidget()
         transport.setObjectName("panel")
         row = QHBoxLayout(transport)
         row.setContentsMargins(10, 4, 10, 4)
@@ -426,10 +455,21 @@ class MainWindow(QMainWindow):
         return answer
 
     def restart_app(self) -> None:
-        """Close the window (asking about exports still running), then start the app again with the same files."""
+        """Start the app again with the same files and close this window (asking first about exports still
+        running). If the new copy can't be started, this window stays open and says so."""
         paths = [str(item.path) for item in self.items]
-        if self.close():
-            language.restart(paths)
+        if self.queue.busy and QMessageBox.question(
+                self, tr("Exports still running"), tr("Some exports haven't finished. Stop them and quit?")
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        # Start the new copy first: if it can't be started, this window stays open instead of just vanishing.
+        if not language.restart(paths):
+            QMessageBox.warning(self, APP_NAME, tr("Couldn't restart the app. Close it and open it again yourself "
+                                                   "to use the new language."))
+            return
+        self._restarting = True        # the question about running exports was answered above
+        if not self.close():
+            self._restarting = False
 
     def _connect(self) -> None:
         self.media_list.currentRowChanged.connect(lambda row: self.select(self._item_at(row)))
@@ -483,7 +523,8 @@ class MainWindow(QMainWindow):
 
     def _load_preferences(self) -> None:
         mode = self._saved_text("theme", "system")
-        self.theme_mode = theme.apply_theme(QApplication.instance(), mode if mode in ("dark", "light") else "system")
+        self.theme_choice = mode if mode in ("dark", "light") else "system"
+        self.theme_mode = theme.apply_theme(QApplication.instance(), self.theme_choice)
         geometry = self._saved_bytes("geometry")
         if geometry is not None:
             self.restoreGeometry(geometry)
@@ -529,12 +570,13 @@ class MainWindow(QMainWindow):
         self.store.setValue("splitMain", self.main_split.saveState())
         self.store.setValue("outputDir", str(self.output_dir) if self.output_dir else "")
         self.store.setValue("presets", json.dumps(self.user_presets))
-        self.store.setValue("theme", self.theme_mode)
+        self.store.setValue("theme", self.theme_choice)      # what was asked for ("system" too), not what it came to
         self.store.setValue("smoothPreviews", self.smooth_previews)
         self.store.setValue(updates.ENABLED_KEY, self.check_updates)
 
     def toggle_theme(self) -> None:
-        self.theme_mode = theme.apply_theme(QApplication.instance(), "light" if self.theme_mode == "dark" else "dark")
+        self.theme_choice = "light" if self.theme_mode == "dark" else "dark"       # the button is an explicit choice
+        self.theme_mode = theme.apply_theme(QApplication.instance(), self.theme_choice)
         self.refresh_icons()
         for widget in (self.view, self.timeline):
             widget.update()
@@ -558,11 +600,12 @@ class MainWindow(QMainWindow):
     def add_paths(self, paths: list[Path]) -> int:
         """Add files (and the videos and audio files inside any folders). Returns how many were new."""
         files: list[Path] = []
+        skipped: list[Path] = []          # files dropped or chosen that are not a video or audio file
         for path in paths:
             if path.is_dir():
                 files.extend(sorted(p for p in path.iterdir() if p.is_file() and is_media_file(p)))
             elif path.is_file():
-                files.append(path)
+                (files if is_media_file(path) else skipped).append(path)
         known = {item.path.resolve() for item in self.items}
         added = 0
         for path in files:
@@ -577,11 +620,20 @@ class MainWindow(QMainWindow):
             self.media_list.addItem(item.list_item)
             self.loader.submit(self._load_item, item)
             added += 1
+        note = ""
+        if skipped:
+            names = ", ".join(isolate(p.name) for p in skipped[:3])
+            more = " " + tr("and {n} more", n=len(skipped) - 3) if len(skipped) > 3 else ""
+            note = tr("Skipped, not video or audio: {names}{more}", names=names, more=more)
         if added:
             self._update_list_actions()
-            self.statusBar().showMessage(ntr(added, "Added {n} file.", "Added {n} files."), 4000)
+            self.statusBar().showMessage(
+                " ".join(filter(None, [ntr(added, "Added {n} file.", "Added {n} files."), note])),
+                8000 if note else 4000)
             if self.current is None:
                 self.media_list.setCurrentRow(len(self.items) - added)
+        elif skipped:
+            self.statusBar().showMessage(note, 8000)
         elif paths:
             self.statusBar().showMessage(tr("No new video or audio files there."), 4000)
         return added
@@ -606,18 +658,40 @@ class MainWindow(QMainWindow):
             self.items = moved
 
     def remove_selected(self) -> None:
-        row = self.media_list.currentRow()
-        item = self._item_at(row)
-        if item is None:
-            return
-        self.items.remove(item)
-        self.media_list.takeItem(row)
-        self._drop_preview_copy(item)
-        self.undo_stack.clear()   # undo steps may refer to the removed file
+        """Take the selected files (or the current one) out of the list. It is an undoable step, so the history
+        of the other files is kept and Undo brings the files back."""
+        rows = sorted({self.media_list.row(selected) for selected in self.media_list.selectedItems()})
+        entries = [(row, item) for row in (rows or [self.media_list.currentRow()])
+                   if (item := self._item_at(row)) is not None]
+        if entries:
+            self.undo_stack.push(RemoveFilesCommand(self, entries, tr("Remove from list")))
+
+    def take_items(self, items: list[MediaItem]) -> None:
+        """Take `items` out of the list (the redo of RemoveFilesCommand). The last row goes first, so the
+        selection never lands on a file that is about to go too."""
+        first_row = min(self.media_list.row(item.list_item) for item in items)
+        for item in sorted(items, key=lambda i: self.media_list.row(i.list_item), reverse=True):
+            self.items.remove(item)
+            self.media_list.takeItem(self.media_list.row(item.list_item))
+            self._drop_preview_copy(item)
         self._update_list_actions()
-        if item is self.current:
+        if self.current in items:
             self.current = None
-            self.select(self.items[min(row, len(self.items) - 1)] if self.items else None)
+            self.select(self.items[min(first_row, len(self.items) - 1)] if self.items else None)
+
+    def restore_items(self, entries: list[tuple[int, MediaItem]]) -> None:
+        """Put removed files back, each at the row it had (the undo of RemoveFilesCommand), and show the first."""
+        ordered = sorted(entries, key=lambda entry: entry[0])
+        for row, item in ordered:
+            self.items.insert(min(row, len(self.items)), item)
+            self.media_list.insertItem(min(row, self.media_list.count()), item.list_item)
+        self._update_list_actions()
+        self.media_list.setCurrentRow(self.items.index(ordered[0][1]))
+
+    def reveal(self, item: MediaItem) -> None:
+        """Select `item` in the list, so that a change undo or redo made to it is seen."""
+        if item is not self.current and item in self.items:
+            self.media_list.setCurrentRow(self.items.index(item))
 
     def _media_menu(self, point) -> None:
         if self.media_list.itemAt(point) is None:
@@ -633,8 +707,8 @@ class MainWindow(QMainWindow):
 
     def _item_text(self, item: MediaItem) -> str:
         if item.error:
-            meta = item.error
-        elif item.loading or item.info is None:
+            return f"{isolate(item.path.name)}\n{item.error}"      # no summary of settings it can't be exported with
+        if item.loading or item.info is None:
             meta = tr("Loading…")
         else:
             info = item.info
@@ -684,9 +758,10 @@ class MainWindow(QMainWindow):
         changed = item is not self.current
         self.current = item
         has_file = item is not None
-        for widget in (self.export_button, self.back_button, self.play_button, self.forward_button,
+        for widget in (self.back_button, self.play_button, self.forward_button,
                        self.in_button, self.out_button, self.split_button, self.cut_button, self.compare_button):
             widget.setEnabled(has_file)
+        self._show_export_state(item)
         self.remove_action.setEnabled(has_file)
         self.frame_action.setEnabled(False)      # until the file's details say it has a picture
         self._update_list_actions()
@@ -714,15 +789,24 @@ class MainWindow(QMainWindow):
         self.timeline.setDuration(info.duration or 0.0 if info else 0.0)
         self.time_label.setText(f"{format_time(self.player.position)} / {format_time(info.duration or 0 if info else 0)}")
         self.timeline.setThumbnails(item.thumbs)
-        self.timeline.setWaveform(item.waveform)
+        self.timeline.setWaveform(item.waveform, loading=item.loading)
         if info is not None and not info.has_video:
             self.view.clear(item.error or tr("Audio only: there's no picture to preview."))
         self._show_settings(item)
         self._prepare_preview_copy(item)
 
+    def _show_export_state(self, item: Optional[MediaItem]) -> None:
+        """Export is off for no file and for a file that couldn't be read, and its tooltip says why."""
+        broken = item is not None and bool(item.error)
+        self.export_button.setEnabled(item is not None and not broken)
+        self.export_button.setToolTip(
+            tr("Can't export {name}: {error}", name=isolate(item.path.name), error=item.error) if broken
+            else tr("Export the selected file (Ctrl+E)"))
+
     def _show_settings(self, item: MediaItem) -> None:
         settings, info = item.settings, item.info
         self.inspector.set_settings(settings, info.duration if info else None)
+        self.inspector.set_has_picture(info is None or info.has_video or not info.has_audio)
         edit = settings.edit
         video_out = settings.output == OUTPUT_VIDEO
         self.inspector.set_reverse_warning(
@@ -788,6 +872,8 @@ class MainWindow(QMainWindow):
     def apply_settings(self, item: MediaItem, settings: ClipSettings) -> None:
         """Set a file's settings and refresh whatever shows them (used by undo/redo too)."""
         item.settings = settings.copy()
+        if item.info is not None and item.info.has_audio and not item.info.has_video:
+            item.settings.output = OUTPUT_AUDIO      # a sound-only file has no picture to export, whatever an old undo step says
         if item.list_item is not None:
             self._show_item_text(item)
         if item is self.current:
@@ -875,7 +961,7 @@ class MainWindow(QMainWindow):
         if self.current:
             new = self.current.settings.copy()
             new.edit.keep = list(keep)
-            self.push_settings(new, tr("Cut"), final=False)
+            self.push_settings(new, trc("undo", "Cut"), final=False)
 
     def cut_at(self, action: str, t: Optional[float] = None) -> None:
         """Split, cut out ("remove") or put back ("restore") the part at `t` (default: the
@@ -1052,7 +1138,8 @@ class MainWindow(QMainWindow):
                 new = apply_to(item.settings, source.settings)
                 if item.info is not None and not item.info.has_video:
                     new.output = OUTPUT_AUDIO
-                self.undo_stack.push(SettingsCommand(self, item, item.settings, new, tr("Apply to all"), False))
+                self.undo_stack.push(SettingsCommand(self, item, item.settings, new, tr("Apply to all"), False,
+                                                     reveal=False))
         self.undo_stack.endMacro()
         self.statusBar().showMessage(ntr(len(self.items) - 1, "Copied the settings to {n} other file.",
                                          "Copied the settings to {n} other files."), 4000)
@@ -1063,6 +1150,11 @@ class MainWindow(QMainWindow):
         name, ok = QInputDialog.getText(self, tr("Save preset"), tr("Name for these settings:"))
         name = name.strip()
         if ok and name:
+            if name in self.user_presets and QMessageBox.question(
+                    self, tr("Save preset"), tr("A preset called “{name}” already exists. Replace it?", name=name),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+                return
             self.user_presets[name] = self.current.settings.to_dict()
             self.inspector.set_presets(self.user_presets)
             self._save_preferences()
@@ -1073,7 +1165,9 @@ class MainWindow(QMainWindow):
         menu.addAction(tr("Choose a folder…"), self._pick_output_folder)
         reset = menu.addAction(tr("Next to each original file"), lambda: self._set_output_folder(None))
         reset.setEnabled(self.output_dir is not None)
-        menu.exec(self.cursor().pos())
+        # Under the Change… button, whether it was clicked or pressed from the keyboard (the mouse may be anywhere).
+        button = self.inspector.change_button
+        menu.exec(button.mapToGlobal(QPoint(0, button.height())))
 
     def _pick_output_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, tr("Save exports to"), str(self.output_dir or ""))
@@ -1297,6 +1391,8 @@ class MainWindow(QMainWindow):
                                             name=isolate(item.path.name)), 4000)
             return None
         if item.error:
+            self.statusBar().showMessage(tr("Can't export {name}: {error}", name=isolate(item.path.name),
+                                            error=item.error), 6000)
             return None
         return Job(item.path, item.settings.copy(), self.output_dir, item.info)
 
@@ -1496,14 +1592,30 @@ class MainWindow(QMainWindow):
 
     # ----- keyboard, drag and drop, closing ------------------------------------
 
+    def _owns_shortcuts(self, focus: Optional[QWidget], key: int) -> bool:
+        """Whether the playback and editing keys (Space, J K L, I O, S X, B, arrows, Home) are ours while `focus`
+        has the keyboard. They are only for the places the person is not typing or operating a control: the
+        window itself, the file list, the preview, the timeline and the transport bar. Every text input, and
+        every button, check box, slider and list of the settings panel, keeps its own keys."""
+        if focus is None or focus is self:
+            return True
+        if isinstance(focus, (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)) or (
+                isinstance(focus, QComboBox) and focus.isEditable()):
+            return False
+        if focus is self.media_list or focus is self.media_list.viewport() or focus is self.view \
+                or focus is self.timeline:
+            return True
+        if self.transport.isAncestorOf(focus):
+            # A transport button keeps Space (it presses the button); the other keys are the transport's own.
+            return not (isinstance(focus, QAbstractButton) and key == Qt.Key.Key_Space)
+        return False
+
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if event.type() != QEvent.Type.KeyPress or not self.isActiveWindow() or event.modifiers() & (
                 Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier):
             return super().eventFilter(obj, event)
         focus = QApplication.focusWidget()
-        if isinstance(focus, (QLineEdit, QAbstractSpinBox)) or (isinstance(focus, QComboBox) and focus.isEditable()):
-            return super().eventFilter(obj, event)
-        if self.current is None:
+        if not self._owns_shortcuts(focus, event.key()) or self.current is None:
             return super().eventFilter(obj, event)
         key = event.key()
         if not (Qt.Key.Key_A <= key <= Qt.Key.Key_Z) and 0x41 <= event.nativeVirtualKey() <= 0x5A:
@@ -1543,7 +1655,7 @@ class MainWindow(QMainWindow):
             event.acceptProposedAction()
 
     def closeEvent(self, event) -> None:
-        if self.queue.busy:
+        if self.queue.busy and not self._restarting:
             answer = QMessageBox.question(self, tr("Exports still running"),
                                           tr("Some exports haven't finished. Stop them and quit?"))
             if answer != QMessageBox.StandardButton.Yes:

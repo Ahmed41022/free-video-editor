@@ -5,14 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, Qt, Signal
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QAbstractScrollArea, QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
 )
 
 from ..core import AUDIO_EXTENSIONS, QUALITY_PRESETS, format_time, parse_time
-from ..i18n import N_, tr
+from ..i18n import N_, join_parts, tr
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, PRESETS, ClipSettings
 from ..output import (
     DEFAULT_TARGET_MB, GIF_FPS_CHOICES, GIF_WIDTH_CHOICES, OUTPUT_FORMATS, TARGET_PRESETS, TARGET_RANGE,
@@ -44,6 +45,36 @@ def _db_text(value: float) -> str:
 def _short_name(name: str, longest: int = 24) -> str:
     """A file name that fits the panel: the start and the end of a long one, with … between."""
     return name if len(name) <= longest else f"{name[:longest // 2 - 1]}…{name[-(longest // 2):]}"
+
+
+class WheelGuard(QObject):
+    """Makes the mouse wheel scroll the settings panel instead of changing a value by accident. A combo box, spin
+    box or slider only takes the wheel while it has the keyboard focus (click it or Tab to it first); otherwise
+    the wheel is passed on to the scrolling panel."""
+
+    def __init__(self, parent: QObject):
+        super().__init__(parent)
+
+    def watch(self, root: QWidget) -> None:
+        for widget in root.findChildren(QWidget):
+            if isinstance(widget, (QComboBox, QAbstractSpinBox, QSlider)):
+                widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)       # a wheel turn must not give it the focus
+                widget.installEventFilter(self)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if event.type() != QEvent.Type.Wheel or not isinstance(obj, QWidget) or obj.hasFocus():
+            return False
+        # Hand the turn to the scrolling panel ourselves: an ignored event is not reliably passed on from here.
+        area = obj.parentWidget()
+        while area is not None and not isinstance(area, QAbstractScrollArea):
+            area = area.parentWidget()
+        if area is not None:
+            viewport = area.viewport()
+            where = viewport.mapFromGlobal(event.globalPosition().toPoint())
+            QApplication.sendEvent(viewport, QWheelEvent(
+                QPointF(where), event.globalPosition(), event.pixelDelta(), event.angleDelta(), event.buttons(),
+                event.modifiers(), event.phase(), event.inverted(), event.source()))
+        return True
 
 
 class Section(QFrame):
@@ -118,6 +149,7 @@ class Inspector(QScrollArea):
         self._dragging = False
         self._gif = False        # the format is GIF, which has its own options
         self._fits = False       # the quality is Fit in a file size
+        self._has_picture = True     # False for a sound-only file, which can only be saved as MP3
         self._size_text, self._size_is_error = "", False
         self.user_presets: dict[str, dict] = {}
 
@@ -640,7 +672,7 @@ class Inspector(QScrollArea):
         self.folder_label = QLabel()
         self.folder_label.setWordWrap(True)
         self.export_section.grid.addWidget(self.folder_label, 0, 0, 1, 2)
-        change = QPushButton(tr("Change…"))
+        change = self.change_button = QPushButton(tr("Change…"))
         change.clicked.connect(self.outputFolderRequested)
         self.export_section.grid.addWidget(change, 1, 0, 1, 2)
 
@@ -655,6 +687,8 @@ class Inspector(QScrollArea):
             # Long option names shouldn't force the panel wider than the window allows.
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             combo.setMinimumContentsLength(8)
+        self.wheel_guard = WheelGuard(self)
+        self.wheel_guard.watch(content)
         self.set_presets({})
         self.set_settings(None, None)
 
@@ -693,6 +727,13 @@ class Inspector(QScrollArea):
         """Show (or, with "", hide) a warning about the format, such as a GIF that will be big."""
         self.format_warning.setText(text)
         self.format_warning.setVisible(bool(text))
+
+    def set_has_picture(self, has_picture: bool) -> None:
+        """A file with no picture (a song) can only be saved as MP3: the Video choice is switched off."""
+        self._has_picture = has_picture
+        video_button = self.output_group.button(0)
+        video_button.setEnabled(has_picture)
+        video_button.setToolTip("" if has_picture else tr("This file has no picture, so it can only be saved as MP3"))
 
     def set_has_sound(self, has_sound: bool) -> None:
         """Remove silences needs a sound track to listen to."""
@@ -908,7 +949,8 @@ class Inspector(QScrollArea):
             self.trim_info.setText("")
         gaps = removed_parts(edit.keep, self.duration)
         if gaps:
-            shown = ", ".join(f"{format_time(a)}–{format_time(b)}" for a, b in gaps[:4])
+            # Each range is isolated, so "0:10.0–0:12.0" keeps its order inside an Arabic sentence.
+            shown = join_parts([f"{format_time(a)}–{format_time(b)}" for a, b in gaps[:4]], tr(", "))
             more = " " + tr("and {n} more", n=len(gaps) - 4) if len(gaps) > 4 else ""
             self.cut_info.setText(tr("Cut out: {parts}{more}", parts=shown, more=more))
         elif edit.keep:
@@ -953,9 +995,11 @@ class Inspector(QScrollArea):
         from ..project import apply_preset, apply_to
 
         if kind == "builtin":
-            new = apply_preset(self.settings, PRESETS[name])
+            new = apply_preset(self.settings, PRESETS[name], self._has_picture)
         else:
             new = apply_to(self.settings, ClipSettings.from_dict(self.user_presets[name]))
+            if not self._has_picture:
+                new.output = OUTPUT_AUDIO
         self.settings = new
         self.settingsEdited.emit(new.copy(), tr("Preset: {name}", name=tr(name) if kind == "builtin" else name), True)
         self._updating = True

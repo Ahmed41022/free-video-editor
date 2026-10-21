@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QObject, QPointF, QRectF, QSizeF, Qt, QUrl, Signal
+from PySide6.QtCore import QObject, QPointF, QRectF, QSizeF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor, QFont, QFontMetricsF, QImage, QMouseEvent, QPainter, QPainterPath, QPen, QTransform, QWheelEvent,
 )
@@ -18,6 +18,7 @@ from ..timing import Segment
 from . import theme
 
 ZOOM_MIN, ZOOM_MAX = 1.0, 3.0
+WHEEL_MERGE_MS = 600      # wheel turns this close together are one zoom, and one undo step
 
 
 def orient_image(image: QImage, rotate_cw: int, mirror: bool) -> QImage:
@@ -231,6 +232,7 @@ class VideoView(QWidget):
         self.canvas = False         # show the whole output frame even when it is bigger than the picture
         self._logo_cache: Optional[tuple[str, int, QImage]] = None
         self._overlay_drag: Optional[tuple[str, int, QPointF, float, float]] = None
+        self._wheel_done = QTimer(self, singleShot=True, interval=WHEEL_MERGE_MS, timeout=self.cropEditFinished.emit)
 
     # ----- state --------------------------------------------------------------
 
@@ -525,8 +527,11 @@ class VideoView(QWidget):
     def wheelEvent(self, event: QWheelEvent) -> None:
         if self.crop and not self.show_after:
             step = 0.1 if event.angleDelta().y() > 0 else -0.1
-            self.zoomChanged.emit(round(min(max(self.zoom + step, ZOOM_MIN), ZOOM_MAX), 3))
-            self.cropEditFinished.emit()
+            target = round(min(max(self.zoom + step, ZOOM_MIN), ZOOM_MAX), 3)
+            if target != self.zoom:
+                self.zoomChanged.emit(target)
+            # The zoom is finished only after the wheel has rested: a run of turns is a single undo step.
+            self._wheel_done.start()
 
     def _move_center_to(self, center: QPointF) -> None:
         fw, fh, cw, ch, _, _ = self.crop

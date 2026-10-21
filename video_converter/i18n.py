@@ -82,6 +82,16 @@ def tr(text: str, /, **fmt) -> str:
     return value.format(**fmt) if fmt else value
 
 
+def trc(context: str, text: str, /, **fmt) -> str:
+    """`text` for a particular use. English has one word for several things ("Start" a task, the "Start" time;
+    "Remove" a file from a list, "Remove" a logo), another language may need two. The translation of the
+    use is the entry `"<text>|<context>"`; without one the plain translation of `text` is used."""
+    value = _table.get(f"{text}|{context}")
+    if not isinstance(value, str):
+        return tr(text, **fmt)
+    return value.format(**fmt) if fmt else value
+
+
 # Unicode isolates: a stretch of text between FSI and PDI is laid out on its own, in the direction of its first
 # strong letter, and does not reorder the text around it.
 FSI, PDI = "⁨", "⁩"
