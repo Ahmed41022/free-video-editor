@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from video_converter import __version__
@@ -42,11 +43,11 @@ ONEDIR_EXE = ONEDIR_FOLDER / EXE_NAME
 NOTICE = ROOT / "licenses" / "FFMPEG-NOTICE.txt"
 
 # What is expected of a build, in MB (a rough guard against a runaway or a broken bundle, not a promise): the
-# portable exe, the whole folder, the installer. Tighten these once a few releases have shown the real figures.
+# portable exe, the whole folder, the installer. First measured on the 3.0.0 build: 129, 345 and 93 MB.
 SIZE_BOUNDS_MB = {
-    "onefile": (60, 450),
-    "onedir": (150, 750),
-    "installer": (60, 450),
+    "onefile": (80, 200),
+    "onedir": (230, 460),
+    "installer": (60, 140),
 }
 
 # faster-whisper and what it loads at run time: ctranslate2 (the engine and its DLLs), onnxruntime and the
@@ -74,7 +75,8 @@ DROP_BINARY_PREFIXES = ("qt6quick", "qt6qml", "qt6virtualkeyboard", "qt6pdf", "q
                         "qt6designer", "qt6charts", "qt6datavisualization", "qt6graphs", "qt6location",
                         "qt6positioning", "qt6sensors", "qt6sql", "qt6labs", "qt6test",
                         "qt6help", "qt6remoteobjects", "qt6scxml", "qt6statemachine", "qt6texttospeech",
-                        "qt6webchannel", "qt6websockets", "qt6bluetooth", "qt6nfc", "qt6serial", "qt6httpserver")
+                        "qt6webchannel", "qt6websockets", "qt6bluetooth", "qt6nfc", "qt6serial", "qt6httpserver",
+                        "qtvirtualkeyboardplugin")
 DROP_BINARY_NAMES = {
     "opengl32sw.dll",     # Qt's software OpenGL (20 MB); only Qt Quick on a PC without a GPU driver would use it
     "cudnn64_9.dll",      # NVIDIA's cuDNN stub from the CTranslate2 wheel; the captions run on the CPU
@@ -318,9 +320,11 @@ def verify(path: Path) -> None:
     check_size(kind, folder_size(exe.parent) if kind == "onedir" else exe.stat().st_size)
     with tempfile.TemporaryDirectory() as tmp:
         report = Path(tmp) / "captions-self-test.txt"
+        started = time.monotonic()
         done = subprocess.run([str(exe), "--self-test-captions", str(report)], timeout=300)
+        elapsed = time.monotonic() - started
         text = report.read_text(encoding="utf-8", errors="replace") if report.is_file() else ""
-    print(f"{exe.name} --self-test-captions: exit code {done.returncode}\n{text.strip()}")
+    print(f"{exe.name} --self-test-captions: exit code {done.returncode} after {elapsed:.1f} s\n{text.strip()}")
     if done.returncode != 0 or not text.startswith("ok"):
         sys.exit("The speech-engine self-test failed.")
 

@@ -309,7 +309,8 @@ python -m venv .venv
 loose ones (newest versions). Both builds include ffmpeg, the Qt libraries and the speech engine for automatic
 captions (faster-whisper with CTranslate2; the speech models themselves are downloaded by the app when first
 needed, not bundled). The single-file exe unpacks itself to a temporary folder every time it starts, which takes a
-few seconds; the folder build does not, so the installer packs the folder. To check that a build can load the
+few seconds; the folder build does not, so the installer packs the folder. Expected sizes (3.0.0): the portable exe
+about 130 MB, the folder about 345 MB, the installer about 95 MB. To check that a build can load the
 speech engine without opening a window, run `build_exe.py --verify "dist\Free Video Editor.exe"` (or the folder), or
 by hand `"dist\Free Video Editor.exe" --self-test-captions result.txt`: the exit code is 0 and `result.txt`
 starts with `ok`.
