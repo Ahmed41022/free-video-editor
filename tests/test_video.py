@@ -29,6 +29,7 @@ from video_converter.video import (
     plan_geometry,
     render_frame,
     render_source_frames,
+    REVERSE_BASE_BYTES,
     reverse_memory,
     reverse_warning,
     video_command,
@@ -204,6 +205,11 @@ class OutputSizeTests(unittest.TestCase):
                             self.assertLessEqual(abs(min(out_w, out_h) - exact), 1.0, (out_w, out_h))
 
 
+def held(edit, info, **kwargs):
+    """What reverse_memory counts for the frames alone, without what ffmpeg needs besides them."""
+    return reverse_memory(edit, info, **kwargs) - REVERSE_BASE_BYTES
+
+
 class ReverseMemoryTests(unittest.TestCase):
     HD = MediaInfo(duration=600.0, width=1920, height=1080, has_audio=True, fps=30.0)
     GB = 1024 ** 3
@@ -212,34 +218,34 @@ class ReverseMemoryTests(unittest.TestCase):
         self.assertEqual(reverse_memory(VideoEdit(aspect=None), self.HD), 0)
 
     def test_every_frame_is_held_at_the_exported_size(self):
-        # 10 s at 30 fps of 1920x1080 yuv420p (1.5 bytes a pixel).
+        # 10 s at 30 fps of 1920x1080, about 3 bytes a pixel (the yuv420p frame and ffmpeg's buffers around it).
         edit = VideoEdit(aspect=None, reverse=True, start=0.0, end=10.0)
-        self.assertEqual(reverse_memory(edit, self.HD), 300 * 1920 * 1080 * 3 // 2)
+        self.assertEqual(reverse_memory(edit, self.HD), 300 * 1920 * 1080 * 3 + REVERSE_BASE_BYTES)
 
     def test_the_output_size_counts_not_the_source_size(self):
-        full = reverse_memory(VideoEdit(aspect=None, reverse=True), self.HD)
-        small = reverse_memory(VideoEdit(aspect=None, reverse=True, resolution=480), self.HD)
+        full = held(VideoEdit(aspect=None, reverse=True), self.HD)
+        small = held(VideoEdit(aspect=None, reverse=True, resolution=480), self.HD)
         self.assertAlmostEqual(small / full, (854 * 480) / (1920 * 1080), places=4)
-        phone = reverse_memory(VideoEdit(aspect=(9, 16), reverse=True), self.HD)     # exported at 1080x1920
-        self.assertEqual(phone, 18000 * 1080 * 1920 * 3 // 2)
+        phone = held(VideoEdit(aspect=(9, 16), reverse=True), self.HD)     # exported at 1080x1920
+        self.assertEqual(phone, 18000 * 1080 * 1920 * 3)
 
     def test_only_the_kept_and_sped_up_length_counts(self):
-        whole = reverse_memory(VideoEdit(aspect=None, reverse=True), self.HD)
-        cut = reverse_memory(VideoEdit(aspect=None, reverse=True, keep=[(0.0, 100.0), (200.0, 300.0)]), self.HD)
+        whole = held(VideoEdit(aspect=None, reverse=True), self.HD)
+        cut = held(VideoEdit(aspect=None, reverse=True, keep=[(0.0, 100.0), (200.0, 300.0)]), self.HD)
         self.assertEqual(cut * 3, whole)
-        fast = reverse_memory(VideoEdit(aspect=None, reverse=True, speed=2.0), self.HD)
+        fast = held(VideoEdit(aspect=None, reverse=True, speed=2.0), self.HD)
         self.assertEqual(fast * 2, whole)        # the frame rate stays 30, so twice as fast means half the frames
 
     def test_a_missing_frame_rate_is_taken_as_30_and_a_missing_length_as_unknown(self):
         guessed = MediaInfo(duration=10.0, width=1920, height=1080, has_audio=True, fps=None)
         edit = VideoEdit(aspect=None, reverse=True)
-        self.assertEqual(reverse_memory(edit, guessed), 300 * 1920 * 1080 * 3 // 2)
+        self.assertEqual(held(edit, guessed), 300 * 1920 * 1080 * 3)
         self.assertEqual(reverse_memory(edit, MediaInfo(duration=None, width=1920, height=1080, fps=30.0)), 0)
 
     def test_a_joins_frame_rate_decides_the_frames_of_each_clip(self):
         edit = VideoEdit(aspect=None, reverse=True)
         info = MediaInfo(duration=10.0, width=1920, height=1080, fps=30.0)
-        self.assertEqual(reverse_memory(edit, info, fps=60.0), 2 * reverse_memory(edit, info))
+        self.assertEqual(held(edit, info, fps=60.0), 2 * held(edit, info))
 
     def test_sound_alone_is_far_smaller(self):
         edit = VideoEdit(reverse=True)

@@ -422,6 +422,7 @@ def frame_rate_hint(info: MediaInfo) -> str:
 
 DEFAULT_FPS = 30.0                     # assumed when the video doesn't say
 REVERSE_WARN_BYTES = 2 * 1024 ** 3     # more than this is worth a warning
+REVERSE_BASE_BYTES = 256 * 1024 ** 2   # what ffmpeg needs besides the frames it holds
 _SOUND_BYTES_PER_SECOND = 48000 * 2 * 4    # stereo floats, which is what the sound is reversed as
 
 
@@ -429,8 +430,10 @@ def reverse_memory(edit: VideoEdit, info: MediaInfo, fps: Optional[float] = None
     """About how many bytes ffmpeg needs to play this clip backwards, or 0 when it isn't reversed
     (or its length is unknown).
 
-    Reversing holds every frame of the result in memory, as raw yuv420p: width x height x 1.5
-    bytes each, or x 3 after a color look that works on RGB pictures (see `RGB_LOOKS`). The size is
+    Reversing holds every frame of the result in memory. Measured on real exports, ffmpeg needs about
+    3 bytes a pixel for each frame (the raw yuv420p frame is 1.5, and its buffers and the encoder's own
+    frames about as much again), or 4.5 after a color look that works on RGB pictures (see `RGB_LOOKS`),
+    plus REVERSE_BASE_BYTES for the rest of ffmpeg. The size is
     the exported one (see `plan_geometry`), the number of frames comes from
     the kept, sped-up length at `fps` (a join's frame rate; the clip's own by default, or 30 when
     unknown). A `sound_only` export holds just the sound instead."""
@@ -448,8 +451,8 @@ def reverse_memory(edit: VideoEdit, info: MediaInfo, fps: Optional[float] = None
     steady = edit_rate(edit, info)
     rate = fps or (float(steady) if steady else info.fps)
     frames = seconds * rate if rate else length * DEFAULT_FPS
-    per_pixel = 3 if edit.look in RGB_LOOKS else 1.5
-    return int(frames * geometry.out_width * geometry.out_height * per_pixel)
+    per_pixel = 4.5 if edit.look in RGB_LOOKS else 3.0
+    return int(frames * geometry.out_width * geometry.out_height * per_pixel) + REVERSE_BASE_BYTES
 
 
 def format_memory(nbytes: float) -> str:
@@ -685,13 +688,20 @@ def audio_codec_args(edit: VideoEdit, phone: bool = False, kbps: int = 0) -> lis
 
 def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[float | Fraction] = None,
                      level: Optional[str] = None, video_format: str = DEFAULT_VIDEO_FORMAT,
-                     fit: Optional[SizeFit] = None, first_pass: bool = False, lean: bool = False) -> list[str]:
+                     fit: Optional[SizeFit] = None, first_pass: bool = False, lean: bool = False,
+                     changing_rate: Optional[tuple[float, float]] = None) -> list[str]:
     """How to encode the picture at quality `crf`: with the hardware `encoder`, or on the CPU (x264, x265
     or VP9, by `video_format`). `fps` is the frame rate of the result, when known; it is always passed on
     to the encoder, which otherwise works one out from the filtered picture's time base (often 90000) and
     writes the file as the highest level there is. With a `level` (see `h264_level`) an H.264 video is
     High profile at that level, which is how a phone-safe export says what it needs; an H.265 video is
     given its level (`h265_level`) only when there is no `fps`, because x265 works it out from the rate.
+
+    `changing_rate` is (average, highest) for a picture without `fps` that keeps the changing frame rate of
+    its source (a game recording). The encoders that need a rate are told one that fits it: Intel's, which
+    has to make the picture steady, gets the average (not 30 fps, which drops half of a 60 fps recording),
+    and x265 the highest, which its level is checked against (else it works a rate of 1000 or more out of
+    the time base and refuses the level).
 
     With a `fit` the picture gets its bitrate instead of a quality: from the graphics card, or on the CPU
     in two passes (`first_pass` is the first one, which makes the notes the second needs). On the CPU, x264
@@ -707,13 +717,16 @@ def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[floa
     known = fps or (DEFAULT_FPS if kbps else None)
     rate = ["-r", _rate_text(known)] if known else []
     if encoder:
-        args = encoder_args(encoder, crf, float(fps or DEFAULT_FPS), level if codec == "h264" else None, kbps)
+        card_rate = fps or (native_rate(changing_rate[0]) if changing_rate else DEFAULT_FPS)
+        # Only H.264 gets a level here: the cards refuse an H.265 one ("Invalid Level") for a changing rate.
+        args = encoder_args(encoder, crf, float(card_rate), level if codec == "h264" else None, kbps)
         return [*args, *(rate if "-r" not in args else []), *_FASTSTART]
     number = "1" if first_pass else "2"
     bitrate = [*rate, "-b:v", f"{kbps}k"]
     if codec == "hevc":
         params = [*([f"pass={number}", f"stats={PASSLOG}.log"] if kbps else []),
-                  *([f"level-idc={level}"] if level and not fps else [])]
+                  *([f"level-idc={level}"] if level and not fps else []),
+                  *([f"fps={_rate_text(native_rate(changing_rate[1]))}"] if changing_rate and not known else [])]
         args = [*_X265, "-threads", str(ENCODER_THREADS),
                 *([*bitrate] if kbps else [*rate, "-crf", str(crf + _CRF_OFFSET[codec])]),
                 *(["-x265-params", ":".join(params)] if params else [])]
@@ -781,8 +794,9 @@ def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optio
     level = encoder_level(edit.output_format.codec, geometry.out_width, geometry.out_height, out_rate, info)
     # A file size is planned at the rate the picture has on average, even a changing one, so it is told so.
     told = out_rate or (info.fps if fit and info.fps else None)
+    changing = (info.fps, info.max_fps or info.fps) if not told and info.fps else None
     cmd += video_codec_args(edit.crf, encoder, told, level, edit.video_format, fit, first_pass,
-                            lean=big_picture(info))
+                            lean=big_picture(info), changing_rate=changing)
     if first_pass:
         return [*cmd, "-f", "null", *_TAIL, "-"]
     return [*cmd, "-map_metadata", "0", *_TAIL, str(job.output.resolve())]

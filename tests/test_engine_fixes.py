@@ -168,6 +168,22 @@ class LevelCommandTests(unittest.TestCase):
         cmd = cmd_for(VideoEdit(aspect=None, video_format="hevc"), vfr)
         self.assertIn("level-idc=5.0", after(cmd, "-x265-params"))
 
+    def test_x265_is_told_the_highest_rate_of_a_changing_one_so_it_accepts_the_level(self):
+        # Without it x265 works a rate of 1000 or more out of the time base and refuses: "frame rate is out of
+        # range for specified level".
+        cmd = cmd_for(VideoEdit(aspect=None, video_format="hevc"), info_of(1728, 1080, 60.4, max_fps=120.0))
+        self.assertEqual(after(cmd, "-x265-params").split(":"), ["level-idc=5.0", "fps=120"])
+        self.assertNotIn("-r", cmd)
+
+    def test_intel_graphics_keep_the_frames_of_a_changing_rate(self):
+        # Intel's encoder makes the picture steady at the rate it is told: 30 dropped half of a 60 fps recording.
+        vfr = info_of(1728, 1080, 60.4, max_fps=120.0)
+        for name, video_format in (("h264_qsv", "mp4"), ("hevc_qsv", "hevc")):
+            edit = VideoEdit(aspect=None, use_gpu=True, video_format=video_format)
+            cmd = video_command("ffmpeg", VideoJob(Path("in.mp4"), Path("out.mp4"), edit), vfr, encoder=name)
+            self.assertEqual(after(cmd, "-c:v"), name)
+            self.assertEqual(after(cmd, "-r"), "60.4", name)
+
     def test_h265_levels(self):
         self.assertEqual(video.h265_level(1920, 1080, 30.0), "4.0")
         self.assertEqual(video.h265_level(1920, 1080, 60.0), "4.1")
@@ -942,15 +958,27 @@ class TrimEdgeTests(unittest.TestCase):
 # ----- 17. memory for reverse -------------------------------------------------------------------------
 
 class ReverseMemoryLooksTests(unittest.TestCase):
-    def test_looks_that_work_in_rgb_need_twice_the_memory(self):
+    def test_looks_that_work_in_rgb_need_half_as_much_again_for_the_frames(self):
         info = MediaInfo(duration=10.0, width=1920, height=1080, has_audio=False, fps=30.0)
-        plain = reverse_memory(VideoEdit(aspect=None, reverse=True), info)
+        plain = reverse_memory(VideoEdit(aspect=None, reverse=True), info) - video.REVERSE_BASE_BYTES
         self.assertGreater(plain, 0)
         for look in ("warm", "cool", "vintage", "contrast"):
             with self.subTest(look=look):
-                self.assertEqual(reverse_memory(VideoEdit(aspect=None, reverse=True, look=look), info), plain * 2)
+                self.assertEqual(reverse_memory(VideoEdit(aspect=None, reverse=True, look=look), info),
+                                 plain * 3 // 2 + video.REVERSE_BASE_BYTES)
         for look in ("none", "bw"):
-            self.assertEqual(reverse_memory(VideoEdit(aspect=None, reverse=True, look=look), info), plain)
+            self.assertEqual(reverse_memory(VideoEdit(aspect=None, reverse=True, look=look), info),
+                             plain + video.REVERSE_BASE_BYTES)
+
+    def test_the_estimate_covers_what_real_reverses_used(self):
+        # Peak memory of ffmpeg measured on 5 s reverses (1080p60, 4K30, 4K30 with the Warm look): the estimate
+        # may be a little above, never far below.
+        for width, height, fps, look, measured_gb in ((1920, 1080, 60.0, "none", 1.61), (3840, 2160, 30.0, "none", 3.77),
+                                                      (3840, 2160, 30.0, "warm", 5.62)):
+            info = MediaInfo(duration=5.0, width=width, height=height, has_audio=False, fps=fps)
+            estimate = reverse_memory(VideoEdit(aspect=None, reverse=True, look=look), info) / 1e9
+            self.assertGreater(estimate, measured_gb * 0.85, (width, look))
+            self.assertLess(estimate, measured_gb * 1.5, (width, look))
 
 
 # ----- 18. fitting a size, and what is said when it can't be done ---------------------------------------

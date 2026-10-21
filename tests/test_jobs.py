@@ -10,7 +10,7 @@ from pathlib import Path
 from video_converter.core import ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media
 from video_converter.jobs import Clip, Job, JobQueue, JobState
 from video_converter.project import OUTPUT_AUDIO, ClipSettings, describe, describe_join
-from video_converter.video import VideoEdit
+from video_converter.video import REVERSE_BASE_BYTES, VideoEdit
 
 FFMPEG = find_ffmpeg()
 TIMEOUT = 10.0
@@ -933,7 +933,7 @@ class ReverseMemoryJobTests(unittest.TestCase):
 
     def test_a_reversed_job_holds_all_its_frames(self):
         job = Job(Path("a.mp4"), self.reversed_settings(), info=self.HD)
-        self.assertEqual(job.reverse_memory, 3000 * 1920 * 1080 * 3 // 2)
+        self.assertEqual(job.reverse_memory, 3000 * 1920 * 1080 * 3 + REVERSE_BASE_BYTES)
 
     def test_an_mp3_export_holds_only_the_sound(self):
         settings = self.reversed_settings()
@@ -946,13 +946,13 @@ class ReverseMemoryJobTests(unittest.TestCase):
                  Clip(Path("b.mp4"), self.reversed_settings(), self.HD),
                  Clip(Path("c.mp4"), ClipSettings(), self.HD)]
         job = Job(Path("a.mp4"), clips[0].settings, info=self.SHORT, clips=clips)
-        self.assertEqual(job.reverse_memory, 3000 * 1920 * 1080 * 3 // 2)
+        self.assertEqual(job.reverse_memory, 3000 * 1920 * 1080 * 3 + REVERSE_BASE_BYTES)
 
     def test_a_join_reverses_at_the_first_clips_frame_rate(self):
         slow = MediaInfo(duration=10.0, width=1920, height=1080, has_audio=True, fps=15.0)
         clips = [Clip(Path("a.mp4"), ClipSettings(), slow), Clip(Path("b.mp4"), self.reversed_settings(), self.SHORT)]
         job = Job(Path("a.mp4"), clips[0].settings, info=slow, clips=clips)
-        self.assertEqual(job.reverse_memory, 150 * 1920 * 1080 * 3 // 2)       # b.mp4 becomes 15 fps
+        self.assertEqual(job.reverse_memory, 150 * 1920 * 1080 * 3 + REVERSE_BASE_BYTES)       # b.mp4 becomes 15 fps
 
 
 if __name__ == "__main__":
