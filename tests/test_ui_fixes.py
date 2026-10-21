@@ -228,3 +228,277 @@ class WheelTests(WindowTestCase):
         index = combo.currentIndex()
         wheel(combo, -120)
         self.assertNotEqual(combo.currentIndex(), index)
+
+
+class UndoAcrossFilesTests(WindowTestCase):
+    def test_undo_and_redo_show_the_file_they_change(self):
+        self.load(self.first, self.second)
+        window = self.window
+        first, second = window.items
+        self.assertIs(window.current, first)
+        window.inspector.shape_group.button(2).click()           # 1:1, on the first file
+        self.assertEqual(first.settings.edit.aspect, (1, 1))
+        window.media_list.setCurrentRow(1)
+        self.assertIs(window.current, second)
+        window.undo_stack.undo()
+        self.assertIs(window.current, first, "undo changed a file that is not on show")
+        self.assertEqual(window.media_list.currentRow(), 0)
+        self.assertEqual(first.settings.edit.aspect, (9, 16))
+        self.assertEqual(window.inspector.settings.edit.aspect, (9, 16))
+        window.media_list.setCurrentRow(1)
+        window.undo_stack.redo()
+        self.assertIs(window.current, first)
+        self.assertEqual(window.inspector.settings.edit.aspect, (1, 1))
+
+    def test_a_new_edit_does_not_jump_to_another_file(self):
+        self.load(self.first, self.second)
+        window = self.window
+        window.media_list.setCurrentRow(1)
+        window.inspector.shape_group.button(2).click()
+        self.assertIs(window.current, window.items[1])
+
+    def test_apply_to_all_leaves_the_selection_alone(self):
+        self.load(self.first, self.second)
+        window = self.window
+        window.inspector.shape_group.button(2).click()
+        window.apply_to_all()
+        self.assertIs(window.current, window.items[0])
+        window.undo_stack.undo()
+        self.assertIs(window.current, window.items[0])
+
+
+class RemovingFilesTests(WindowTestCase):
+    def names(self):
+        return [item.path.name for item in self.window.items]
+
+    def listed(self):
+        window = self.window
+        return [window.media_list.item(row).text().split("\n")[0] for row in range(window.media_list.count())]
+
+    def test_removing_a_file_keeps_the_history_of_the_others(self):
+        self.load(self.first, self.second)
+        window = self.window
+        first, second = window.items
+        window.media_list.setCurrentRow(1)
+        window.inspector.shape_group.button(2).click()            # an edit of the second file
+        window.media_list.setCurrentRow(0)
+        window.remove_selected()
+        self.assertEqual(self.names(), ["second.mp4"])
+        self.assertTrue(window.undo_stack.canUndo())
+        self.assertEqual(window.undo_stack.count(), 2)
+        window.undo_stack.undo()                                    # takes the removal back
+        self.assertEqual(self.names(), ["first.mp4", "second.mp4"])
+        window.undo_stack.undo()                                    # and the edit of the second file is still there
+        self.assertEqual(second.settings.edit.aspect, (9, 16))
+
+    def test_undo_puts_the_file_back_where_it_was_with_its_settings(self):
+        self.load(self.first, self.second)
+        window = self.window
+        first, second = window.items
+        window.inspector.shape_group.button(2).click()
+        thumbs = len(first.thumbs)
+        self.assertGreater(thumbs, 0)
+        window.remove_selected()
+        self.assertEqual(self.names(), ["second.mp4"])
+        self.assertEqual(self.listed(), ["second.mp4"])
+        self.assertIs(window.current, second)
+        window.undo_stack.undo()
+        self.assertEqual(self.names(), ["first.mp4", "second.mp4"])
+        self.assertEqual(self.listed(), ["first.mp4", "second.mp4"])
+        self.assertIs(window.items[0], first)
+        self.assertEqual(first.settings.edit.aspect, (1, 1))
+        self.assertEqual(len(first.thumbs), thumbs)
+        self.assertIs(window.current, first)
+        self.assertEqual(window.inspector.settings.edit.aspect, (1, 1))
+        window.undo_stack.redo()
+        self.assertEqual(self.names(), ["second.mp4"])
+        self.assertIs(window.current, second)
+
+    def test_removing_the_last_file_and_bringing_it_back(self):
+        self.load(self.first)
+        window = self.window
+        window.remove_selected()
+        self.assertEqual(window.items, [])
+        self.assertIsNone(window.current)
+        self.assertFalse(window.export_button.isEnabled())
+        window.undo_stack.undo()
+        self.assertEqual(self.names(), ["first.mp4"])
+        self.assertIs(window.current, window.items[0])
+        self.assertTrue(window.export_button.isEnabled())
+
+    def test_several_selected_files_are_removed_and_restored_in_order(self):
+        third = self.tmp / "third.mp4"
+        make_video(third, seconds=1)
+        self.load(self.first, self.second, third)
+        window = self.window
+        window.media_list.item(0).setSelected(True)
+        window.media_list.item(2).setSelected(True)
+        window.remove_selected()
+        self.assertEqual(self.names(), ["second.mp4"])
+        window.undo_stack.undo()
+        self.assertEqual(self.names(), ["first.mp4", "second.mp4", "third.mp4"])
+        self.assertEqual(self.listed(), ["first.mp4", "second.mp4", "third.mp4"])
+
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class AudioOnlyTests(WindowTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.song = cls.tmp / "song.mp3"
+        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=duration=1",
+                        str(cls.song)], check=True)
+
+    def test_the_video_choice_is_off_for_a_song(self):
+        self.load(self.song)
+        inspector = self.window.inspector
+        video, audio = inspector.output_group.button(0), inspector.output_group.button(1)
+        self.assertEqual(self.window.current.settings.output, OUTPUT_AUDIO)
+        self.assertFalse(video.isEnabled())
+        self.assertTrue(video.toolTip())
+        self.assertTrue(audio.isEnabled())
+        self.load(self.first)
+        self.window.media_list.setCurrentRow(1)
+        self.assertTrue(video.isEnabled(), "a video must be able to choose Video")
+        self.assertEqual(video.toolTip(), "")
+
+    def test_a_preset_keeps_a_song_an_mp3(self):
+        from video_converter.project import PRESETS, apply_preset, ClipSettings
+        names = list(PRESETS)
+        self.assertEqual(apply_preset(ClipSettings(), PRESETS[names[1]], has_picture=False).output, OUTPUT_AUDIO)
+        self.assertEqual(apply_preset(ClipSettings(), PRESETS[names[1]]).output, OUTPUT_VIDEO)
+        self.load(self.song)
+        box = self.window.inspector.preset_box
+        box.setCurrentIndex(box.findData(("builtin", names[1])))
+        self.assertEqual(self.window.current.settings.output, OUTPUT_AUDIO)
+        job = self.window._make_job(self.window.current)
+        self.assertEqual(job.settings.output, OUTPUT_AUDIO)
+
+    def test_undo_never_turns_a_song_into_a_video_export(self):
+        from video_converter.project import ClipSettings
+        from video_converter.ui.main_window import SettingsCommand
+        self.load(self.song)
+        window = self.window
+        item = window.current
+        # An edit made before the file had finished loading remembers the output the file had by default: video.
+        early = ClipSettings()
+        self.assertEqual(early.output, OUTPUT_VIDEO)
+        later = early.copy()
+        later.audio_quality = "320 kbps" if early.audio_quality != "320 kbps" else "128 kbps"
+        window.undo_stack.push(SettingsCommand(window, item, early, later, "early edit", mergeable=False))
+        window.undo_stack.undo()
+        self.assertEqual(item.settings.output, OUTPUT_AUDIO)
+        window.undo_stack.redo()
+        self.assertEqual(item.settings.output, OUTPUT_AUDIO)
+
+
+class BrokenFileTests(WindowTestCase):
+    def setUp(self):
+        super().setUp()
+        self.broken = self.tmp / "broken.mp4"
+        self.broken.write_bytes(b"this is not a video at all" * 20)
+
+    def test_export_is_off_for_a_file_that_cannot_be_read_and_says_why(self):
+        self.load(self.broken)
+        window = self.window
+        item = window.current
+        self.assertTrue(item.error)
+        self.assertFalse(window.export_button.isEnabled())
+        self.assertIn("Can't export broken.mp4", window.export_button.toolTip())
+        window.export_current()
+        self.assertEqual(window.queue.jobs, [])
+        self.assertIn("Can't export broken.mp4", window.statusBar().currentMessage())
+        self.assertIn(item.error, window.statusBar().currentMessage())
+
+    def test_export_is_on_again_for_a_good_file(self):
+        self.load(self.broken, self.first)
+        window = self.window
+        window.media_list.setCurrentRow(1)
+        self.assertTrue(window.export_button.isEnabled())
+        self.assertEqual(window.export_button.toolTip(), "Export the selected file (Ctrl+E)")
+        window.media_list.setCurrentRow(0)
+        self.assertFalse(window.export_button.isEnabled())
+
+    def test_a_row_that_cannot_be_read_has_no_settings_summary(self):
+        self.load(self.broken, self.first)
+        broken, good = (item.list_item.text() for item in self.window.items)
+        self.assertNotIn("MP4", broken)
+        self.assertNotIn("original shape", broken)
+        self.assertIn("MP4", good)
+        self.assertEqual(len(broken.splitlines()), 2)
+
+    def test_files_that_are_not_media_are_not_added(self):
+        notes = self.tmp / "notes.txt"
+        notes.write_text("hello")
+        photo = self.tmp / "photo.jpg"
+        photo.write_bytes(b"\xff\xd8\xff")
+        window = self.window
+        self.assertEqual(window.add_paths([notes, photo]), 0)
+        self.assertEqual(window.items, [])
+        message = window.statusBar().currentMessage()
+        self.assertIn("notes.txt", message)
+        self.assertIn("photo.jpg", message)
+        self.assertEqual(window.add_paths([self.first, notes]), 1)
+        self.assertEqual([i.path.name for i in window.items], ["first.mp4"])
+        self.assertIn("notes.txt", window.statusBar().currentMessage())
+        self.assertIn("Added 1 file", window.statusBar().currentMessage())
+
+
+class QueuePanelTests(unittest.TestCase):
+    def setUp(self):
+        from video_converter.jobs import JobQueue
+        from video_converter.ui.queue_panel import QueueBridge, QueuePanel
+        self.queue = JobQueue("ffmpeg")
+        self.panel = QueuePanel(self.queue, QueueBridge())
+        self.addCleanup(self.panel.deleteLater)
+
+    def job(self, state):
+        from video_converter.jobs import Job
+        from video_converter.project import ClipSettings
+        job = Job(Path("clip.mp4"), ClipSettings())
+        job.state = state
+        self.queue.jobs.append(job)
+        return job
+
+    def test_an_update_that_arrives_after_clear_finished_does_not_bring_the_row_back(self):
+        from video_converter.jobs import JobState
+        job = self.job(JobState.DONE)
+        self.panel.on_job_updated(job)
+        self.assertEqual(len(self.panel.rows), 1)
+        self.panel.clear_finished()                 # the worker's last update is still waiting in the event queue
+        self.assertEqual(self.panel.rows, {})
+        self.panel.on_job_updated(job)              # ...and now it is delivered
+        self.assertEqual(self.panel.rows, {})
+        pump(0.1)
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.assertEqual(self.panel.list_layout.count(), 1)          # only the stretch
+        self.assertEqual(self.queue.jobs, [])
+
+    def test_a_job_still_in_the_queue_gets_its_row(self):
+        from video_converter.jobs import JobState
+        job = self.job(JobState.QUEUED)
+        self.panel.on_job_updated(job)
+        self.assertIn(job.id, self.panel.rows)
+
+    def test_the_progress_bars_line_up_whatever_buttons_a_row_shows(self):
+        from PySide6.QtWidgets import QWidget, QVBoxLayout
+        from video_converter.jobs import JobState
+        from video_converter.ui.queue_panel import JobRow
+        holder = QWidget()
+        self.addCleanup(holder.deleteLater)
+        layout = QVBoxLayout(holder)
+        rows = []
+        for state in (JobState.RUNNING, JobState.FAILED, JobState.DONE, JobState.CANCELLED):
+            job = self.job(state)
+            job.error = "boom"
+            row = JobRow(job)
+            layout.addWidget(row)
+            rows.append(row)
+        holder.resize(900, 400)
+        holder.show()
+        pump(0.3)
+        spans = {(row.bar.x(), row.bar.width()) for row in rows}
+        self.assertEqual(len(spans), 1, spans)
+        shown = {name: getattr(rows[0], name).isVisible() for name in ("cancel_button", "details_button")}
+        self.assertTrue(shown["cancel_button"])
+        self.assertFalse(shown["details_button"])

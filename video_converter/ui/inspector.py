@@ -149,6 +149,7 @@ class Inspector(QScrollArea):
         self._dragging = False
         self._gif = False        # the format is GIF, which has its own options
         self._fits = False       # the quality is Fit in a file size
+        self._has_picture = True     # False for a sound-only file, which can only be saved as MP3
         self._size_text, self._size_is_error = "", False
         self.user_presets: dict[str, dict] = {}
 
@@ -727,6 +728,13 @@ class Inspector(QScrollArea):
         self.format_warning.setText(text)
         self.format_warning.setVisible(bool(text))
 
+    def set_has_picture(self, has_picture: bool) -> None:
+        """A file with no picture (a song) can only be saved as MP3: the Video choice is switched off."""
+        self._has_picture = has_picture
+        video_button = self.output_group.button(0)
+        video_button.setEnabled(has_picture)
+        video_button.setToolTip("" if has_picture else tr("This file has no picture, so it can only be saved as MP3"))
+
     def set_has_sound(self, has_sound: bool) -> None:
         """Remove silences needs a sound track to listen to."""
         self.silence_button.setEnabled(has_sound)
@@ -986,9 +994,11 @@ class Inspector(QScrollArea):
         from ..project import apply_preset, apply_to
 
         if kind == "builtin":
-            new = apply_preset(self.settings, PRESETS[name])
+            new = apply_preset(self.settings, PRESETS[name], self._has_picture)
         else:
             new = apply_to(self.settings, ClipSettings.from_dict(self.user_presets[name]))
+            if not self._has_picture:
+                new.output = OUTPUT_AUDIO
         self.settings = new
         self.settingsEdited.emit(new.copy(), tr("Preset: {name}", name=tr(name) if kind == "builtin" else name), True)
         self._updating = True

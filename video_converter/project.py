@@ -217,8 +217,9 @@ PRESETS: dict[str, dict[str, Any]] = {
 }
 
 
-def apply_preset(settings: ClipSettings, values: dict[str, Any]) -> ClipSettings:
-    """Return a copy of `settings` with a preset's values applied."""
+def apply_preset(settings: ClipSettings, values: dict[str, Any], has_picture: bool = True) -> ClipSettings:
+    """Return a copy of `settings` with a preset's values applied. A file with no picture (`has_picture` False)
+    stays an MP3 export: there is no video to make from it, whatever the preset says."""
     result = settings.copy()
     for key, value in values.items():
         if key == "output":
@@ -229,6 +230,8 @@ def apply_preset(settings: ClipSettings, values: dict[str, Any]) -> ClipSettings
             setattr(result.edit, key, value)
         else:
             raise KeyError(f"Unknown preset setting: {key}")
+    if not has_picture:
+        result.output = OUTPUT_AUDIO
     return result
 
 

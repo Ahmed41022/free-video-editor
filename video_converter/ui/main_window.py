@@ -87,11 +87,13 @@ class SettingsCommand(QUndoCommand):
     MERGE_ID = 1001
 
     def __init__(self, window: "MainWindow", item: MediaItem, before: ClipSettings, after: ClipSettings,
-                 label: str, mergeable: bool):
+                 label: str, mergeable: bool, reveal: bool = True):
         super().__init__(label)
         self.window, self.item = window, item
         self.before, self.after = before.copy(), after.copy()
         self.mergeable = mergeable
+        self.reveal = reveal            # undo and redo select the file they changed, so the change is seen
+        self._pushed = False            # the first redo is the edit itself, on the file already shown
 
     def id(self) -> int:
         return self.MERGE_ID if self.mergeable else -1
@@ -105,9 +107,14 @@ class SettingsCommand(QUndoCommand):
 
     def redo(self) -> None:
         self.window.apply_settings(self.item, self.after)
+        if self._pushed and self.reveal:
+            self.window.reveal(self.item)
+        self._pushed = True
 
     def undo(self) -> None:
         self.window.apply_settings(self.item, self.before)
+        if self.reveal:
+            self.window.reveal(self.item)
 
 
 class CaptionsFileCommand(QUndoCommand):
@@ -117,12 +124,32 @@ class CaptionsFileCommand(QUndoCommand):
         super().__init__(label)
         self.window, self.item, self.path = window, item, path
         self.before, self.after = before, after
+        self._pushed = False
 
     def redo(self) -> None:
         self._write(self.after)
+        if self._pushed:
+            self.window.reveal(self.item)
+        self._pushed = True
 
     def undo(self) -> None:
         self._write(self.before)
+        self.window.reveal(self.item)
+
+
+class RemoveFilesCommand(QUndoCommand):
+    """Taking files out of the list, which undo puts back: each at the row it was in, with its settings and
+    thumbnails (the items themselves are kept)."""
+
+    def __init__(self, window: "MainWindow", entries: list[tuple[int, MediaItem]], label: str):
+        super().__init__(label)
+        self.window, self.entries = window, sorted(entries, key=lambda entry: entry[0])
+
+    def redo(self) -> None:
+        self.window.take_items([item for _row, item in self.entries])
+
+    def undo(self) -> None:
+        self.window.restore_items(self.entries)
 
     def _write(self, data: bytes) -> None:
         try:
@@ -545,11 +572,12 @@ class MainWindow(QMainWindow):
     def add_paths(self, paths: list[Path]) -> int:
         """Add files (and the videos and audio files inside any folders). Returns how many were new."""
         files: list[Path] = []
+        skipped: list[Path] = []          # files dropped or chosen that are not a video or audio file
         for path in paths:
             if path.is_dir():
                 files.extend(sorted(p for p in path.iterdir() if p.is_file() and is_media_file(p)))
             elif path.is_file():
-                files.append(path)
+                (files if is_media_file(path) else skipped).append(path)
         known = {item.path.resolve() for item in self.items}
         added = 0
         for path in files:
@@ -564,11 +592,20 @@ class MainWindow(QMainWindow):
             self.media_list.addItem(item.list_item)
             self.loader.submit(self._load_item, item)
             added += 1
+        note = ""
+        if skipped:
+            names = ", ".join(isolate(p.name) for p in skipped[:3])
+            more = " " + tr("and {n} more", n=len(skipped) - 3) if len(skipped) > 3 else ""
+            note = tr("Skipped, not video or audio: {names}{more}", names=names, more=more)
         if added:
             self._update_list_actions()
-            self.statusBar().showMessage(ntr(added, "Added {n} file.", "Added {n} files."), 4000)
+            self.statusBar().showMessage(
+                " ".join(filter(None, [ntr(added, "Added {n} file.", "Added {n} files."), note])),
+                8000 if note else 4000)
             if self.current is None:
                 self.media_list.setCurrentRow(len(self.items) - added)
+        elif skipped:
+            self.statusBar().showMessage(note, 8000)
         elif paths:
             self.statusBar().showMessage(tr("No new video or audio files there."), 4000)
         return added
@@ -593,18 +630,40 @@ class MainWindow(QMainWindow):
             self.items = moved
 
     def remove_selected(self) -> None:
-        row = self.media_list.currentRow()
-        item = self._item_at(row)
-        if item is None:
-            return
-        self.items.remove(item)
-        self.media_list.takeItem(row)
-        self._drop_preview_copy(item)
-        self.undo_stack.clear()   # undo steps may refer to the removed file
+        """Take the selected files (or the current one) out of the list. It is an undoable step, so the history
+        of the other files is kept and Undo brings the files back."""
+        rows = sorted({self.media_list.row(selected) for selected in self.media_list.selectedItems()})
+        entries = [(row, item) for row in (rows or [self.media_list.currentRow()])
+                   if (item := self._item_at(row)) is not None]
+        if entries:
+            self.undo_stack.push(RemoveFilesCommand(self, entries, tr("Remove from list")))
+
+    def take_items(self, items: list[MediaItem]) -> None:
+        """Take `items` out of the list (the redo of RemoveFilesCommand). The last row goes first, so the
+        selection never lands on a file that is about to go too."""
+        first_row = min(self.media_list.row(item.list_item) for item in items)
+        for item in sorted(items, key=lambda i: self.media_list.row(i.list_item), reverse=True):
+            self.items.remove(item)
+            self.media_list.takeItem(self.media_list.row(item.list_item))
+            self._drop_preview_copy(item)
         self._update_list_actions()
-        if item is self.current:
+        if self.current in items:
             self.current = None
-            self.select(self.items[min(row, len(self.items) - 1)] if self.items else None)
+            self.select(self.items[min(first_row, len(self.items) - 1)] if self.items else None)
+
+    def restore_items(self, entries: list[tuple[int, MediaItem]]) -> None:
+        """Put removed files back, each at the row it had (the undo of RemoveFilesCommand), and show the first."""
+        ordered = sorted(entries, key=lambda entry: entry[0])
+        for row, item in ordered:
+            self.items.insert(min(row, len(self.items)), item)
+            self.media_list.insertItem(min(row, self.media_list.count()), item.list_item)
+        self._update_list_actions()
+        self.media_list.setCurrentRow(self.items.index(ordered[0][1]))
+
+    def reveal(self, item: MediaItem) -> None:
+        """Select `item` in the list, so that a change undo or redo made to it is seen."""
+        if item is not self.current and item in self.items:
+            self.media_list.setCurrentRow(self.items.index(item))
 
     def _media_menu(self, point) -> None:
         if self.media_list.itemAt(point) is None:
@@ -620,8 +679,8 @@ class MainWindow(QMainWindow):
 
     def _item_text(self, item: MediaItem) -> str:
         if item.error:
-            meta = item.error
-        elif item.loading or item.info is None:
+            return f"{isolate(item.path.name)}\n{item.error}"      # no summary of settings it can't be exported with
+        if item.loading or item.info is None:
             meta = tr("Loading…")
         else:
             info = item.info
@@ -671,9 +730,10 @@ class MainWindow(QMainWindow):
         changed = item is not self.current
         self.current = item
         has_file = item is not None
-        for widget in (self.export_button, self.back_button, self.play_button, self.forward_button,
+        for widget in (self.back_button, self.play_button, self.forward_button,
                        self.in_button, self.out_button, self.split_button, self.cut_button, self.compare_button):
             widget.setEnabled(has_file)
+        self._show_export_state(item)
         self.remove_action.setEnabled(has_file)
         self.frame_action.setEnabled(False)      # until the file's details say it has a picture
         self._update_list_actions()
@@ -707,9 +767,18 @@ class MainWindow(QMainWindow):
         self._show_settings(item)
         self._prepare_preview_copy(item)
 
+    def _show_export_state(self, item: Optional[MediaItem]) -> None:
+        """Export is off for no file and for a file that couldn't be read, and its tooltip says why."""
+        broken = item is not None and bool(item.error)
+        self.export_button.setEnabled(item is not None and not broken)
+        self.export_button.setToolTip(
+            tr("Can't export {name}: {error}", name=isolate(item.path.name), error=item.error) if broken
+            else tr("Export the selected file (Ctrl+E)"))
+
     def _show_settings(self, item: MediaItem) -> None:
         settings, info = item.settings, item.info
         self.inspector.set_settings(settings, info.duration if info else None)
+        self.inspector.set_has_picture(info is None or info.has_video or not info.has_audio)
         edit = settings.edit
         video_out = settings.output == OUTPUT_VIDEO
         self.inspector.set_reverse_warning(
@@ -775,6 +844,8 @@ class MainWindow(QMainWindow):
     def apply_settings(self, item: MediaItem, settings: ClipSettings) -> None:
         """Set a file's settings and refresh whatever shows them (used by undo/redo too)."""
         item.settings = settings.copy()
+        if item.info is not None and item.info.has_audio and not item.info.has_video:
+            item.settings.output = OUTPUT_AUDIO      # a sound-only file has no picture to export, whatever an old undo step says
         if item.list_item is not None:
             self._show_item_text(item)
         if item is self.current:
@@ -1030,7 +1101,8 @@ class MainWindow(QMainWindow):
                 new = apply_to(item.settings, source.settings)
                 if item.info is not None and not item.info.has_video:
                     new.output = OUTPUT_AUDIO
-                self.undo_stack.push(SettingsCommand(self, item, item.settings, new, tr("Apply to all"), False))
+                self.undo_stack.push(SettingsCommand(self, item, item.settings, new, tr("Apply to all"), False,
+                                                     reveal=False))
         self.undo_stack.endMacro()
         self.statusBar().showMessage(ntr(len(self.items) - 1, "Copied the settings to {n} other file.",
                                          "Copied the settings to {n} other files."), 4000)
@@ -1275,6 +1347,8 @@ class MainWindow(QMainWindow):
                                             name=isolate(item.path.name)), 4000)
             return None
         if item.error:
+            self.statusBar().showMessage(tr("Can't export {name}: {error}", name=isolate(item.path.name),
+                                            error=item.error), 6000)
             return None
         return Job(item.path, item.settings.copy(), self.output_dir, item.info)
 
