@@ -411,6 +411,16 @@ class BrokenFileTests(WindowTestCase):
         self.assertIn("Can't export broken.mp4", window.statusBar().currentMessage())
         self.assertIn(item.error, window.statusBar().currentMessage())
 
+    def test_export_all_names_the_file_it_left_out(self):
+        self.load(self.broken, self.first)
+        window = self.window
+        window.export_all()
+        self.assertEqual(len(window.queue.jobs), 1)
+        message = window.statusBar().currentMessage()
+        self.assertIn("Added 1 export to the queue.", message)
+        self.assertIn("Left out 1 file that is still loading or can't be read:", message)
+        self.assertIn("broken.mp4", message)
+
     def test_export_is_on_again_for_a_good_file(self):
         self.load(self.broken, self.first)
         window = self.window
@@ -558,6 +568,26 @@ class TimelineTextTests(unittest.TestCase):
         timeline.setWaveform([], loading=True)
         timeline.clear()
         self.assertEqual(timeline.wave_message(), "No sound")
+
+    def test_the_thumbnails_and_the_waveform_fill_the_track_from_its_left_edge(self):
+        from PySide6.QtGui import QColor, QPixmap
+        from video_converter.ui import theme
+        from video_converter.ui.timeline import RULER_H, THUMBS_H, WAVE_H, Timeline
+        timeline = Timeline()
+        self.addCleanup(timeline.deleteLater)
+        timeline.resize(800, 160)
+        timeline.setDuration(10.0)          # a ruler with many labels, the last one near the right edge
+        red = QPixmap(80, 46)
+        red.fill(QColor("red"))
+        timeline.setThumbnails([red] * 12)
+        timeline.setWaveform([1.0] * 600)
+        image = timeline.grab().toImage()
+        left, width = int(timeline.track_left), int(timeline.track_width)
+        thumbs_y, wave_y = RULER_H + THUMBS_H // 2, RULER_H + THUMBS_H + 4 + WAVE_H // 2
+        accent = QColor(theme.colors()["accent"])
+        for x in (left + 4, left + width // 4, left + width // 2, left + width - 4):
+            self.assertEqual(image.pixelColor(x, thumbs_y).name(), "#ff0000", f"no thumbnail at x={x}")
+            self.assertEqual(image.pixelColor(x, wave_y).name(), accent.name(), f"no waveform at x={x}")
 
     def test_the_timeline_texts_are_translated(self):
         from video_converter.ui.timeline import Timeline

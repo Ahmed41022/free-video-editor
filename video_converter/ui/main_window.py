@@ -1617,11 +1617,22 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(tr("Exporting {name}…", name=isolate(self.current.path.name)), 4000)
 
     def export_all(self) -> None:
-        jobs = [job for job in (self._make_job(item) for item in list(self.items)) if job]
+        jobs, left_out = [], []
+        for item in list(self.items):
+            job = self._make_job(item)
+            if job:
+                jobs.append(job)
+            else:
+                left_out.append(item)
         count = len(self._queue_jobs(jobs))
-        if count:
-            self.statusBar().showMessage(ntr(count, "Added {n} export to the queue.",
-                                             "Added {n} exports to the queue."), 4000)
+        parts = [ntr(count, "Added {n} export to the queue.", "Added {n} exports to the queue.")] if count else []
+        # A single file left out on its own already has _make_job's message; otherwise say which ones were.
+        if left_out and (count or len(left_out) > 1):
+            names = join_parts([item.path.name for item in left_out[:3]] + (["…"] if len(left_out) > 3 else []))
+            parts.append(ntr(len(left_out), "Left out {n} file that is still loading or can't be read: {names}",
+                             "Left out {n} files that are still loading or can't be read: {names}", names=names))
+        if parts:
+            self.statusBar().showMessage(" ".join(parts), 8000 if left_out else 4000)
 
     def join_clips(self) -> None:
         """Export the selected files (or all of them, if one or none is selected) as one file,

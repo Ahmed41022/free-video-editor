@@ -317,8 +317,8 @@ class Timeline(QWidget):
             x = self._x(t)
             p.drawLine(QPointF(x, RULER_H - 5), QPointF(x, RULER_H - 1))
             label = format_time(t)
-            left = ruler_label_left(x, metrics.horizontalAdvance(label), self.width())
-            p.drawText(QRectF(left, 0, 80, RULER_H - 3), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            label_left = ruler_label_left(x, metrics.horizontalAdvance(label), self.width())
+            p.drawText(QRectF(label_left, 0, 80, RULER_H - 3), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                        label)
             t += step
 
