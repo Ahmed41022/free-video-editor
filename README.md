@@ -5,8 +5,9 @@
 A Windows video editor that reshapes, crops, cuts and joins videos into new MP4s, for example to fit a phone
 screen for Stories, Reels, TikTok or Shorts, changes their speed, adds fades, adjusts and steadies the picture,
 and turns videos into MP3 audio.
-Everything runs locally on your computer; no files are uploaded anywhere. The only thing the app ever asks the
-internet for is whether a newer version exists, once a day (you can turn that off).
+Everything runs on your computer, and no files are ever uploaded. The app only goes online for an optional
+once-a-day check for a newer version (you can turn it off) and, if you use automatic captions, a one-time
+download of the speech model. "Report a problem" opens your web browser on the project's GitHub page.
 
 ![Free Video Editor editing a landscape video into a 9:16 phone video](docs/screenshot.png)
 
@@ -18,9 +19,12 @@ Get either file from the [latest release](https://github.com/Ahmed41022/free-vid
   rights needed, or choose all users), adds a Start menu entry, optionally a desktop shortcut, and an
   "Open with Free Video Editor" entry for video and audio files. It doesn't change which app opens your files by
   default. Remove it from Windows **Settings → Apps**.
-- **`FreeVideoEditor.exe`**: the portable version. Double-click it; nothing to install.
+- **`FreeVideoEditor.exe`**: the portable version. Double-click it; nothing to install. It is one file that
+  unpacks itself to a temporary folder each time it starts, so it takes a few seconds longer to open (the
+  installer unpacks everything once, so the installed app opens faster).
 
-Everything the app needs is built in either way.
+Everything the app needs is built in either way. The installed program lists the licenses of the software
+it includes in Start menu → Free Video Editor → **Licenses**; they are also in [licenses/](licenses/).
 
 **Install with winget** (once the listing is approved in the Windows Package Manager):
 `winget install AhmedRagab.FreeVideoEditor`. The manifests are in [packaging/winget](packaging/winget/README.md).
@@ -91,8 +95,8 @@ and so is the app: see **Arabic interface** below.
 - **Automatic captions**: *Make captions automatically…* under **Text and logo → Subtitles** listens to the
   speech and writes it down as captions, in Arabic, English, French, Spanish, German, Turkish, Hindi, Urdu and
   many other languages (or *Detect automatically*), optionally *translated to English*. It runs entirely on your
-  PC: the first time you use an accuracy level its speech model is downloaded once (Fast 75 MB, Balanced 141 MB,
-  Accurate 464 MB), and after that no internet is needed. The captions are saved next to the video as `name.srt`,
+  PC: the first time you use an accuracy level its speech model is downloaded once from Hugging Face (Fast 75 MB,
+  Balanced 141 MB, Accurate 464 MB), and after that no internet is needed. The captions are saved next to the video as `name.srt`,
   burned in, and can be fixed in **Edit captions…** (words, times, delete). See [Automatic captions](#automatic-captions)
 - A thin track under the timeline shows when each text is on screen
 
@@ -203,7 +207,7 @@ automatically…**. Choose the language (or leave it on *Detect automatically*) 
 
 - **Everything runs on your PC.** The speech models are not part of the program. The first time you pick a level,
   its model is downloaded once from Hugging Face (the official `Systran/faster-whisper-*` repositories, over
-  HTTPS, and nothing else is ever contacted) into `%LOCALAPPDATA%\Free Video Editor\models`. Each file is checked
+  HTTPS; no other site is contacted for this) into `%LOCALAPPDATA%\Free Video Editor\models`. Each file is checked
   against a SHA-256 hash that is built into the program, a download can be cancelled and picks up where it
   stopped, and a model that doesn't check out is never used. After that, captions work with no internet. Delete
   that folder to get the space back.
@@ -296,19 +300,26 @@ python -m video_converter clip.mp4 --video square --frame-at 0:12 --frame-out fr
 
 ```bash
 python -m venv .venv
-.venv\Scripts\pip install -r requirements-build.txt
-.venv\Scripts\python build_exe.py
+.venv\Scripts\pip install -r requirements-build.lock
+.venv\Scripts\python build_exe.py            # the portable exe: dist\Free Video Editor.exe
+.venv\Scripts\python build_exe.py --onedir   # a folder: dist\Free Video Editor\
 ```
 
-The result is `dist\Free Video Editor.exe`, a single file that includes ffmpeg, the Qt libraries and the speech
-engine for automatic captions (faster-whisper with CTranslate2; the speech models themselves are downloaded by
-the app when first needed, not bundled). To check that a built exe can load the engine without opening a window,
-run `"dist\Free Video Editor.exe" --self-test-captions result.txt`: the exit code is 0 and `result.txt` starts with `ok`.
+`requirements-build.lock` has the exact versions the releases are built with; `requirements-build.txt` lists the
+loose ones (newest versions). Both builds include ffmpeg, the Qt libraries and the speech engine for automatic
+captions (faster-whisper with CTranslate2; the speech models themselves are downloaded by the app when first
+needed, not bundled). The single-file exe unpacks itself to a temporary folder every time it starts, which takes a
+few seconds; the folder build does not, so the installer packs the folder. Expected sizes (3.0.0): the portable exe
+about 130 MB, the folder about 345 MB, the installer about 95 MB. To check that a build can load the
+speech engine without opening a window, run `build_exe.py --verify "dist\Free Video Editor.exe"` (or the folder), or
+by hand `"dist\Free Video Editor.exe" --self-test-captions result.txt`: the exit code is 0 and `result.txt`
+starts with `ok`.
 
-To also build the installer, install [Inno Setup 6](https://jrsoftware.org/isdl.php) and add `--installer`:
-`.venv\Scripts\python build_exe.py --installer` writes `dist\FreeVideoEditor-Setup-<version>.exe`
+To also build the installer, install [Inno Setup 6](https://jrsoftware.org/isdl.php) and run
+`.venv\Scripts\python build_exe.py --onedir --installer`, which writes `dist\FreeVideoEditor-Setup-<version>.exe`
 (`ISCC.exe` is found on `PATH`, in its usual install folder, or through the `ISCC` environment variable).
-The installer script is `installer\FreeVideoEditor.iss`.
+The installer script is `installer\FreeVideoEditor.iss`. The build refuses to run when
+`licenses\FFMPEG-NOTICE.txt` no longer describes the ffmpeg it would bundle.
 
 ## Running the tests
 
@@ -327,15 +338,23 @@ GitHub runs the whole suite on every push and pull request (`.github/workflows/t
 
 Bump `__version__` in `video_converter/__init__.py`, then push a tag with the same number, e.g. `v2.3.2`.
 The **Release** workflow (`.github/workflows/release.yml`) refuses a tag that doesn't match `__version__`, runs
-the tests, builds the exe and the installer, and creates a **draft** release with both files and their
-SHA-256 checksums. Nothing is published until you publish the draft. If a release for the tag already exists,
-the files are uploaded to it instead. Running the workflow by hand from the Actions tab only builds the files
-and attaches them to the run.
+the tests, builds the portable exe and the installer, checks both (the speech-engine self-test, the file sizes, and a
+silent install, start and uninstall of the installer), and creates a **draft** release with both files and their
+SHA-256 checksums. Nothing is published until you publish the draft. If a draft for the tag already exists, the
+files are uploaded to it; the workflow fails rather than replace the files of a release that is already published.
+Running the workflow by hand from the Actions tab only builds the files and attaches them to the run. The actions it
+uses are pinned to commit SHAs, and Dependabot proposes updates.
 
 ## License
 
 Free Video Editor is released under the [MIT License](LICENSE).
-The Windows exe bundles FFmpeg (GPLv3) and Qt for Python (LGPLv3); see [licenses/](licenses/).
-The automatic captions feature adds faster-whisper, CTranslate2 (MIT), PyAV (BSD, with its own FFmpeg libraries),
-ONNX Runtime (MIT), tokenizers (Apache 2.0) and NumPy (BSD); the Whisper models (MIT) are downloaded on request
-and not bundled. See [licenses/SPEECH-NOTICE.txt](licenses/SPEECH-NOTICE.txt).
+The Windows builds bundle FFmpeg (GPLv3, as a separate program), Qt for Python (LGPLv3) and the speech engine
+for automatic captions (faster-whisper, CTranslate2, ONNX Runtime, tokenizers, NumPy; MIT, BSD and Apache 2.0). The
+Whisper models (MIT) are downloaded on request and not bundled. The license texts, the exact versions, links to the
+source code (including a written offer for the FFmpeg source) and the notes on replacing the Qt libraries are in
+[licenses/](licenses/): [FFMPEG-NOTICE.txt](licenses/FFMPEG-NOTICE.txt), [QT-NOTICE.txt](licenses/QT-NOTICE.txt)
+and [SPEECH-NOTICE.txt](licenses/SPEECH-NOTICE.txt). The installer shows them and adds a **Licenses** shortcut.
+
+## Security
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md).

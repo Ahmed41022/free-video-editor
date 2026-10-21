@@ -1,7 +1,11 @@
 name: Release
 
-# Pushing a v* tag builds the exe and the installer and prepares a DRAFT release; nothing is ever published
-# automatically. Run it by hand (workflow_dispatch) to just build both files and get them as workflow artifacts.
+# Pushing a v* tag builds the portable exe and the installer and prepares a DRAFT release; nothing is ever published
+# automatically. Run it by hand (workflow_dispatch, on any branch) to just build both files and get them as workflow
+# artifacts: that never creates or changes a release.
+#
+# The installer packs the one-folder build (unpacked once, when it is installed); the portable exe is the one-file
+# build. Both are checked here: the speech-engine self-test must pass and the sizes must be in the expected range.
 on:
   push:
     tags: ["v*"]
@@ -17,7 +21,9 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Read the app version and compare it with the tag
         id: v
         shell: bash
@@ -44,23 +50,31 @@ jobs:
   build:
     needs: [check-version, test]
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       VERSION: ${{ needs.check-version.outputs.version }}
       PYTHONUTF8: "1"
       # "true" switches on SignPath code signing (set the repository variable SIGNING_ENABLED); anything else = unsigned.
       SIGNING_ENABLED: ${{ vars.SIGNING_ENABLED }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: requirements*.txt
+          cache-dependency-path: requirements-build.lock
 
-      - name: Install requirements
-        run: python -m pip install -r requirements-build.txt
+      # The exact versions the build was tested with (requirements-build.txt lists the loose ones).
+      - name: Install the pinned build requirements
+        run: python -m pip install -r requirements-build.lock
+
+      # Fails when the ffmpeg that would be bundled is not the one licenses/FFMPEG-NOTICE.txt describes, before
+      # anything is built (the notice carries the GPL source offer, so it has to stay true).
+      - name: Check that the ffmpeg notice matches the bundled ffmpeg
+        run: python build_exe.py --check-ffmpeg
 
       - name: Make sure Inno Setup is available
         shell: pwsh
@@ -86,28 +100,40 @@ jobs:
             echo "Code signing is off (repository variable SIGNING_ENABLED is not \"true\"); building unsigned files."
           fi
 
-      - name: Build the exe and the installer
-        if: env.SIGNING_ENABLED != 'true'
-        run: python build_exe.py --installer
+      - name: Build the portable exe (one file)
+        run: python build_exe.py --onefile
 
-      # Signing path: build the exe, sign it, then build the installer around the signed exe, then sign the installer.
-      - name: Build the exe (to be signed)
+      - name: Check the portable exe (speech-engine self-test and size)
+        run: python build_exe.py --verify "dist/Free Video Editor.exe"
+
+      - name: Build the program folder for the installer (one folder)
+        run: python build_exe.py --onedir
+
+      - name: Check the program folder (speech-engine self-test and size)
+        run: python build_exe.py --verify "dist/Free Video Editor"
+
+      # Signing path: sign both exes (one request), then build the installer around the signed one, then sign it.
+      - name: Stage the exes for signing
         if: env.SIGNING_ENABLED == 'true'
-        run: python build_exe.py
+        shell: bash
+        run: |
+          mkdir sign-in
+          cp "dist/Free Video Editor.exe" sign-in/portable.exe
+          cp "dist/Free Video Editor/Free Video Editor.exe" sign-in/app.exe
 
-      - name: Upload the unsigned exe
+      - name: Upload the unsigned exes
         if: env.SIGNING_ENABLED == 'true'
         id: unsigned-exe
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: unsigned-exe
-          path: dist/Free Video Editor.exe
+          name: unsigned-exes
+          path: sign-in/*
           if-no-files-found: error
           retention-days: 1
 
-      - name: Sign the exe with SignPath
+      - name: Sign the exes with SignPath
         if: env.SIGNING_ENABLED == 'true'
-        uses: signpath/github-action-submit-signing-request@v3
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -115,19 +141,22 @@ jobs:
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
           github-artifact-id: ${{ steps.unsigned-exe.outputs.artifact-id }}
           wait-for-completion: true
-          output-artifact-directory: signed/exe
+          output-artifact-directory: signed/exes
 
-      - name: Use the signed exe and build the installer
+      - name: Use the signed exes
         if: env.SIGNING_ENABLED == 'true'
         shell: bash
         run: |
-          cp "signed/exe/Free Video Editor.exe" "dist/Free Video Editor.exe"
-          python build_exe.py --installer-only
+          cp signed/exes/portable.exe "dist/Free Video Editor.exe"
+          cp signed/exes/app.exe "dist/Free Video Editor/Free Video Editor.exe"
+
+      - name: Build the installer
+        run: python build_exe.py --installer-only
 
       - name: Upload the unsigned installer
         if: env.SIGNING_ENABLED == 'true'
         id: unsigned-installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unsigned-installer
           path: dist/FreeVideoEditor-Setup-${{ env.VERSION }}.exe
@@ -136,7 +165,7 @@ jobs:
 
       - name: Sign the installer with SignPath
         if: env.SIGNING_ENABLED == 'true'
-        uses: signpath/github-action-submit-signing-request@v3
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -146,16 +175,20 @@ jobs:
           wait-for-completion: true
           output-artifact-directory: signed/installer
 
-      - name: Use the signed installer and check both signatures
+      - name: Use the signed installer and check the signatures
         if: env.SIGNING_ENABLED == 'true'
         shell: pwsh
         run: |
           Copy-Item "signed/installer/FreeVideoEditor-Setup-$env:VERSION.exe" "dist/FreeVideoEditor-Setup-$env:VERSION.exe" -Force
-          foreach ($f in @("dist/Free Video Editor.exe", "dist/FreeVideoEditor-Setup-$env:VERSION.exe")) {
+          foreach ($f in @("dist/Free Video Editor.exe", "dist/Free Video Editor/Free Video Editor.exe", "dist/FreeVideoEditor-Setup-$env:VERSION.exe")) {
             $sig = Get-AuthenticodeSignature -FilePath $f
             "$f : $($sig.Status) ($($sig.SignerCertificate.Subject))"
             if ($sig.Status -ne "Valid") { throw "$f is not validly signed: $($sig.Status)" }
           }
+
+      - name: Check the installer size
+        shell: bash
+        run: python -c "import build_exe; build_exe.check_size('installer', build_exe.DIST.joinpath('FreeVideoEditor-Setup-${VERSION}.exe').stat().st_size)"
 
       - name: Collect the release files
         shell: bash
@@ -167,20 +200,57 @@ jobs:
           sha256sum *.exe | tee SHA256SUMS.txt
           ls -l
 
-      - name: Check that the exe starts
+      - name: Check that the portable exe starts
         shell: pwsh
         run: |
           $p = Start-Process -FilePath "release\FreeVideoEditor.exe" -PassThru
-          Start-Sleep -Seconds 15
+          Start-Sleep -Seconds 20
           if ($p.HasExited) { throw "FreeVideoEditor.exe exited early with code $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force
-          "FreeVideoEditor.exe stayed running for 15 seconds"
+          "FreeVideoEditor.exe stayed running for 20 seconds"
 
-      - uses: actions/upload-artifact@v4
+      # Installs the real installer (per user, silently), checks what it put on disk, runs the installed program
+      # and its self-test, then uninstalls it.
+      - name: Install the installer, run the installed program, uninstall
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path "release/FreeVideoEditor-Setup-$env:VERSION.exe").Path
+          $dir = Join-Path $env:RUNNER_TEMP "fve-installed"
+          $log = Join-Path $env:RUNNER_TEMP "setup.log"
+          $p = Start-Process -FilePath $setup -Wait -PassThru -ArgumentList @("/VERYSILENT", "/CURRENTUSER", "/NORESTART", "/SUPPRESSMSGBOXES", "/DIR=`"$dir`"", "/LOG=`"$log`"")
+          if ($p.ExitCode -ne 0) { Get-Content $log -Tail 40; throw "The installer exited with code $($p.ExitCode)" }
+          foreach ($f in @("Free Video Editor.exe", "_internal", "LICENSE", "licenses\FFMPEG-NOTICE.txt", "licenses\QT-NOTICE.txt",
+                           "licenses\SPEECH-NOTICE.txt", "licenses\GPL-3.0.txt", "licenses\LGPL-3.0.txt", "unins000.exe")) {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "The installer did not install $f" }
+          }
+          $lnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Free Video Editor\Licenses.lnk"
+          if (-not (Test-Path $lnk)) { throw "The Start menu shortcut Licenses is missing" }
+          python build_exe.py --verify $dir
+          if ($LASTEXITCODE -ne 0) { throw "The installed program failed its check" }
+          $app = Start-Process -FilePath (Join-Path $dir "Free Video Editor.exe") -PassThru
+          Start-Sleep -Seconds 15
+          if ($app.HasExited) { throw "The installed program exited early with code $($app.ExitCode)" }
+          Stop-Process -Id $app.Id -Force
+          "The installed program stayed running for 15 seconds"
+          Start-Process -FilePath (Join-Path $dir "unins000.exe") -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -Wait
+          $deadline = (Get-Date).AddSeconds(120)
+          while ((Test-Path (Join-Path $dir "Free Video Editor.exe")) -and ((Get-Date) -lt $deadline)) { Start-Sleep -Seconds 2 }
+          if (Test-Path (Join-Path $dir "Free Video Editor.exe")) { throw "The uninstaller left the program behind" }
+          "Installed, started and uninstalled cleanly"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: FreeVideoEditor-${{ needs.check-version.outputs.version }}
           path: release/*
           if-no-files-found: error
+
+      # What is inside each build, to look at when the sizes change.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundle-contents-${{ needs.check-version.outputs.version }}
+          path: build/bundle-contents-*.txt
+          if-no-files-found: warn
+          retention-days: 14
 
   draft-release:
     if: github.ref_type == 'tag'
@@ -194,12 +264,12 @@ jobs:
       VERSION: ${{ needs.check-version.outputs.version }}
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: FreeVideoEditor-${{ needs.check-version.outputs.version }}
           path: release
 
-      - name: Create the draft release, or add the files to the existing one
+      - name: Create the draft release, or add the files to an existing draft
         shell: bash
         run: |
           cd release
@@ -212,7 +282,13 @@ jobs:
           } > checksums.md
           files=("FreeVideoEditor.exe" "FreeVideoEditor-Setup-${VERSION}.exe")
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "Release $TAG already exists; uploading the files to it."
+            # People may already have downloaded the files of a published release: never replace them.
+            if [ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "::error::Release $TAG is already published. Its files are not replaced; publish a new version instead."
+              cat checksums.md
+              exit 1
+            fi
+            echo "Draft release $TAG already exists; uploading the files to it."
             gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
             body="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
             if ! grep -q '^### SHA-256' <<< "$body"; then
@@ -227,7 +303,7 @@ jobs:
               echo "Free Video Editor ${VERSION}"
               echo
               echo "- \`FreeVideoEditor-Setup-${VERSION}.exe\`: installer (per-user, no admin needed)"
-              echo "- \`FreeVideoEditor.exe\`: portable single file, nothing to install"
+              echo "- \`FreeVideoEditor.exe\`: portable single file, nothing to install (takes a few seconds longer to open)"
               echo
               cat checksums.md
             } > notes.md

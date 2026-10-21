@@ -1,18 +1,46 @@
-The Windows build of Free Video Editor includes unmodified libraries from Qt for Python
-(PySide6, https://www.qt.io/qt-for-python), which provides the user interface and video playback.
+Qt and PySide6 in Free Video Editor
+===================================
 
-Qt and PySide6 are used under the GNU Lesser General Public License, version 3 (LGPLv3):
-https://www.gnu.org/licenses/lgpl-3.0.html
+Free Video Editor's window, controls and video player are built with Qt for Python (PySide6) 6.12.0, which
+uses the Qt framework 6.12.0 (https://www.qt.io/qt-for-python). The Windows builds include the Qt libraries
+UNMODIFIED, exactly as published on PyPI (packages PySide6-Essentials, PySide6-Addons and shiboken6, all 6.12.0).
 
-The Qt Multimedia module ships its own FFmpeg libraries (avcodec, avformat, avutil, swresample,
-swscale), which are also used under the LGPL.
+License: GNU Lesser General Public License, version 3 (LGPLv3). The full text is in LGPL-3.0.txt, next to
+this file; it builds on the GNU General Public License version 3 (GPL-3.0.txt). Qt for Python is available
+under LGPL-3.0, GPL-2.0 or GPL-3.0, and Qt itself under LGPL-3.0 and others; this program uses the LGPLv3
+terms. Qt is a trademark of The Qt Company Ltd.
 
-Source code:
-  Qt:       https://download.qt.io/official_releases/qt/
-  PySide6:  https://code.qt.io/cgit/pyside/pyside-setup.git/
-  FFmpeg:   https://ffmpeg.org/download.html#get-sources
+Qt Multimedia ships FFmpeg libraries (avcodec, avformat, avutil, swresample, swscale; FFmpeg n9.0.1, built
+with the minimal LGPL configuration, without GPL parts). They are used under the GNU Lesser General Public
+License, version 2.1 or later (LGPL-2.1.txt).
 
-You may replace these libraries with your own builds: they are separate DLL files inside the
-application's folder (or inside the temporary folder the single-file exe unpacks to at startup).
+Source code
+-----------
+  Qt 6.12.0:        https://download.qt.io/official_releases/qt/6.12/6.12.0/single/
+                    https://code.qt.io/cgit/qt/qtbase.git , https://code.qt.io/cgit/qt/qtmultimedia.git
+  PySide6 6.12.0:   https://code.qt.io/cgit/pyside/pyside-setup.git/  (tag v6.12.0)
+                    https://pypi.org/project/PySide6/6.12.0/#files
+  FFmpeg n9.0.1:    https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz  (tag n9.0.1 at https://github.com/FFmpeg/FFmpeg)
+
+Replacing the Qt libraries (relinking)
+--------------------------------------
+LGPL lets you run this program with your own build of Qt. You can do that in two ways:
+
+  1. In the installed version (made by the setup program), Qt is not merged into the program: every Qt
+     library is a separate .dll or .pyd file in the application folder (inside the "_internal" folder next
+     to "Free Video Editor.exe": Qt6*.dll, PySide6\*.pyd, shiboken6\*.dll). Replace them with compatible
+     builds of the same Qt for Python version and start the program again.
+
+  2. Free Video Editor is free software under the MIT License and its complete source code is at
+     https://github.com/Ahmed41022/free-video-editor . You can rebuild the program with a different
+     version of PySide6 yourself:
+         pip install -r requirements-build.txt     (then install the PySide6 you want in place of the pinned one)
+         python build_exe.py --onedir              (folder build, as the installer uses)
+         python build_exe.py                       (single-file exe)
+     The program is plain Python code that uses only the public PySide6 API, so it needs no other changes.
+
+The portable single-file "FreeVideoEditor.exe" contains the same Qt files packed into one archive; it unpacks
+them to a temporary folder when it starts. To use your own Qt libraries, use the installed version or rebuild
+the program as described in step 2.
 
 Free Video Editor's own source code is licensed separately under the MIT License (see LICENSE).

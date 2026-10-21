@@ -1,16 +1,74 @@
-The Windows executable of Free Video Editor includes an unmodified copy of FFmpeg
-(https://ffmpeg.org), which it runs as a separate program to convert files.
+FFmpeg in Free Video Editor
+===========================
 
-That FFmpeg build is a static "essentials" build by gyan.dev, distributed through
-the imageio-ffmpeg package (https://github.com/imageio/imageio-ffmpeg). It is
-licensed under the GNU General Public License, version 3 (GPLv3):
-https://www.gnu.org/licenses/gpl-3.0.html
+Bundled FFmpeg version: 7.1-essentials_build-www.gyan.dev
 
-Source code:
-  FFmpeg:              https://ffmpeg.org/download.html#get-sources
-  Build configuration: https://www.gyan.dev/ffmpeg/builds/
+Free Video Editor includes an UNMODIFIED copy of FFmpeg (ffmpeg.exe), which it runs as a separate program
+to read and convert media files. FFmpeg is a trademark of Fabrice Bellard, originator of the FFmpeg project.
 
-FFmpeg is a trademark of Fabrice Bellard, originator of the FFmpeg project.
+The build
+---------
+  Program:        ffmpeg version 7.1-essentials_build-www.gyan.dev   (Copyright (c) 2000-2024 the FFmpeg developers)
+  Built by:       Gyan Doshi (gyan.dev), with gcc 14.2.0 (MSYS2); static 64-bit Windows build, "essentials" edition
+  Distributed by: the imageio-ffmpeg package (https://github.com/imageio/imageio-ffmpeg), file ffmpeg-win-x86_64-v7.1.exe
+  FFmpeg commit:  b08d7969c5 (https://github.com/FFmpeg/FFmpeg/commit/b08d7969c5), release 7.1
 
-Free Video Editor's own source code is licensed separately under the MIT License
-(see LICENSE).
+License: GNU General Public License, version 3 (GPLv3). The build is configured with --enable-gpl
+--enable-version3 because it includes GPL libraries (below), so the whole ffmpeg.exe is GPLv3.
+The full text is in GPL-3.0.txt, next to this file. Some of the libraries are LGPL (LGPL-3.0.txt and
+LGPL-2.1.txt are included as well).
+
+The configure line of this build (as reported by "ffmpeg -version"):
+  --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig
+  --enable-iconv --enable-gnutls --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-zlib
+  --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-sdl2 --enable-libwebp
+  --enable-libx264 --enable-libx265 --enable-libxvid --enable-libaom --enable-libopenjpeg --enable-libvpx
+  --enable-mediafoundation --enable-libass --enable-libfreetype --enable-libfribidi --enable-libharfbuzz
+  --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid
+  --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec
+  --enable-nvenc --enable-vaapi --enable-libgme --enable-libopenmpt --enable-libopencore-amrwb
+  --enable-libmp3lame --enable-libtheora --enable-libvo-amrwbenc --enable-libgsm --enable-libopencore-amrnb
+  --enable-libopus --enable-libspeex --enable-libvorbis --enable-librubberband
+
+Libraries compiled into ffmpeg.exe, by license
+----------------------------------------------
+GPL (version 2 or later; they make the whole program GPL):
+  x264 (H.264 encoder)             https://www.videolan.org/developers/x264.html
+  x265 (H.265/HEVC encoder)        https://www.videolan.org/developers/x265.html
+  Xvid (MPEG-4 encoder)            https://www.xvid.com
+  VidStab (video stabilization)    https://github.com/georgmartius/vid.stab
+  Rubber Band (time stretching)    https://breakfastquay.com/rubberband/
+LGPL (version 2.1 or later, or 3):
+  LAME (libmp3lame, MP3 encoder)   https://lame.sourceforge.io
+  libgme, libssh, GnuTLS, GMP, FriBidi, libiconv, libzmq (LGPL 3 with a static-linking exception)
+Other free licenses (BSD, MIT, Apache 2.0, ISC, MPL, zlib and similar):
+  libaom, libvpx, libopus, libvorbis, libtheora, libspeex, libwebp, OpenJPEG, libvmaf, libass, HarfBuzz,
+  FreeType, libxml2, zimg, OpenMPT, OpenCORE AMR (libopencore-amrnb/-amrwb), VO-AMRWBENC, libgsm,
+  libsrt (MPL 2.0), SDL2, zlib, bzip2, liblzma, Intel oneVPL, AMD AMF and NVIDIA ffnvcodec headers.
+
+Corresponding source code
+-------------------------
+  FFmpeg 7.1 source code (the exact release):
+      https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz     (all releases: https://ffmpeg.org/download.html#releases)
+      https://github.com/FFmpeg/FFmpeg/tree/n7.1
+  Gyan Doshi's build, the release it was taken from and how it is made:
+      https://www.gyan.dev/ffmpeg/builds/
+      https://github.com/GyanD/codexffmpeg/releases/tag/7.1
+  The libraries above come from the MSYS2 / MinGW-w64 packages that build used. Their source packages are
+  listed at https://packages.msys2.org and https://github.com/msys2/MINGW-packages, and each project's own
+  site is linked above.
+
+Written offer
+-------------
+For three years from the date you received this program, the author will provide the complete corresponding
+source code for the FFmpeg build above and for the GPL and LGPL libraries in it, on request. Ask by opening an
+issue at
+
+    https://github.com/Ahmed41022/free-video-editor/issues
+
+(title it "FFmpeg source request"). The source is provided free of charge, apart from the cost of any
+physical medium you ask for.
+
+Free Video Editor's own source code is a separate work, licensed under the MIT License (see LICENSE). It
+only starts ffmpeg.exe as a separate program and talks to it through command-line arguments; it does not link
+to FFmpeg's libraries.
