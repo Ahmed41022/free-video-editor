@@ -313,6 +313,30 @@ class AboutTests(unittest.TestCase):
     def test_the_version_is_2_4_0(self):
         self.assertEqual(__version__, "3.0.0")
 
+    def test_it_links_to_the_licenses_folder_in_the_repository_when_run_from_source(self):
+        folder = diagnostics.licenses_folder()
+        self.assertIsNotNone(folder)
+        self.assertTrue((folder / "THIRD-PARTY-NOTICES.txt").is_file())
+        text = diagnostics.about_text()
+        self.assertIn("Third-party licenses", text)
+        self.assertIn(folder.as_uri(), text)
+
+    def test_the_licenses_folder_is_found_next_to_an_installed_program_or_in_the_portable_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            installed = Path(tmp) / "installed"
+            (installed / "licenses").mkdir(parents=True)
+            bundle = Path(tmp) / "bundle"
+            (bundle / "licenses").mkdir(parents=True)
+            with mock.patch.object(sys, "frozen", True, create=True),                     mock.patch.object(sys, "executable", str(installed / "app.exe")),                     mock.patch.object(sys, "_MEIPASS", str(bundle), create=True):
+                self.assertEqual(diagnostics.licenses_folder(), (installed / "licenses").resolve())
+            with mock.patch.object(sys, "frozen", True, create=True),                     mock.patch.object(sys, "executable", str(Path(tmp) / "elsewhere" / "app.exe")),                     mock.patch.object(sys, "_MEIPASS", str(bundle), create=True):
+                self.assertEqual(diagnostics.licenses_folder(), bundle / "licenses")
+
+    def test_without_a_licenses_folder_the_link_goes_to_the_one_on_github(self):
+        with mock.patch.object(diagnostics, "licenses_folder", return_value=None):
+            self.assertEqual(diagnostics.licenses_link(), REPO_URL + "/tree/main/licenses")
+            self.assertIn(REPO_URL + "/tree/main/licenses", diagnostics.about_text())
+
 
 class SystemInfoTests(unittest.TestCase):
     def test_the_lines_say_which_encoders_were_found(self):

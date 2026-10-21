@@ -55,13 +55,13 @@ KEPT_LATIN = re.compile(
 def translatable(text: str) -> bool:
     """Whether `text` has words that need translating (not just numbers, units, symbols and brand names)."""
     text = PLACEHOLDER.sub("", text)
-    text = re.sub(r"<[^>]*>|https?://\S+", "", text)
+    text = re.sub(r"<[^>]*>|https?://[^\s<]+", "", text)
     return bool(re.search(r"[A-Za-z]{2,}", KEPT_LATIN.sub("", text)))
 
 
 def english_words(text: str, extra: tuple[str, ...] = ()) -> list[str]:
     """The English words left in a text that is meant to be Arabic (brand names, units and `extra` aside)."""
-    text = re.sub(r"<[^>]*>|https?://\S+|'[^']*'|\b(?:h:)?mm?:ss\b", " ", text)    # also what the user typed, and m:ss
+    text = re.sub(r"<[^>]*>|https?://[^\s<]+|'[^']*'|\b(?:h:)?mm?:ss\b", " ", text)    # also what the user typed, and m:ss
     for name in sorted((*extra, APP_NAME), key=len, reverse=True):
         if name:
             text = text.replace(name, " ")

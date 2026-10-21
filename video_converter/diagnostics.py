@@ -233,6 +233,32 @@ def issue_url(system: list[str], log_lines: list[str], limit: int = URL_LIMIT) -
 
 # ----- About ----------------------------------------------------------------------
 
+LICENSES_URL = f"{REPO_URL}/tree/main/licenses"
+
+
+def licenses_folder() -> Optional[Path]:
+    """The folder with the license texts and third-party notices that ship with the app: next to the program
+    when it was installed, inside the bundle for the portable single file, the repository's own folder when run
+    from source. None if it can't be found."""
+    if getattr(sys, "frozen", False):
+        candidates = [Path(sys.executable).resolve().parent / "licenses"]
+        bundle = getattr(sys, "_MEIPASS", None)
+        if bundle:
+            candidates.append(Path(bundle) / "licenses")
+    else:
+        candidates = [Path(__file__).resolve().parent.parent / "licenses"]
+    for folder in candidates:
+        if folder.is_dir():
+            return folder
+    return None
+
+
+def licenses_link() -> str:
+    """Where the About box's "Third-party licenses" link goes: the local folder, or the one on GitHub."""
+    folder = licenses_folder()
+    return folder.as_uri() if folder is not None else LICENSES_URL
+
+
 def about_text() -> str:
     """The About box's text, as HTML for a Qt label."""
     return (f"<h3>{APP_NAME} {__version__}</h3>"
@@ -240,7 +266,8 @@ def about_text() -> str:
                        "color and stabilize them, or turn them into MP3s. Everything happens on your "
                        "computer.") + "</p>"
             "<p>" + tr("Released under the MIT License.") + "<br>"
-            + tr("Source code and help: {link}", link=f'<a href="{REPO_URL}">{REPO_URL}</a>') + "</p>"
+            + tr("Source code and help: {link}", link=f'<a href="{REPO_URL}">{REPO_URL}</a>') + "<br>"
+            + f'<a href="{licenses_link()}">' + tr("Third-party licenses") + "</a></p>"
             "<p>" + tr("Built with {ffmpeg} for all the video work and {qt} (PySide6) for the window. "
                        "Thanks to everyone who makes them.",
                        ffmpeg='<a href="https://ffmpeg.org">FFmpeg</a>',
