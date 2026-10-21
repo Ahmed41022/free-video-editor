@@ -1133,6 +1133,24 @@ class LanguageSettingTests(WindowCase):
         self.assertEqual(args[-1], "a.mp4")
         self.assertTrue((Path(folder) / "video_converter" / "i18n.py").is_file())
 
+    def test_restart_really_starts_a_program(self):
+        # Through the real QProcess, not a stand-in: PySide6 6.12's startDetached() returns a bool where older
+        # versions returned (bool, pid), and unpacking it broke every language change in 3.0.0.
+        from video_converter.ui import language
+
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "started"
+            code = f"open({str(marker)!r}, 'w').close()"
+            with mock.patch.object(language, "restart_command", return_value=(sys.executable, ["-c", code], tmp)):
+                self.assertTrue(language.restart([]))
+            deadline = time.monotonic() + 30
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(marker.exists(), "the program was not started")
+        with mock.patch.object(language, "restart_command", return_value=("C:/no/such/program.exe", [], tmp)), \
+                self.assertLogs("video_converter.ui.language", "ERROR"):
+            self.assertFalse(language.restart([]))
+
     def test_the_arabic_file_ships_with_the_package(self):
         self.assertTrue(AR_FILE.is_file())
         self.assertIn("--add-data", (PACKAGE.parent / "build_exe.py").read_text(encoding="utf-8"))

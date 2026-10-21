@@ -84,7 +84,9 @@ def restart(paths: list[str]) -> bool:
     environment = QProcessEnvironment.systemEnvironment()
     environment.insert("PYINSTALLER_RESET_ENVIRONMENT", "1")      # a one-file exe must unpack itself again
     process.setProcessEnvironment(environment)
-    started, _pid = process.startDetached()
+    # PySide6 6.12 returns just whether it started; older versions returned (started, pid).
+    result = process.startDetached()
+    started = bool(result[0] if isinstance(result, tuple) else result)
     if not started:
         log.error("Couldn't restart the app: %s", process.errorString())
     return started
