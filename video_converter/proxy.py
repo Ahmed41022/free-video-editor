@@ -9,25 +9,40 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from pathlib import Path
 from typing import Callable, Hashable, Optional
 
 from .core import ConversionCancelled, ConversionError, MediaInfo, remove_file, run_ffmpeg
+from .procs import DaemonPool
 
 log = logging.getLogger(__name__)
 
 BIG_PIXELS = 1920 * 1080       # a video with more pixels than a 1080p one gets a preview copy...
 BIG_KBPS = 20_000              # ...and so does one with more than about 20 megabits per second
+HIGH_FPS = 35                  # a picture of at least HIGH_FPS_PIXELS that runs faster than this gets a copy too...
+HIGH_FPS_PIXELS = 1280 * 720 - 1     # (about 720p: game recordings at 60 or 120 fps cost the player far too much)
+PROXY_FPS = 30                 # ...which is made at no more than this many frames per second
 PROXY_LONG_SIDE = 960          # the copy's longer side, in pixels
 KEYFRAME_SECONDS = 1           # a keyframe this often, so jumping around the timeline is quick
 
 
+def frame_rate_of(info: MediaInfo) -> float:
+    """How fast the picture can run: its average rate, or for a variable-rate video (a game recording that
+    averages 58 fps but declares 120) the highest rate it declares."""
+    rate = info.fps or 0.0
+    if info.variable_frame_rate and info.max_fps:
+        rate = max(rate, info.max_fps)
+    return rate
+
+
 def needs_proxy(info: Optional[MediaInfo]) -> bool:
-    """Whether a video is big enough to be worth a preview copy."""
+    """Whether a video is big enough, or fast enough, to be worth a preview copy."""
     if info is None or not info.has_video or not info.duration:
         return False
-    return info.width * info.height > BIG_PIXELS or (info.bitrate or 0) > BIG_KBPS
+    pixels = info.width * info.height
+    return (pixels > BIG_PIXELS or (info.bitrate or 0) > BIG_KBPS
+            or (pixels > HIGH_FPS_PIXELS and frame_rate_of(info) > HIGH_FPS))
 
 
 def proxy_size(width: int, height: int) -> tuple[int, int]:
@@ -41,10 +56,12 @@ def proxy_command(ffmpeg: str, source: Path, output: Path, info: MediaInfo) -> l
     """Make a small, fast-to-decode copy: ultrafast x264, a keyframe every second, and the sound as AAC.
     ffmpeg turns phone videos upright while reading them, so the copy has no rotation to apply."""
     width, height = proxy_size(info.width, info.height)
+    # Cap the rate before shrinking, so the scaler only sees the frames that are kept.
+    slow_down = f"fps={PROXY_FPS}," if frame_rate_of(info) > PROXY_FPS + 0.5 else ""
     return [
         ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", str(source),
         "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
-        "-vf", f"scale={width}:{height}:flags=fast_bilinear,setsar=1",
+        "-vf", f"{slow_down}scale={width}:{height}:flags=fast_bilinear,setsar=1",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p",
         "-force_key_frames", f"expr:gte(t,n_forced*{KEYFRAME_SECONDS})",
         "-c:a", "aac", "-b:a", "96k", "-ac", "2",
@@ -63,7 +80,7 @@ class ProxyMaker:
                  on_progress: Callable[[Hashable, float], None], on_done: Callable[[Hashable, Optional[Path], str], None]):
         self.ffmpeg, self.folder = ffmpeg, folder
         self.on_progress, self.on_done = on_progress, on_done
-        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="preview-copy")
+        self._pool = DaemonPool(1, "preview-copy")      # daemon threads: a copy still running never holds up quitting
         self._lock = threading.Lock()
         self._jobs: dict[Hashable, tuple[Future, threading.Event]] = {}
         self._closed = False

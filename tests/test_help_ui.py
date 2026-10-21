@@ -181,10 +181,13 @@ class WindowTests(unittest.TestCase):
         from video_converter.ui.main_window import MainWindow
         ini = self.tmp / f"{self.id().split('.')[-1]}.ini"
         with mock.patch.object(gpu, "detect_encoders", return_value=encoders), \
-                mock.patch.object(gpu, "gpu_name", return_value=name):
+                mock.patch.object(gpu, "gpu_name", return_value=name), \
+                mock.patch.dict(os.environ, {"VIDEO_EDITOR_NO_GPU_SEARCH": "0"}):       # the stand-in card, not a real one
             window = MainWindow(FFMPEG, QSettings(str(ini), QSettings.Format.IniFormat))
             window.resize(1000, 700)
             window.show()
+            self.assertIsNone(window.gpu_encoders, "the search starts later, not when the window opens")
+            window.start_gpu_search()
             pump(5, lambda: window.gpu_encoders is not None)
         self.addCleanup(self.close, window)
         return window

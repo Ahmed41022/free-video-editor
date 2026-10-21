@@ -83,6 +83,7 @@
   "Can't join {name}: {error}": "لا يمكن دمج {name}: {error}",
   "Can't play this file: {error}": "لا يمكن تشغيل هذا الملف: {error}",
   "Can't read this file ({error})": "لا يمكن قراءة هذا الملف ({error})",
+  "Reading this file took too long": "استغرقت قراءة هذا الملف وقتًا طويلًا جدًا",
   "Cancel": "إلغاء",
   "Cancel all": "إلغاء الكل",
   "Cancelled": "ملغي",

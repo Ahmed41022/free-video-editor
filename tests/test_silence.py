@@ -584,7 +584,58 @@ class DialogTests(unittest.TestCase):
         self.gate.set()
         dialog.reject()
         self.assertTrue(cancel.is_set())
+        dialog._thread.join(TIMEOUT)            # it ends in the background; the window did not wait for it
         self.assertFalse(dialog._thread.is_alive())
+
+    def test_closing_does_not_wait_for_ffmpeg_to_stop(self):
+        started, finish = threading.Event(), threading.Event()
+
+        def stubborn(ffmpeg, source, db, length, duration, cancel=None):
+            started.set()
+            finish.wait(TIMEOUT)               # ffmpeg takes its time to stop
+            raise ConversionCancelled()
+
+        with mock.patch.object(self.module, "detect_silences", side_effect=stubborn):
+            dialog = self.open()
+            self.assertTrue(started.wait(TIMEOUT))
+            before = time.monotonic()
+            dialog.reject()
+            waited = time.monotonic() - before
+            self.assertLess(waited, 0.5, "closing the window waited for the listening thread")
+            self.assertTrue(dialog._thread.is_alive())
+            finish.set()
+            dialog._thread.join(TIMEOUT)
+            self.assertFalse(dialog._thread.is_alive())
+
+    def test_wiggling_a_slider_never_runs_two_listenings_at_once(self):
+        running, most, lock = [0], [0], threading.Lock()
+        release = threading.Event()
+
+        def slow_to_stop(ffmpeg, source, db, length, duration, cancel=None):
+            with lock:
+                running[0] += 1
+                most[0] = max(most[0], running[0])
+            try:
+                while not (cancel.is_set() or release.is_set()):
+                    time.sleep(0.005)
+                time.sleep(0.15)               # a killed ffmpeg takes a moment to be gone
+                if cancel.is_set():
+                    raise ConversionCancelled()
+                return [(2.0, 4.0)]
+            finally:
+                with lock:
+                    running[0] -= 1
+
+        with mock.patch.object(self.module, "detect_silences", side_effect=slow_to_stop):
+            dialog = self.open()
+            for value in (-30, -28, -26, -24, -22):
+                dialog.db_slider.setValue(value)
+                dialog._listen()               # as the debounce timer would, without waiting for it
+                pump(0.02)
+            release.set()
+            self.assertTrue(pump(TIMEOUT, lambda: dialog.plan is not None))
+        self.assertEqual(most[0], 1, "more than one silence detection ran at the same time")
+        self.assertEqual(dialog.noise_db, -22.0)
 
     def test_the_trim_and_cuts_it_was_given_are_used(self):
         dialog = self.open(keep=[(0.0, 3.0), (5.0, 10.0)], start=1.0, end=9.0)

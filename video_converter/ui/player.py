@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
-from PySide6.QtCore import QObject, QPointF, QRectF, QSizeF, Qt, QUrl, Signal
+from PySide6.QtCore import QObject, QPointF, QRectF, QSizeF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor, QFont, QFontMetricsF, QImage, QMouseEvent, QPainter, QPainterPath, QPen, QTransform, QWheelEvent,
 )
@@ -13,11 +15,22 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QtVideo, QVideoFram
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ..captions import Logo, TextItem, laid_out, text_box
+from ..decoding import force_software_decoding
 from ..i18n import tr
 from ..timing import Segment
 from . import theme
 
+log = logging.getLogger(__name__)
+
+# Frames are turned into pictures on the CPU anyway, so the graphics card is never asked to decode them. Qt reads
+# this when the first player is made, so it is set as soon as this module is loaded (the app sets it even earlier).
+force_software_decoding()
+
 ZOOM_MIN, ZOOM_MAX = 1.0, 3.0
+PAINT_PATIENCE = 0.25      # seconds a new frame may wait for the previous one to be drawn before it is shown anyway
+SETTLE_MS = 40             # after frames were skipped, show the newest one this long after the last arrived
+SWAP_BACKSTOP_MS = 1000    # a swap whose new source was never seen loading is finished after this long
+MIN_FRAME_SIDE = 480      # frames are never shrunk below this many pixels on their longer side
 
 
 def orient_image(image: QImage, rotate_cw: int, mirror: bool) -> QImage:
@@ -70,6 +83,22 @@ class Player(QObject):
         self.upright = False
         self._resume: Optional[tuple[int, bool, bool]] = None    # position (ms), playing, upright: set while swapping
         self._new_source_loading = False
+        self._pending_seek: Optional[int] = None       # a position (ms) asked for before the file finished loading
+        # How big a picture the view can use, in pixels on the longer side (None = no limit): bigger frames are
+        # shrunk as they arrive, which saves the work of rotating and drawing pixels nobody sees.
+        self.frame_limit: Optional[Callable[[], int]] = None
+        self.dropped = 0                        # frames skipped because the previous one wasn't drawn yet
+        self._awaiting_paint = False            # a frame was handed to the view and hasn't been drawn
+        self._last_delivery = 0.0
+        self._converting = False
+        self._settle = QTimer(self)
+        self._settle.setSingleShot(True)
+        self._settle.setInterval(SETTLE_MS)
+        self._settle.timeout.connect(self._show_newest)
+        self._swap_watch = QTimer(self)
+        self._swap_watch.setSingleShot(True)
+        self._swap_watch.setInterval(SWAP_BACKSTOP_MS)
+        self._swap_watch.timeout.connect(self._check_swap)
 
     @property
     def playing(self) -> bool:
@@ -79,11 +108,17 @@ class Player(QObject):
 
     @property
     def position(self) -> float:
-        return (self._resume[0] if self._resume is not None else self.media.position()) / 1000
+        if self._resume is not None:
+            return self._resume[0] / 1000
+        if self._pending_seek is not None:
+            return self._pending_seek / 1000
+        return self.media.position() / 1000
 
     def load(self, path: Optional[Path], upright: bool = False) -> None:
         """Open `path`. `upright` says it is a preview copy, whose frames need no turning."""
         self._resume = None
+        self._pending_seek = None
+        self._awaiting_paint = False
         self.media.stop()
         self.source, self.upright = path, upright and path is not None
         self.media.setSource(QUrl.fromLocalFile(str(path)) if path else QUrl())
@@ -103,8 +138,13 @@ class Player(QObject):
         self._new_source_loading = False
         self.source = path
         self.media.setSource(QUrl.fromLocalFile(str(path)))
+        self._swap_watch.start()
 
     def _on_status(self, status: QMediaPlayer.MediaStatus) -> None:
+        if (self._pending_seek is not None and self._resume is None
+                and status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia)):
+            ms, self._pending_seek = self._pending_seek, None
+            self.media.setPosition(ms)
         if self._resume is None:
             return
         # The old source still reports "loaded" for a moment; only what comes after the new one starts
@@ -113,13 +153,26 @@ class Player(QObject):
             self._new_source_loading = True
         elif self._new_source_loading and status in (QMediaPlayer.MediaStatus.LoadedMedia,
                                                      QMediaPlayer.MediaStatus.BufferedMedia):
-            position, playing, self.upright = self._resume
-            self._resume = None
-            self.media.setPosition(position)
-            if playing:
-                self.media.play()
-            else:
-                self.media.pause()
+            self._finish_swap()
+
+    def _finish_swap(self) -> None:
+        position, playing, self.upright = self._resume
+        self._resume = None
+        self.media.setPosition(position)
+        if playing:
+            self.media.play()
+        else:
+            self.media.pause()
+
+    def _check_swap(self) -> None:
+        """Backstop: Qt sometimes reports the new source as loaded without ever reporting that it started loading
+        (so `_on_status` can't tell it from the old one). A moment later the status can be trusted."""
+        if self._resume is None:
+            return
+        if self.media.mediaStatus() in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
+            self._finish_swap()
+        else:
+            self._swap_watch.start()
 
     def set_segments(self, segments: list[Segment]) -> None:
         self.segments = list(segments)
@@ -142,6 +195,8 @@ class Player(QObject):
         if self.playing:
             self.media.pause()
             return
+        if self.source is None:         # nothing is loaded (a smooth preview is still being made)
+            return
         resume = self.next_play_position(self.position)
         if resume is None:          # past the end: start over
             resume = self.segments[0][0]
@@ -156,6 +211,10 @@ class Player(QObject):
         ms = int(max(seconds, 0.0) * 1000)
         if self._resume is not None:        # still swapping: that is where to carry on from
             self._resume = (ms, self._resume[1], self._resume[2])
+            return
+        if self.source is not None and self.media.mediaStatus() in (QMediaPlayer.MediaStatus.NoMedia,
+                                                                      QMediaPlayer.MediaStatus.LoadingMedia):
+            self._pending_seek = ms         # Qt drops a position set before the file is loaded: apply it then
             return
         self.media.setPosition(ms)
 
@@ -180,16 +239,63 @@ class Player(QObject):
                 self.seek(resume)       # jump over a cut
         self.positionChanged.emit(seconds)
 
+    def frame_painted(self) -> None:
+        """The view drew the picture it was last given, so it can take the next one."""
+        self._awaiting_paint = False
+
     def _on_frame(self, frame: QVideoFrame) -> None:
-        if not frame.isValid():
+        # Frames come faster than they can be drawn when the video is big. Skip the ones that arrive before the
+        # last was drawn, rather than queueing work; the newest is shown a moment after they stop (see _show_newest).
+        if self._awaiting_paint and time.monotonic() - self._last_delivery < PAINT_PATIENCE:
+            self.dropped += 1
+            self._settle.start()
             return
-        image = frame.toImage()
-        if not image.isNull():
+        self._deliver(frame)
+
+    def _show_newest(self) -> None:
+        """Frames were skipped: show the newest one now (asked from the sink, so no frame is kept in between)."""
+        if self._awaiting_paint and time.monotonic() - self._last_delivery < PAINT_PATIENCE:
+            self._settle.start()
+            return
+        self._deliver(self.sink.videoFrame())
+
+    def _deliver(self, frame: QVideoFrame) -> None:
+        """Turn `frame` into a picture for the view. The frame is only used inside this call."""
+        if self._converting:
+            return
+        self._converting = True
+        try:
+            self._settle.stop()
+            if not frame.isValid() or frame.width() <= 0 or frame.height() <= 0:
+                return
+            image = frame.toImage()
+            if image.isNull():
+                return
             # toImage() applies the rotation Qt knows about, which it reports either on the
             # frame or (Qt 6.12) on the frame's surface format.
             none = QtVideo.Rotation.None_
             oriented = self.upright or frame.rotation() != none or frame.surfaceFormat().rotation() != none
-            self.frameReady.emit(image, oriented)
+        except Exception:       # a frame that can't be read is skipped; the next one may be fine
+            log.error("Couldn't read a video frame", exc_info=True)
+            return
+        finally:
+            self._converting = False
+        image = self._fit_to_view(image)
+        self._awaiting_paint = True
+        self._last_delivery = time.monotonic()
+        self.frameReady.emit(image, oriented)
+
+    def _fit_to_view(self, image: QImage) -> QImage:
+        """`image`, shrunk (never enlarged) to the size the view can show."""
+        if self.frame_limit is None:
+            return image
+        try:
+            limit = max(int(self.frame_limit()), MIN_FRAME_SIDE)
+        except (TypeError, ValueError, RuntimeError):
+            return image
+        if max(image.width(), image.height()) <= limit:
+            return image
+        return image.scaled(limit, limit, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
 
 
 class VideoView(QWidget):
@@ -202,6 +308,7 @@ class VideoView(QWidget):
     overlayPicked = Signal(str, int)               # "text" and its index, or "logo" and 0: pressed on it
     overlayMoved = Signal(str, int, float, float)  # kind, index, new x, y (shares of the output frame)
     overlayEditFinished = Signal()
+    framePainted = Signal()                        # the picture was drawn: the player may hand over the next frame
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -542,6 +649,7 @@ class VideoView(QWidget):
     # ----- painting -----------------------------------------------------------
 
     def paintEvent(self, _event) -> None:
+        self.framePainted.emit()
         c = theme.colors()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
