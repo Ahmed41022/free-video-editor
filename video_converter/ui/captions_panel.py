@@ -8,7 +8,7 @@ import copy
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QFontComboBox, QGridLayout,
@@ -67,9 +67,15 @@ class ColorButton(QPushButton):
     def __init__(self, title: str, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.title, self.color = title, "#ffffff"
-        self.setFixedWidth(44)
+        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)      # 44 px, less if short of room
         self.setToolTip(title)
         self.clicked.connect(self._choose)
+
+    def sizeHint(self) -> QSize:
+        return QSize(44, super().sizeHint().height())
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(32, super().minimumSizeHint().height())     # narrower when the row is short of room
 
     def set_color(self, color: str) -> None:
         self.color = color
@@ -190,7 +196,10 @@ class CaptionsPanel(QWidget):
         self.box_opacity = _percent_box(*BOX_OPACITY, tip=tr("How solid the box is"))
         self.box_opacity.valueChanged.connect(
             lambda v: self._edit_text(lambda t: setattr(t, "box_opacity", round(v / 100, 3)), tr("Box opacity")))
-        row(tr("Box"), _row(self.box_check, self.box_button, self.box_opacity, stretch_first=False))
+        # Two lines: the check box with its long name, then the color and opacity under it. Side by side they
+        # needed more than the settings panel is wide at the smallest window.
+        row(tr("Box"), self.box_check)
+        row("", _row(self.box_button, self.box_opacity))
         self.align_group = QButtonGroup(self)
         aligns = QHBoxLayout()
         aligns.setSpacing(4)

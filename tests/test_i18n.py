@@ -858,6 +858,9 @@ class SettingsPanelFitTests(WindowCase):
         for r in results:
             where = f"{r['language']} / {r['state']}: widest section {r['widest']}"
             self.assertLessEqual(r["needs"], r["viewport"], f"the settings panel needs {r['needs']} px, has {r['viewport']} ({where})")
+            self.assertLessEqual(r["needs"], r["narrowest"],
+                                 f"the panel needs {r['needs']} px but only {r['narrowest']} are left when it is "
+                                 f"as narrow as it goes, as in a 1024x700 window ({where})")
             self.assertLessEqual(r["content"], r["viewport"], where)
             self.assertAlmostEqual(r["panel"], INSPECTOR_WIDTH, delta=6, msg=f"at the default size ({where})")
             self.assertEqual(r["outside"], [], f"cut off ({where})")
