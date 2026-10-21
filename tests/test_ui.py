@@ -213,14 +213,16 @@ class TimelineCutTests(unittest.TestCase):
     def x(seconds):
         return 12 + int(round(seconds * 50))
 
-    def press(self, x, button=Qt.MouseButton.LeftButton):
-        QTest.mousePress(self.timeline, button, Qt.KeyboardModifier.NoModifier, QPoint(x, 60))
+    def press(self, x, button=None):
+        QTest.mousePress(self.timeline, button or Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                         QPoint(x, 60))
 
     def move(self, x):
         QTest.mouseMove(self.timeline, QPoint(x, 60))
 
-    def release(self, x, button=Qt.MouseButton.LeftButton):
-        QTest.mouseRelease(self.timeline, button, Qt.KeyboardModifier.NoModifier, QPoint(x, 60))
+    def release(self, x, button=None):
+        QTest.mouseRelease(self.timeline, button or Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                           QPoint(x, 60))
 
     def drag(self, x0, x1):
         self.press(x0)

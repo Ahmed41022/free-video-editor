@@ -1,6 +1,7 @@
 """Automatic captions: cutting words into cues, the .srt file, time mapping through cuts and speed, and the
 whole pipeline with a pretend speech model (no network, no model download)."""
 
+import importlib.util
 import subprocess
 import tempfile
 import threading
@@ -16,6 +17,7 @@ from video_converter.captions import Cue, Subtitles, format_srt, parse_cues, rea
 from video_converter.core import ConversionCancelled, ConversionError, find_ffmpeg
 
 FFMPEG = find_ffmpeg()
+ENGINE = importlib.util.find_spec("faster_whisper") is not None
 
 
 def words(text: str, start: float = 0.0, per_word: float = 0.3, gap: float = 0.03) -> list:
@@ -500,6 +502,7 @@ class PipelineTests(unittest.TestCase):
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is needed")
+@unittest.skipUnless(ENGINE, "the speech engine (faster-whisper) is not installed")
 @unittest.skipUnless(sm.is_downloaded(sm.MODELS["fast"]), "the Fast speech model hasn't been downloaded on this PC")
 class RealModelTests(unittest.TestCase):
     """Runs the real Fast model on made-up sound. There is no speech in it to check the words of, so this
@@ -534,6 +537,7 @@ class RealModelTests(unittest.TestCase):
 
 
 class SelfTestTests(unittest.TestCase):
+    @unittest.skipUnless(ENGINE, "the speech engine (faster-whisper) is not installed")
     def test_the_engine_and_its_voice_detector_load(self):
         self.assertTrue(ac.self_test().startswith("ok:"))
 
