@@ -136,6 +136,16 @@ class CaptionsFileCommand(QUndoCommand):
         self._write(self.before)
         self.window.reveal(self.item)
 
+    def _write(self, data: bytes) -> None:
+        try:
+            temp = self.path.with_name(self.path.name + ".part")
+            temp.write_bytes(data)
+            temp.replace(self.path)
+        except OSError as exc:
+            self.window.statusBar().showMessage(
+                tr("Couldn't update {name}: {reason}", name=isolate(self.path.name), reason=exc.strerror or exc), 6000)
+        self.window.captions_file_changed(self.item)
+
 
 class RemoveFilesCommand(QUndoCommand):
     """Taking files out of the list, which undo puts back: each at the row it was in, with its settings and
@@ -150,16 +160,6 @@ class RemoveFilesCommand(QUndoCommand):
 
     def undo(self) -> None:
         self.window.restore_items(self.entries)
-
-    def _write(self, data: bytes) -> None:
-        try:
-            temp = self.path.with_name(self.path.name + ".part")
-            temp.write_bytes(data)
-            temp.replace(self.path)
-        except OSError as exc:
-            self.window.statusBar().showMessage(
-                tr("Couldn't update {name}: {reason}", name=isolate(self.path.name), reason=exc.strerror or exc), 6000)
-        self.window.captions_file_changed(self.item)
 
 
 class MediaList(QListWidget):
