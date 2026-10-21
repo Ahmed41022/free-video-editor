@@ -1,0 +1,24 @@
+Third-party software in Free Video Editor
+
+Free Video Editor's own code is free software under the MIT License (see the LICENSE file). It includes the programs and libraries below, which keep their own licenses. The full notices are in the "licenses" folder of the installed program (Start menu, Free Video Editor, Licenses).
+
+FFmpeg 7.1 (ffmpeg.exe) - GNU General Public License, version 3
+Converts and edits the media. It runs as a separate program. Notice, source code links and a written offer for the source code: FFMPEG-NOTICE.txt
+
+Qt 6.12 and Qt for Python (PySide6) 6.12 - GNU Lesser General Public License, version 3
+The window and the video player. In the installed program they are separate DLL files that you can replace. Notice and relinking information: QT-NOTICE.txt
+
+Automatic captions (speech engine) - MIT, BSD and Apache 2.0 licenses
+faster-whisper, CTranslate2, ONNX Runtime, tokenizers, NumPy and others. The speech models are not included; they are downloaded on request. Notice: SPEECH-NOTICE.txt
+
+PyInstaller (start-up code) - GNU General Public License, version 2 or later, with an exception that allows any license for the program it starts. Notice: SPEECH-NOTICE.txt
+
+License texts: GPL-3.0.txt, LGPL-3.0.txt and LGPL-2.1.txt.
+
+Source code
+
+Free Video Editor: https://github.com/Ahmed41022/free-video-editor
+
+FFmpeg build: see FFMPEG-NOTICE.txt. For three years from the date you received this program, the author will provide the complete corresponding source code of the FFmpeg build and its GPL libraries on request, through https://github.com/Ahmed41022/free-video-editor/issues
+
+The program does not collect any data. It goes online only for an optional once-a-day check for a newer version (GitHub) and, if you use automatic captions, a one-time download of the speech model you choose (Hugging Face).

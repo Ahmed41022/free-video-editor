@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # The actions in .github/workflows are pinned to commit SHAs; Dependabot proposes the newer ones.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # requirements.txt and requirements-build.txt (the loose versions). After merging a bump, refresh
+  # requirements-build.lock from a clean environment (see the comment at the top of that file).
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      python-dependencies:
+        patterns: ["*"]

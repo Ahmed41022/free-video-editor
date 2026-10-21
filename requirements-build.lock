@@ -1,0 +1,38 @@
+# Exact versions the Windows exe and installer are built with (pip freeze of the build environment, Python 3.11).
+# The release and test workflows install this file so a build can be repeated. To update: install the new
+# versions with requirements-build.txt in a clean virtual environment, run the tests, then replace this file with
+# the output of "pip freeze". Dependabot proposes version bumps of requirements-build.txt, not of this file.
+#
+altgraph==0.17.5
+anyio==4.15.1
+av==18.1.0
+click==8.5.0
+colorama==0.4.6
+ctranslate2==4.8.3
+faster-whisper==1.2.1
+filelock==4.2.4
+flatbuffers==25.12.19
+fsspec==2026.9.0
+h11==0.16.0
+hf-xet==1.7.0
+httpcore2==2.15.1
+httpx2==2.15.1
+huggingface_hub==2.2.0
+idna==3.20
+imageio-ffmpeg==0.6.0
+numpy==2.4.6
+onnxruntime==1.31.0
+packaging==26.3
+pefile==2024.8.26
+protobuf==7.36.2
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+PySide6_Addons==6.12.0
+PySide6_Essentials==6.12.0
+pywin32-ctypes==0.2.3
+PyYAML==6.0.3
+shiboken6==6.12.0
+tokenizers==0.23.3
+tqdm==4.70.1
+truststore==0.10.5
+typing_extensions==4.16.0

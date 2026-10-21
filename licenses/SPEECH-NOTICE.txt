@@ -1,23 +1,58 @@
-Automatic captions: third-party components
-==========================================
+Automatic captions and other bundled components: third-party notices
+====================================================================
 
-The speech-to-text feature of Free Video Editor is built from these open-source components. Each is used
-unmodified, as a separate library inside the application (or inside the temporary folder the single-file exe
-unpacks to at startup).
+The speech-to-text feature of Free Video Editor is built from the open-source components below. Each is used
+unmodified, as a separate library inside the application (in the installed version they are separate files
+in the application folder; the portable single-file exe unpacks the same files to a temporary folder when
+it starts). The versions are those of the Windows builds made from requirements-build.lock.
 
-faster-whisper          MIT License             https://github.com/SYSTRAN/faster-whisper
-CTranslate2             MIT License             https://github.com/OpenNMT/CTranslate2
-PyAV (av)               BSD 3-Clause License    https://github.com/PyAV-Org/PyAV
-                        Its wheels include FFmpeg libraries (LGPL v2.1 or later): https://ffmpeg.org
-ONNX Runtime            MIT License             https://github.com/microsoft/onnxruntime
-tokenizers              Apache License 2.0      https://github.com/huggingface/tokenizers
-huggingface_hub         Apache License 2.0      https://github.com/huggingface/huggingface_hub
-NumPy                   BSD 3-Clause License    https://numpy.org
-Silero VAD (voice       MIT License             https://github.com/snakers4/silero-vad
-activity detector,
-bundled with faster-whisper)
+Speech engine
+-------------
+faster-whisper 1.2.1      MIT License           https://github.com/SYSTRAN/faster-whisper
+CTranslate2 4.8.3         MIT License           https://github.com/OpenNMT/CTranslate2
+                          Includes the Intel OpenMP runtime (libiomp5md.dll), under the LLVM/Intel
+                          OpenMP runtime license (Apache License 2.0 with LLVM exceptions / BSD style):
+                          https://github.com/llvm/llvm-project/tree/main/openmp
+ONNX Runtime 1.31.0       MIT License           https://github.com/microsoft/onnxruntime
+tokenizers 0.23.3         Apache License 2.0    https://github.com/huggingface/tokenizers
+                          (including the Rust crates it is built from, each under its own permissive
+                          license: https://github.com/huggingface/tokenizers/blob/main/tokenizers/Cargo.toml)
+Silero VAD (voice         MIT License           https://github.com/snakers4/silero-vad
+activity detector model,  (silero_vad_v6.onnx, shipped inside faster-whisper)
+NumPy 2.4.6               BSD 3-Clause License  https://numpy.org
+                          Its wheel bundles OpenBLAS (BSD 3-Clause) and the GCC runtime libraries, which
+                          are GPL 3 with the GCC Runtime Library Exception (they may be combined with, and
+                          distributed alongside, any program): https://gcc.gnu.org/onlinedocs/libstdc++/manual/license.html
+huggingface_hub 2.2.0     Apache License 2.0    https://github.com/huggingface/huggingface_hub
+                          (only imported by faster-whisper; the app downloads models with its own code)
+Support libraries that huggingface_hub, ONNX Runtime and CTranslate2 depend on:
+  PyYAML (MIT), tqdm (MPL 2.0 and MIT; source: https://github.com/tqdm/tqdm), httpx2 and httpcore2
+  (BSD 3-Clause), h11 (MIT), anyio (MIT), idna (BSD 3-Clause), click (BSD 3-Clause), filelock (MIT),
+  fsspec (BSD 3-Clause), packaging (Apache 2.0 or BSD 2-Clause), typing_extensions (PSF License 2.0),
+  colorama (BSD 3-Clause), truststore (MIT), protobuf (BSD 3-Clause), flatbuffers (Apache License 2.0).
+  Only those the build actually needs are in a given copy of the program.
 
 The Whisper speech models are released by OpenAI under the MIT License (https://github.com/openai/whisper) and
 converted to the CTranslate2 format by Systran (https://huggingface.co/Systran). They are not part of this
 program: they are downloaded once, on request, from huggingface.co, and every file is checked against a
 SHA-256 hash that is built into the program.
+
+PyAV is NOT included
+--------------------
+faster-whisper depends on the PyAV package ("av"), which ships FFmpeg libraries together with GPL codec
+libraries (x264, x265). Free Video Editor does not need it: the sound is extracted with the separate ffmpeg.exe
+described in FFMPEG-NOTICE.txt and handed to the speech engine as numbers. So the Windows builds leave PyAV and
+its libraries out and contain only a small stand-in module that is never used. (The stand-in is the file
+av\__init__.py in the application folder.)
+
+Python and the packaging tool
+-----------------------------
+Python 3.11 (PSF License, https://docs.python.org/3/license.html) is included by the packaging tool.
+PyInstaller 6.22.3 (https://pyinstaller.org) packs the program into the exe. Its start-up code ("bootloader")
+is included in every build and is licensed GPL 2.0 or later WITH A SPECIAL EXCEPTION that allows it to be
+used and distributed with programs under any license, including this one (see
+https://github.com/pyinstaller/pyinstaller/blob/develop/COPYING.txt). The Microsoft Visual C++ runtime
+(vcruntime140.dll, msvcp140.dll and similar) is redistributed under Microsoft's redistribution terms.
+
+Full license texts for the GPL and LGPL parts are in GPL-3.0.txt, LGPL-3.0.txt and LGPL-2.1.txt (next to this
+file). The texts of the permissive licenses are in each project's repository, linked above.

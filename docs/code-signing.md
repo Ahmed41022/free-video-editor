@@ -77,7 +77,8 @@ Do these himself; they involve his identity and accounts.
    - download page: https://github.com/Ahmed41022/free-video-editor/releases and the website
      https://ahmed41022.github.io/free-video-editor/;
    - the files to sign: `FreeVideoEditor.exe` (portable) and `FreeVideoEditor-Setup-<version>.exe` (installer), and
-     the exe inside the installer;
+     the exe inside the installer (the installer packs a folder; only its main exe is signed, not the Qt and
+     Python libraries in it);
    - build system: GitHub Actions, workflow `.github/workflows/release.yml`;
    - the maintainer's name, email and GitHub account (he is the only author, reviewer and approver);
    - release history: the releases up to 2.7.0 are on the releases page.
@@ -111,7 +112,7 @@ Do these himself; they involve his identity and accounts.
    ```
 
 5. **Try it**: run the Release workflow by hand from the Actions tab (it never creates a release when started by
-   hand). SignPath emails you to approve each of the two requests (exe, then installer). When both are approved the
+   hand). SignPath emails you to approve each of the two requests (the exes, then the installer). When both are approved the
    workflow checks the signatures and uploads the signed files as the run's artifact.
 6. After the first signed release, update the SmartScreen wording on the website and in the README: the warning may
    still appear for a while until the publisher builds a reputation.
@@ -132,15 +133,19 @@ log.
 
 When it is on:
 
-1. `python build_exe.py` builds `dist/Free Video Editor.exe` only.
-2. The exe is uploaded as a workflow artifact and submitted to SignPath
-   (`signpath/github-action-submit-signing-request`), which waits for your approval and returns the signed exe.
-3. The signed exe replaces the unsigned one and `python build_exe.py --installer-only` builds the installer around it,
-   so the exe inside the installer is signed too.
-4. The installer is signed the same way.
-5. The workflow checks both files with `Get-AuthenticodeSignature` and fails if either is not validly signed.
-6. The rest of the job (checksums, "exe starts" check, upload, draft release) runs on the signed files, so the
-   portable exe, the installer and the SHA-256 list in the release notes all describe the signed files.
+1. `python build_exe.py` builds the portable exe and `python build_exe.py --onedir` builds the program folder that
+   the installer packs (both are checked with the speech-engine self-test).
+2. Both exes (the portable one and `Free Video Editor.exe` inside the folder) are copied to `sign-in/` as
+   `portable.exe` and `app.exe`, uploaded as one workflow artifact and submitted to SignPath
+   (`signpath/github-action-submit-signing-request`) in a single request, which waits for your approval and
+   returns the signed files.
+3. The signed exes replace the unsigned ones and `python build_exe.py --installer-only` builds the installer around
+   the folder, so the exe inside the installer is signed too.
+4. The installer is signed the same way (a second request).
+5. The workflow checks the three files with `Get-AuthenticodeSignature` and fails if any is not validly signed.
+6. The rest of the job (checksums, "exe starts" check, a silent install and uninstall of the installer, upload,
+   draft release) runs on the signed files, so the portable exe, the installer and the SHA-256 list in the release
+   notes all describe the signed files.
 
 Because SignPath checks that each request comes from this repository's workflow, signing only works from the
 GitHub-hosted run, not from a local build.
