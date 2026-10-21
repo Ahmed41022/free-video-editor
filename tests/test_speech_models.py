@@ -4,8 +4,11 @@ download manager (against a fake server, never the network)."""
 import errno
 import hashlib
 import re
+import subprocess
+import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -14,6 +17,7 @@ from unittest import mock
 
 from video_converter import speech_models as sm
 from video_converter.core import ConversionCancelled, ConversionError
+from video_converter.locks import FileLock
 
 
 def sha(data: bytes) -> str:
@@ -223,6 +227,71 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual({url.rsplit("/", 1)[1] for url, _ in server.requests}, set(FILES))
         self.assertTrue(all(url.startswith("https://huggingface.co/Systran/faster-whisper-tiny/resolve/abc123/")
                             for url, _ in server.requests))
+
+    def hold_lock_in_another_process(self, seconds):
+        """A separate process (another copy of the app) that holds the download lock for `seconds`."""
+        code = ("import sys, time; from pathlib import Path; from video_converter import speech_models as sm\n"
+                "from video_converter.locks import FileLock\n"
+                "with FileLock(Path(sys.argv[1]) / sm.LOCK_NAME, timeout=10):\n"
+                "    print('held', flush=True); time.sleep(float(sys.argv[2]))\n")
+        proc = subprocess.Popen([sys.executable, "-c", code, str(self.root), str(seconds)], stdout=subprocess.PIPE,
+                                text=True, cwd=Path(__file__).resolve().parents[1])
+        self.addCleanup(proc.stdout.close)
+        self.addCleanup(proc.kill)
+        self.assertEqual(proc.stdout.readline().strip(), "held")
+        return proc
+
+    def test_a_download_waits_for_another_copy_that_is_downloading(self):
+        server, waited = FakeServer(), []
+        other = self.hold_lock_in_another_process(1.5)
+        started = time.monotonic()
+        folder = sm.download_model(self.model, self.root, open_=server, on_wait=lambda: waited.append(1))
+        self.assertEqual(waited, [1])
+        self.assertGreaterEqual(time.monotonic() - started, 1.0)
+        self.assertEqual(sm.verify_model(self.model, self.root), folder)
+        other.wait(timeout=30)
+
+    def test_a_download_that_waited_uses_the_model_the_other_copy_finished(self):
+        server = FakeServer()
+        other = self.hold_lock_in_another_process(1.0)
+        # While this one waits, the other copy "finishes" the model (put in place from here, as it would have).
+        for name, data in FILES.items():
+            (self.root / "tiny").mkdir(exist_ok=True)
+            (self.root / "tiny" / name).write_bytes(data)
+        sm.download_model(self.model, self.root, open_=server, recheck=False, on_wait=lambda: None)
+        self.assertEqual(server.requests, [], "downloaded again what the other copy had just fetched")
+        other.wait(timeout=30)
+
+    def test_the_wait_for_another_copy_can_be_cancelled(self):
+        cancel, waited = threading.Event(), []
+        other = self.hold_lock_in_another_process(30)
+        started = time.monotonic()
+
+        def on_wait():
+            waited.append(1)
+            threading.Timer(0.3, cancel.set).start()
+
+        with self.assertRaises(ConversionCancelled):
+            sm.download_model(self.model, self.root, open_=FakeServer(), cancel_event=cancel, on_wait=on_wait)
+        self.assertEqual(waited, [1])
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertFalse(self.staging.exists())
+        other.kill()
+
+    def test_a_wait_that_runs_out_says_another_copy_is_downloading(self):
+        with FileLock(self.root / sm.LOCK_NAME, timeout=5), mock.patch.object(sm, "LOCK_WAIT", 0.3):
+            with self.assertRaisesRegex(ConversionError, "Another copy of the app"):
+                sm.download_model(self.model, self.root, open_=FakeServer())
+
+    def test_the_lock_is_let_go_after_a_download_and_after_a_failure(self):
+        sm.download_model(self.model, self.root, open_=FakeServer())
+        with FileLock(self.root / sm.LOCK_NAME, timeout=0):
+            pass
+        with mock.patch.object(sm, "_download_model", side_effect=ConversionError("boom")):
+            with self.assertRaises(ConversionError):
+                sm.download_model(self.model, self.root, open_=FakeServer())
+        with FileLock(self.root / sm.LOCK_NAME, timeout=0):
+            pass
 
     def test_a_model_already_there_is_not_downloaded_again(self):
         server = FakeServer()

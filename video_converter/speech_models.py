@@ -32,6 +32,7 @@ from typing import Callable, Iterator, Optional
 from . import APP_NAME, __version__
 from .core import ConversionCancelled, ConversionError
 from .i18n import N_, tr
+from .locks import FileLock, LockTimeout
 
 log = logging.getLogger(__name__)
 
@@ -302,9 +303,13 @@ def _fetch_file(model: SpeechModel, file: ModelFile, staging: Path, open_: Opene
     part.replace(final)
 
 
+LOCK_NAME = ".download.lock"
+LOCK_WAIT = 4 * 3600.0      # seconds a copy waits for another copy's download to end before giving up
+
+
 def download_model(model: SpeechModel, root: Optional[Path] = None, on_progress: Optional[DownloadProgress] = None,
                    cancel_event: Optional[threading.Event] = None, open_: Optional[Opener] = None,
-                   recheck: bool = True) -> Path:
+                   recheck: bool = True, on_wait: Optional[Callable[[], None]] = None) -> Path:
     """Download `model` into its folder and return it. Nothing happens if it is already there and intact
     (`recheck=False` skips that look, for a caller that has just found the model damaged). A damaged model
     is repaired: the files that are fine are kept and only the others are fetched again.
@@ -312,7 +317,35 @@ def download_model(model: SpeechModel, root: Optional[Path] = None, on_progress:
     The files are written to `<name>.downloading` next to the final folder; a download that was
     stopped (cancelled, offline, out of space) carries on from there next time. Raises
     ConversionCancelled when `cancel_event` is set, and ConversionError with a plain message otherwise.
-    `open_(url, headers)` replaces the real network (for tests)."""
+    `open_(url, headers)` replaces the real network (for tests).
+
+    Only one copy of the app (or the command line) downloads at a time: the others wait on a lock in the models
+    folder, since two of them writing into the same `<name>.downloading` folder would damage each other's files.
+    `on_wait()` is called once if this call has to wait; `cancel_event` ends the wait."""
+    lock = FileLock(models_folder(root) / LOCK_NAME, timeout=0, cancel=cancel_event)
+    try:
+        try:
+            lock.acquire()
+        except LockTimeout:                 # another copy is downloading: say so, and wait for it
+            if on_wait:
+                on_wait()
+            lock.timeout = LOCK_WAIT
+            lock.acquire()
+            recheck = True                  # it may have finished the model meanwhile: use it if so
+    except LockTimeout:
+        _stop_if_cancelled(cancel_event)
+        raise ConversionError(tr("Another copy of the app is still downloading this model. "
+                                 "Try again when it has finished.")) from None
+    except OSError as exc:
+        raise ConversionError(tr("Couldn't save the speech model: {reason}", reason=exc.strerror or exc)) from None
+    try:
+        return _download_model(model, root, on_progress, cancel_event, open_, recheck)
+    finally:
+        lock.release()
+
+
+def _download_model(model: SpeechModel, root: Optional[Path], on_progress: Optional[DownloadProgress],
+                    cancel_event: Optional[threading.Event], open_: Optional[Opener], recheck: bool) -> Path:
     open_ = open_ or open_url
     target, staging = model_path(model, root), _staging_path(model, root)
     if recheck and is_downloaded(model, root):

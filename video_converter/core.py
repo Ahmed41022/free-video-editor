@@ -95,9 +95,17 @@ def is_video_file(path: Path) -> bool:
     return path.suffix.lower() in VIDEO_EXTENSIONS
 
 
+_PART_STEM_RE = re.compile(r"\.part\d*$", re.IGNORECASE)
+
+
+def is_partial_export(path: Path) -> bool:
+    """Whether `path` is an export still being written ("name.part.mp4", see `staged_output`)."""
+    return bool(_PART_STEM_RE.search(path.stem))
+
+
 def is_media_file(path: Path) -> bool:
-    """A video or an audio file, by its extension."""
-    return path.suffix.lower() in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS
+    """A video or an audio file, by its extension. An export that is still being written is not one yet."""
+    return path.suffix.lower() in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS and not is_partial_export(path)
 
 
 def _path_key(path: Path) -> str:

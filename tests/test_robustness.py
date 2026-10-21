@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("VIDEO_EDITOR_NO_GPU_SEARCH", "1")      # a window never searches for graphics cards (see tests/__init__.py)
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
@@ -368,6 +369,18 @@ class LoadingTests(WindowCase):
         self.assertTrue(item.waveform)
 
 
+# ----- an export still being written is not a file to add
+
+class PartialExportTests(unittest.TestCase):
+    def test_a_part_file_is_not_a_media_file_but_a_normal_one_is(self):
+        from video_converter.core import is_media_file
+        self.assertFalse(is_media_file(Path("clip (edited).part.mp4")))
+        self.assertFalse(is_media_file(Path("clip.part2.MP3")))
+        self.assertTrue(is_media_file(Path("clip (edited).mp4")))
+        self.assertTrue(is_media_file(Path("my.partner.mp4")))
+        self.assertTrue(is_media_file(Path("departure.mp4")))
+
+
 # ----- 4: closing stops the work ------------------------------------------------------------------------------------
 
 class ProcessTests(unittest.TestCase):
@@ -391,6 +404,39 @@ class ProcessTests(unittest.TestCase):
         registry.kill_all()
         self.assertEqual(finish(thread, result), "cancelled")
         self.assertIsNotNone(proc.poll())
+
+    @unittest.skipUnless(sys.platform == "win32", "job objects are a Windows feature")
+    def test_the_programs_the_loader_starts_are_in_a_job_so_their_children_die_with_them(self):
+        import ctypes
+
+        def alive(pid):
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)        # PROCESS_QUERY_LIMITED_INFORMATION
+            if not handle:
+                return False
+            code = ctypes.c_ulong()
+            ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return code.value == 259                                               # STILL_ACTIVE
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_file = Path(tmp) / "grandchild.pid"
+            code = ("import subprocess, sys, time; from pathlib import Path\n"
+                    "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+                    "Path(sys.argv[1]).write_text(str(g.pid)); time.sleep(120)\n")
+            registry = ProcessRegistry()
+            def run():
+                try:
+                    run_tracked([sys.executable, "-c", code, str(pid_file)], 120, registry)
+                except ConversionCancelled:
+                    return "cancelled"
+
+            thread, result = in_thread(run)
+            self.assertTrue(pump(TIMEOUT, lambda: pid_file.is_file() and pid_file.read_text()), "never started")
+            grandchild = int(pid_file.read_text())
+            self.assertTrue(alive(grandchild))
+            registry.kill_all()
+            finish(thread, result)
+            self.assertTrue(pump(10, lambda: not alive(grandchild)), "the program's own child was left running")
 
     @staticmethod
     def cancelled(registry):

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..autocaptions import (
-    DOWNLOADING, LANGUAGES, LISTENING, LOADING, PREPARING, CaptionOptions, CaptionResult, make_captions,
+    DOWNLOADING, LANGUAGES, LISTENING, LOADING, PREPARING, WAITING, CaptionOptions, CaptionResult, make_captions,
 )
 from ..core import ConversionCancelled
 from ..i18n import N_, isolate, tr, trc
@@ -253,6 +253,10 @@ class AutoCaptionsDialog(QDialog):
             return
         if phase == LOADING:
             self.status.setText(tr("Checking the speech model…"))
+            self.bar.setRange(0, 0)
+            return
+        if phase == WAITING:
+            self.status.setText(tr("Another copy of the app is downloading this model…"))
             self.bar.setRange(0, 0)
             return
         self.bar.setRange(0, 1000)

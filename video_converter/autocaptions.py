@@ -49,7 +49,7 @@ CLAUSE_END = ",;:،؛、，；："
 SAMPLE_RATE = 16000
 
 # Phases reported while working.
-PREPARING, DOWNLOADING, LOADING, LISTENING = "prepare", "download", "load", "listen"
+PREPARING, DOWNLOADING, LOADING, LISTENING, WAITING = "prepare", "download", "load", "listen", "wait"
 Progress = Callable[[str, float, str], None]        # (phase, how far through that phase 0..1, a few words)
 
 
@@ -377,7 +377,11 @@ def ensure_model(model: SpeechModel, root: Optional[Path] = None, on_progress: O
             raise
         except ConversionError:
             log.warning("The %s speech model on disk is damaged; downloading it again", model.label)
-    download_model(model, root, report, cancel_event, opener, recheck=False)
+    def waiting() -> None:
+        if on_progress:
+            on_progress(WAITING, 0.0, "")
+
+    download_model(model, root, report, cancel_event, opener, recheck=False, on_wait=waiting)
     if on_progress:
         on_progress(LOADING, 0.0, "")
     return verify_model(model, root, cancel_event)
