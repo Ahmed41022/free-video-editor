@@ -546,6 +546,35 @@ def remove_file(path: Path, seconds: float = 2.0) -> None:
             time.sleep(0.05)
 
 
+def remove_folder(folder: Path, seconds: float = 2.0) -> None:
+    """Delete `folder` and everything in it, trying again for a moment while a file in it is still in use (a
+    stopped ffmpeg can hold its files a little after it has ended). Whatever stays is left for the start-up
+    sweep of old work folders (tempclean.py)."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            shutil.rmtree(folder)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if time.monotonic() >= deadline:
+                log.warning("Couldn't delete the work folder %s: something in it is still in use", folder)
+                return
+            time.sleep(0.05)
+
+
+@contextmanager
+def work_folder(prefix: str) -> Iterator[str]:
+    """A new temporary folder (its path, like `tempfile.TemporaryDirectory`) that is removed afterwards with
+    `remove_folder`, so a file that is still in use never turns a finished or cancelled export into an error."""
+    folder = tempfile.mkdtemp(prefix=prefix)
+    try:
+        yield folder
+    finally:
+        remove_folder(Path(folder))
+
+
 def check_not_input(output: Path, inputs: Iterable[Path]) -> None:
     """Refuse an `output` that is one of the files being read: ffmpeg would write over its own input, and a
     failed or cancelled export would delete it."""
@@ -902,7 +931,7 @@ def convert(
         share = 0.0
         if sound.normalize and (info.has_audio or sound.music):
             share = LOUDNESS_SHARE_AUDIO
-            with tempfile.TemporaryDirectory(prefix="fve-loudness-") as folder:
+            with work_folder("fve-loudness-") as folder:
                 measured = measure_loudness(mp3_command(ffmpeg, job, segments, voice, total, measure=True),
                                             Path(folder) / "loudness", total, scaled(on_progress, 0.0, share),
                                             cancel_event, Path(folder))

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import subprocess
-import tempfile
 from pathlib import Path
 
-from .core import _NO_WINDOW, ConversionError, MediaInfo
+from .core import _NO_WINDOW, ConversionError, MediaInfo, work_folder
 from .i18n import tr
 from .video import VideoEdit, plan_geometry, render_frame
 
@@ -28,7 +27,7 @@ def save_frame(ffmpeg: str, source: Path, output: Path, at: float, edit: VideoEd
     output.parent.mkdir(parents=True, exist_ok=True)
     if extension == ".png":
         return render_frame(ffmpeg, source, output, at, size, edit, info)
-    with tempfile.TemporaryDirectory(prefix="fve-frame-") as folder:
+    with work_folder("fve-frame-") as folder:
         png = Path(folder) / "frame.png"
         render_frame(ffmpeg, source, png, at, size, edit, info)
         cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", str(png),

@@ -31,10 +31,12 @@ from video_converter.core import (
     parse_media_info,
     parse_time,
     probe_media,
+    remove_folder,
     run_ffmpeg,
     start_process,
     staged_output,
     stop_process,
+    work_folder,
 )
 from video_converter.sound import Sound
 from video_converter.stills import save_frame
@@ -579,8 +581,24 @@ class JobObjectTests(unittest.TestCase):
                 time.sleep(0.05)
             self.assertTrue(ready.exists())
             stop_process(proc)
-            held.unlink()            # PermissionError if the child still had it open
+            self.assertTrue(proc.fve_job.wait_until_empty(0), "the real program was still running")
+            # Windows may count a process as gone a moment before it lets go of its files: the folder is still
+            # removed within the moment remove_folder allows.
+            remove_folder(Path(tmp))
+            self.assertFalse(held.exists())
             proc.fve_job.close()
+
+    def test_a_work_folder_whose_file_is_still_in_use_is_removed_once_it_is_free_and_raises_nothing(self):
+        with work_folder("fve-test-") as folder:
+            held = open(Path(folder) / "passlog.temp", "w")
+            threading.Timer(0.3, held.close).start()
+        self.assertFalse(Path(folder).exists())
+        with self.assertLogs("video_converter.core", "WARNING"):      # a file that stays in use: no error
+            with work_folder("fve-test-") as folder:
+                stuck = open(Path(folder) / "stuck.temp", "w")
+        stuck.close()
+        remove_folder(Path(folder))
+        self.assertFalse(Path(folder).exists())
 
     def test_closing_the_job_ends_what_is_in_it(self):
         proc = start_process([sys.executable, "-c", "import time; time.sleep(60)"])

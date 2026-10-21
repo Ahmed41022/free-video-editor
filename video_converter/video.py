@@ -8,7 +8,6 @@ import logging
 import math
 import os
 import subprocess
-import tempfile
 import threading
 from dataclasses import dataclass, field, replace
 from fractions import Fraction
@@ -39,6 +38,7 @@ from .core import (
     scaled,
     staged_output,
     trim_args,
+    work_folder,
 )
 from .gpu import CPU_FALLBACK_NOTE, encoder_args, encoder_codec
 from .i18n import N_, tr
@@ -1044,7 +1044,7 @@ def _run_export(ffmpeg: str, clips: list[tuple[Path, VideoEdit, list[Segment], O
     if not shaky and measure is None and fit is None and prepass is None:
         return _encode(lambda enc: command({}, enc, None), encoder, output, duration, on_progress, cancel_event,
                        on_note=on_note)
-    with tempfile.TemporaryDirectory(prefix="fve-export-") as folder:
+    with work_folder("fve-export-") as folder:
         folder = Path(folder)
         used = 0.0
         transforms: dict[int, str] = {}
