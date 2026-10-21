@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 from video_converter import speech_models as sm
-from video_converter.core import ConversionCancelled, ConversionError
+from video_converter.core import ConversionCancelled, ConversionError, remove_folder, start_process, stop_process
 from video_converter.locks import FileLock
 
 
@@ -201,11 +201,10 @@ class OnDiskTests(unittest.TestCase):
 
 class DownloadTests(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(tempfile.mkdtemp())
         # Cleanups run after tearDown and newest first, so this one runs last: after a helper process that holds
-        # the lock (see hold_lock_in_another_process) has been stopped and has let go of the folder.
-        self.addCleanup(self._tmp.cleanup)
-        self.root = Path(self._tmp.name)
+        # the lock (see hold_lock_in_another_process) has been stopped; remove_folder waits for it to let go.
+        self.addCleanup(remove_folder, self.root)
         self.model = tiny_model()
         self.staging = self.root / "tiny.downloading"
         self.patch_chunk = mock.patch.object(sm, "CHUNK", 1000)       # several chunks even for these small files
@@ -234,10 +233,12 @@ class DownloadTests(unittest.TestCase):
                 "from video_converter.locks import FileLock\n"
                 "with FileLock(Path(sys.argv[1]) / sm.LOCK_NAME, timeout=10):\n"
                 "    print('held', flush=True); time.sleep(float(sys.argv[2]))\n")
-        proc = subprocess.Popen([sys.executable, "-c", code, str(self.root), str(seconds)], stdout=subprocess.PIPE,
-                                text=True, cwd=Path(__file__).resolve().parents[1])
+        # Started and stopped like the app does its ffmpeg runs: a venv's python.exe is only a launcher, and killing
+        # it alone leaves the real Python holding the lock file for a moment after.
+        proc = start_process([sys.executable, "-c", code, str(self.root), str(seconds)], stdout=subprocess.PIPE,
+                             text=True, cwd=Path(__file__).resolve().parents[1])
         self.addCleanup(proc.stdout.close)
-        self.addCleanup(lambda: (proc.kill(), proc.wait(timeout=30)))
+        self.addCleanup(lambda: (stop_process(proc), proc.wait(timeout=30)))
         self.assertEqual(proc.stdout.readline().strip(), "held")
         return proc
 
@@ -276,7 +277,7 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(waited, [1])
         self.assertLess(time.monotonic() - started, 10)
         self.assertFalse(self.staging.exists())
-        other.kill()
+        stop_process(other)
         other.wait(timeout=30)
 
     def test_a_wait_that_runs_out_says_another_copy_is_downloading(self):
