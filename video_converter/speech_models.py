@@ -242,11 +242,21 @@ def _content_range_start(answer) -> Optional[int]:
         return None
 
 
+def _stop_if_cancelled(cancel_event: Optional[threading.Event]) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise ConversionCancelled()
+
+
 def _fetch_file(model: SpeechModel, file: ModelFile, staging: Path, open_: Opener, done_before: int,
                 report: Callable[[int], None], cancel_event: Optional[threading.Event]) -> None:
     """Get one file into `staging`, carrying on from a half-finished copy when there is one. The finished
-    file is checked against its pinned size and SHA-256 and only then given its real name."""
+    file is checked against its pinned size and SHA-256 and only then given its real name.
+
+    Each download run has its own `cancel_event`. A run that was cancelled may still be waiting for the
+    network when the next run starts on the same folder, so every step that changes a file looks at the
+    event first: a cancelled run's late bytes are dropped, never written."""
     final, part = staging / file.name, staging / (file.name + ".part")
+    _stop_if_cancelled(cancel_event)
     if final.is_file():
         if final.stat().st_size == file.size and file_sha256(final, cancel_event) == file.sha256:
             report(done_before + file.size)
@@ -260,17 +270,18 @@ def _fetch_file(model: SpeechModel, file: ModelFile, staging: Path, open_: Opene
         headers = {"Range": f"bytes={have}-"} if have else {}
         answer = open_(model.url(file), headers)
         try:
+            _stop_if_cancelled(cancel_event)
             if have and getattr(answer, "status", 200) == 206 and _content_range_start(answer) == have:
                 mode = "ab"
             else:
                 have, mode = 0, "wb"         # no resuming (or the server sent the whole file): start again
             with open(part, mode) as out:
                 while have < file.size:
-                    if cancel_event is not None and cancel_event.is_set():
-                        raise ConversionCancelled()
+                    _stop_if_cancelled(cancel_event)
                     block = answer.read(min(CHUNK, file.size - have))
                     if not block:
                         break
+                    _stop_if_cancelled(cancel_event)         # cancelled while waiting for these bytes: drop them
                     out.write(block)
                     have += len(block)
                     report(done_before + have)
@@ -283,15 +294,20 @@ def _fetch_file(model: SpeechModel, file: ModelFile, staging: Path, open_: Opene
             part.unlink(missing_ok=True)
             raise ConversionError(tr("The download of {file} came out the wrong size. Try again.", file=file.name))
     if file_sha256(part, cancel_event) != file.sha256:
+        _stop_if_cancelled(cancel_event)
         part.unlink(missing_ok=True)
         raise ConversionError(tr("The downloaded {file} is damaged (its checksum doesn't match). Try again.",
                                  file=file.name))
+    _stop_if_cancelled(cancel_event)
     part.replace(final)
 
 
 def download_model(model: SpeechModel, root: Optional[Path] = None, on_progress: Optional[DownloadProgress] = None,
-                   cancel_event: Optional[threading.Event] = None, open_: Optional[Opener] = None) -> Path:
-    """Download `model` into its folder and return it. Nothing happens if it is already there and intact.
+                   cancel_event: Optional[threading.Event] = None, open_: Optional[Opener] = None,
+                   recheck: bool = True) -> Path:
+    """Download `model` into its folder and return it. Nothing happens if it is already there and intact
+    (`recheck=False` skips that look, for a caller that has just found the model damaged). A damaged model
+    is repaired: the files that are fine are kept and only the others are fetched again.
 
     The files are written to `<name>.downloading` next to the final folder; a download that was
     stopped (cancelled, offline, out of space) carries on from there next time. Raises
@@ -299,13 +315,18 @@ def download_model(model: SpeechModel, root: Optional[Path] = None, on_progress:
     `open_(url, headers)` replaces the real network (for tests)."""
     open_ = open_ or open_url
     target, staging = model_path(model, root), _staging_path(model, root)
-    if is_downloaded(model, root):
+    if recheck and is_downloaded(model, root):
         try:
             return verify_model(model, root, cancel_event)
         except ConversionCancelled:
             raise
         except ConversionError:
             log.warning("The %s model on disk is not intact; downloading it again", model.label)
+    if target.is_dir() and not staging.exists():
+        try:
+            target.replace(staging)      # the files that are fine stay; each one is checked again below
+        except OSError:
+            pass                         # in use by something: everything is fetched into a fresh folder
     total = model.total_bytes
     present = sum(f.size for f in model.files if (staging / f.name).is_file())
     present += sum((staging / (f.name + ".part")).stat().st_size for f in model.files
@@ -328,6 +349,7 @@ def download_model(model: SpeechModel, root: Optional[Path] = None, on_progress:
         for file in model.files:
             if (staging / file.name).stat().st_size != file.size:
                 raise ConversionError(tr("The downloaded {file} is not the expected size. Try again.", file=file.name))
+        _stop_if_cancelled(cancel_event)
         if target.exists():
             shutil.rmtree(target)
         staging.replace(target)

@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+from . import APP_NAME
 from .captions import Cue, write_srt
 from .core import ConversionCancelled, ConversionError, run_ffmpeg, unique_output_path
 from .i18n import N_, tr
@@ -251,16 +252,31 @@ def extract_audio(ffmpeg: str, source: Path, target: Path, start: float = 0.0, l
         raise
 
 
+WAV_BLOCK = 1 << 20          # frames read at a time
+
+
 def read_wav(path: Path):
-    """The samples of a 16-bit mono WAV as a float32 array in -1..1."""
+    """The samples of a 16-bit mono WAV as a float32 array in -1..1. The file is read in blocks and
+    converted into one array that is allocated once, so a long recording takes about twice the size of its WAV
+    in memory instead of five times."""
     import numpy as np
 
     try:
         with wave.open(str(path), "rb") as wav:
-            frames = wav.readframes(wav.getnframes())
-    except (wave.Error, EOFError) as exc:
+            total = min(wav.getnframes(), max(path.stat().st_size // 2, 0))     # a header can promise more than the file has
+            audio = np.empty(total, dtype=np.float32)
+            done = 0
+            while done < total:
+                block = wav.readframes(min(WAV_BLOCK, total - done))
+                if not block:
+                    break
+                samples = np.frombuffer(block, dtype="<i2", count=len(block) // 2)
+                audio[done:done + samples.size] = samples
+                audio[done:done + samples.size] *= np.float32(1.0 / 32768.0)
+                done += samples.size
+    except (wave.Error, EOFError, OSError) as exc:
         raise ConversionError(tr("Couldn't read the sound of this file ({reason}).", reason=exc)) from None
-    return np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
+    return audio if done == total else audio[:done].copy()
 
 
 # ----- the model -------------------------------------------------------------------------
@@ -282,21 +298,37 @@ def load_whisper(folder: Path):
         raise ConversionError(tr("Couldn't load the speech model: {reason}", reason=exc)) from None
 
 
+def _cancelled(cancel_event: Optional[threading.Event]) -> bool:
+    return cancel_event is not None and cancel_event.is_set()
+
+
 def transcribe(model, audio, language: str = "", translate: bool = False, seconds: Optional[float] = None,
                on_progress: Optional[Callable[[float], None]] = None,
                cancel_event: Optional[threading.Event] = None) -> tuple[list[Piece], str]:
     """Run `model` over `audio`: (the words with their times, the language that was spoken).
 
     Speech is found first (the voice activity filter), so music and silence are not "transcribed"; word
-    times are asked for so the cues can be cut at the right places. Between segments a cancel is noticed."""
+    times are asked for so the cues can be cut at the right places. A cancel is noticed before the speech
+    is looked for, before and after the engine produces each segment, so it never has to wait for more than
+    the one step that is already running."""
+    if _cancelled(cancel_event):
+        raise ConversionCancelled()
     try:
         segments, info = model.transcribe(
             audio, language=language or None, task="translate" if translate else "transcribe",
             vad_filter=True, vad_parameters={"min_silence_duration_ms": 500}, word_timestamps=True,
             condition_on_previous_text=False)
+        if _cancelled(cancel_event):            # the language was being detected while the cancel came
+            raise ConversionCancelled()
         found = []
-        for segment in segments:
-            if cancel_event is not None and cancel_event.is_set():
+        stream = iter(segments)
+        while True:
+            if _cancelled(cancel_event):
+                raise ConversionCancelled()
+            segment = next(stream, None)        # the engine does its work here, one segment at a time
+            if segment is None:
+                break
+            if _cancelled(cancel_event):
                 raise ConversionCancelled()
             found.append(segment)
             if on_progress and seconds:
@@ -329,16 +361,31 @@ class CaptionResult:
 
 def ensure_model(model: SpeechModel, root: Optional[Path] = None, on_progress: Optional[Progress] = None,
                  cancel_event: Optional[threading.Event] = None, opener=None) -> Path:
-    """The folder of an intact `model`: downloaded first if it isn't there yet."""
-    if not is_downloaded(model, root):
-        def report(fraction: float, done: int, total: int) -> None:
-            if on_progress:
-                on_progress(DOWNLOADING, fraction, tr("{done} of {total} MB", done=f"{done / 1_048_576:.0f}",
-                                                          total=f"{total / 1_048_576:.0f}"))
-        download_model(model, root, report, cancel_event, opener)
+    """The folder of an intact `model`: downloaded first if it isn't there yet, and fetched again (just
+    what is wrong with it) when its files have the right sizes but fail their checksum."""
+    def report(fraction: float, done: int, total: int) -> None:
+        if on_progress:
+            on_progress(DOWNLOADING, fraction, tr("{done} of {total} MB", done=f"{done / 1_048_576:.0f}",
+                                                      total=f"{total / 1_048_576:.0f}"))
+
+    if is_downloaded(model, root):
+        if on_progress:
+            on_progress(LOADING, 0.0, "")
+        try:
+            return verify_model(model, root, cancel_event)
+        except ConversionCancelled:
+            raise
+        except ConversionError:
+            log.warning("The %s speech model on disk is damaged; downloading it again", model.label)
+    download_model(model, root, report, cancel_event, opener, recheck=False)
     if on_progress:
         on_progress(LOADING, 0.0, "")
     return verify_model(model, root, cancel_event)
+
+
+def _stop_if_cancelled(cancel_event: Optional[threading.Event]) -> None:
+    if _cancelled(cancel_event):
+        raise ConversionCancelled()
 
 
 def make_captions(ffmpeg: str, source: Path, options: CaptionOptions, duration: Optional[float] = None,
@@ -367,8 +414,10 @@ def make_captions(ffmpeg: str, source: Path, options: CaptionOptions, duration: 
         say(PREPARING, 0.0, "")
         wav = extract_audio(ffmpeg, source, work / "speech.wav", low, length,
                             lambda f: say(PREPARING, f, ""), cancel_event)
+        _stop_if_cancelled(cancel_event)
         audio = read_wav(wav)
         wav.unlink(missing_ok=True)
+        _stop_if_cancelled(cancel_event)
         if audio.size == 0:
             raise ConversionError(tr("This video has no sound in the part you chose, so there is nothing to make "
                                      "captions from."))
@@ -376,9 +425,9 @@ def make_captions(ffmpeg: str, source: Path, options: CaptionOptions, duration: 
             return CaptionResult([], options.language)
         seconds = audio.size / SAMPLE_RATE
         folder = ensure_model(model, root, say, cancel_event, opener)
-        if cancel_event is not None and cancel_event.is_set():
-            raise ConversionCancelled()
+        _stop_if_cancelled(cancel_event)
         speech_model = loader(folder)
+        _stop_if_cancelled(cancel_event)
         say(LISTENING, 0.0, "")
         pieces, language = transcribe(speech_model, audio, options.language, options.translate, seconds,
                                       lambda f: say(LISTENING, f, ""), cancel_event)
@@ -411,6 +460,31 @@ def save_captions(cues: list[Cue], source: Path, output_dir: Optional[Path] = No
         raise ConversionError(tr("Couldn't save the captions to {path}: {reason}", path=path,
                                  reason=exc.strerror or exc)) from None
     return path
+
+
+def fallback_folders() -> list[Path]:
+    """Where captions are saved when the folder next to the video can't be written to (a read-only drive, a
+    disc, a folder that needs rights): the user's Documents folder, then the temporary folder."""
+    home = Path.home()
+    documents = home / "Documents"
+    return [(documents if documents.is_dir() else home) / APP_NAME, Path(tempfile.gettempdir()) / APP_NAME]
+
+
+def save_captions_anywhere(cues: list[Cue], source: Path, output_dir: Optional[Path] = None, overwrite: bool = False,
+                           fallbacks: Optional[list[Path]] = None, save=None) -> tuple[Path, bool]:
+    """`save_captions` (or `save`, which does the same job), but finished work is never thrown away: when
+    the file can't be written where it belongs, the first of the `fallbacks` folders that takes it is used.
+    Returns (the file, whether a fallback was needed). Raises the first problem only when nowhere works."""
+    save = save or save_captions
+    try:
+        return save(cues, source, output_dir, overwrite), False
+    except ConversionError as first:
+        for folder in (fallback_folders() if fallbacks is None else fallbacks):
+            try:
+                return save(cues, source, folder, False), True
+            except ConversionError:
+                continue
+        raise first from None
 
 
 def self_test() -> str:

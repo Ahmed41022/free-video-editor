@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover - depends on the environment
 from tests.test_speech_models import FILES, tiny_model
 from video_converter import autocaptions as ac
 from video_converter import speech_models as sm
-from video_converter.captions import Cue, format_srt, parse_cues
+from video_converter.captions import Cue, format_srt, parse_cues, read_text
 from video_converter.core import ConversionError, find_ffmpeg
 
 FFMPEG = find_ffmpeg()
@@ -266,6 +266,61 @@ class DialogTests(unittest.TestCase):
         self.assertEqual(dialog.result(), QDialog.DialogCode.Rejected)
 
 
+    def test_a_second_run_waits_while_the_previous_worker_is_still_finishing(self):
+        started, block = threading.Event(), threading.Event()
+
+        def slow(ffmpeg, source, options, duration=None, cancel_event=None, **extra):
+            started.set()
+            block.wait(TIMEOUT)                         # a worker that takes a while to notice the cancel
+            raise ac.ConversionCancelled()
+
+        first = self.make(slow)
+        first.show()
+        first.start_button.click()
+        self.assertTrue(started.wait(TIMEOUT))
+        first.reject()                                  # the window is closed; the worker is still running
+        self.assertTrue(self.cls.previous_run_active())
+
+        second = self.make()
+        second.show()
+        second.start_button.click()
+        self.assertEqual(second.status.text(), "Stopping the previous run…")
+        self.assertEqual(self.calls, [])                # not started
+        pump(0.5)
+        self.assertEqual(self.calls, [])                # still waiting
+        block.set()                                     # the old worker lets go
+        self.assertTrue(pump(TIMEOUT, lambda: second.outcome is not None))
+        self.assertEqual(len(self.calls), 1)            # exactly one run happened
+
+    def test_closing_the_window_while_it_waits_starts_nothing(self):
+        started, block = threading.Event(), threading.Event()
+
+        def slow(*args, **kwargs):
+            started.set()
+            block.wait(TIMEOUT)
+            raise ac.ConversionCancelled()
+
+        first = self.make(slow)
+        first.show()
+        first.start_button.click()
+        self.assertTrue(started.wait(TIMEOUT))
+        first.reject()
+        second = self.make()
+        second.show()
+        second.start_button.click()
+        second.reject()
+        block.set()
+        pump(0.6)
+        self.assertEqual(self.calls, [])
+        self.assertIsNone(second.outcome)
+
+    def test_without_an_earlier_worker_a_run_starts_at_once(self):
+        dialog = self.make()
+        dialog.show()
+        self.assertFalse(self.cls.previous_run_active())
+        dialog.start_button.click()
+        self.assertTrue(pump(TIMEOUT, lambda: dialog.outcome is not None))
+
 class EditorTests(unittest.TestCase):
     def setUp(self):
         from video_converter.ui.captions_editor import CaptionsEditor
@@ -373,6 +428,49 @@ class EditorTests(unittest.TestCase):
         self.table.item(0, 2).setText("different")
         self.assertEqual(CUES[0].text, "Hello there")
 
+
+    def test_times_that_are_not_real_numbers_are_refused(self):
+        from video_converter.ui.captions_editor import clock
+        for column in (0, 1):
+            for text in ("nan", "NaN", "inf", "-inf", "1e999", "-5", "0:-10"):
+                with self.subTest(column=column, text=text):
+                    before = (self.editor.cues[0].start, self.editor.cues[0].end)
+                    shown = self.table.item(0, column).text()
+                    self.table.item(0, column).setText(text)
+                    self.assertEqual((self.editor.cues[0].start, self.editor.cues[0].end), before)
+                    self.assertEqual(self.table.item(0, column).text(), shown)           # put back
+                    self.assertFalse(self.editor.message.isHidden())
+                    self.assertTrue(self.editor.message.text())            # some message says why
+                    self.editor.message.hide()
+        self.assertEqual(clock(float("nan")), "0:00.000")
+        self.assertEqual(clock(float("inf")), "0:00.000")
+        self.assertEqual(clock(-float("inf")), "0:00.000")
+
+    def test_nothing_that_is_not_finite_can_be_saved(self):
+        from video_converter.captions import format_srt
+        self.editor.cues[0].start = float("nan")
+        self.editor.cues[1].end = float("inf")
+        self.editor.accept()
+        self.assertEqual([c.text for c in self.editor.cues], ["مرحبا"])
+        format_srt(self.editor.cues)
+        self.assertIn("00:00:00,000", format_srt([Cue(float("nan"), float("inf"), "x")]))          # defensive: no crash
+
+    def test_times_far_past_the_end_of_the_video_are_refused(self):
+        self.editor.duration = 10.0
+        self.table.item(0, 1).setText("70")                      # 60 s past the end is the limit
+        self.assertEqual(self.editor.cues[0].end, 70.0)
+        self.assertTrue(self.editor.message.isHidden())
+        self.table.item(0, 1).setText("70.5")
+        self.assertEqual(self.editor.cues[0].end, 70.0)
+        self.assertFalse(self.editor.message.isHidden())
+        self.table.item(1, 0).setText("500")
+        self.assertEqual(self.editor.cues[1].start, 3.0)
+        self.table.item(2, 0).setText("69.5")                    # would push the end past the limit too
+        self.assertEqual(self.editor.cues[2].start, 5.0)
+
+    def test_without_a_duration_only_the_real_numbers_check_applies(self):
+        self.table.item(0, 1).setText("100000")
+        self.assertEqual(self.editor.cues[0].end, 100000.0)
 
 class PanelTests(unittest.TestCase):
     def setUp(self):
@@ -704,6 +802,109 @@ class MainWindowTests(unittest.TestCase):
         self.window.undo_stack.undo()
         self.assertEqual(self.subtitles(), "")
 
+
+    # ----- fixes ---------------------------------------------------------------------------
+
+    def attach_bytes(self, data: bytes, name="clip.srt"):
+        srt = self.folder / name
+        srt.write_bytes(data)
+        new = self.item.settings.copy()
+        new.edit.subtitles.file = str(srt)
+        self.window.push_settings(new, "Choose subtitles")
+        self.window.undo_stack.clear()
+        return srt
+
+    def capturing_editor(self, opened, change=lambda cues: cues):
+        class Editor:
+            DialogCode = QDialog.DialogCode
+
+            def __init__(self, cues, parent):
+                opened.append([Cue(c.start, c.end, c.text) for c in cues])
+                self.cues = change([Cue(c.start, c.end, c.text) for c in cues])
+
+            def exec(self):
+                return QDialog.DialogCode.Accepted
+
+            def deleteLater(self):
+                pass
+
+        return mock.patch.object(self.main_window, "CaptionsEditor", Editor)
+
+    ARABIC = [Cue(1.0, 2.5, "مرحبا بكم في قناتنا"), Cue(3.0, 4.0, "شكرا لكم على المتابعة")]
+
+    def test_editing_a_windows_1256_file_shows_arabic_and_keeps_a_backup_of_the_original(self):
+        original = format_srt(self.ARABIC).encode("cp1256")
+        srt = self.attach_bytes(original)
+        opened = []
+
+        def reword(cues):
+            cues[0].text += "!"
+            return cues
+
+        with self.capturing_editor(opened, reword):
+            self.window.edit_captions()
+        self.assertEqual([c.text for c in opened[0]], [c.text for c in self.ARABIC])         # not mojibake
+        data = srt.read_bytes()
+        self.assertTrue(data.startswith(b"\xef\xbb\xbf"))                  # UTF-8 with a byte order mark
+        self.assertEqual([c.text for c in parse_cues(data.decode("utf-8-sig"))],
+                         [self.ARABIC[0].text + "!", self.ARABIC[1].text])
+        backup = self.folder / "clip.srt.bak"
+        self.assertEqual(backup.read_bytes(), original)
+        # a second edit leaves the very first backup alone
+        with self.capturing_editor([], lambda cues: [Cue(0.0, 1.0, "again")]):
+            self.window.edit_captions()
+        self.assertEqual(backup.read_bytes(), original)
+        self.window.undo_stack.undo()
+        self.window.undo_stack.undo()
+        self.assertEqual(srt.read_bytes(), original)
+
+    def test_a_utf16_file_without_a_byte_order_mark_is_read_properly(self):
+        srt = self.attach_bytes(format_srt(self.ARABIC).encode("utf-16-le"))
+        opened = []
+        with self.capturing_editor(opened, lambda cues: cues[:1]):
+            self.window.edit_captions()
+        self.assertEqual([c.text for c in opened[0]], [c.text for c in self.ARABIC])
+        self.assertEqual([c.text for c in parse_cues(srt.read_bytes().decode("utf-8-sig"))], [self.ARABIC[0].text])
+
+    def test_an_edited_file_always_has_a_byte_order_mark(self):
+        srt = self.attach()
+        with self.fake_editor([Cue(1.0, 2.0, "مرحبا")]):
+            self.window.edit_captions()
+        self.assertTrue(srt.read_bytes().startswith(b"\xef\xbb\xbf"))
+
+    def test_editing_a_vtt_file_says_a_new_srt_was_made(self):
+        vtt = self.folder / "clip.vtt"
+        vtt.write_text("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n", encoding="utf-8")
+        new = self.item.settings.copy()
+        new.edit.subtitles.file = str(vtt)
+        self.window.push_settings(new, "Choose subtitles")
+        self.window.undo_stack.clear()
+        with self.fake_editor([Cue(1.0, 2.0, "Hello!")]):
+            self.window.edit_captions()
+        message = self.window.statusBar().currentMessage()
+        self.assertIn("clip.srt", message)
+        self.assertIn("left as it is", message)
+
+    def test_captions_that_cannot_be_saved_next_to_the_video_are_saved_elsewhere(self):
+        elsewhere = self.folder / "elsewhere"
+        real = self.main_window.save_captions
+
+        def save(cues, source, output_dir=None, overwrite=False):
+            if output_dir is None:
+                raise ConversionError("Couldn't save the captions: access denied")
+            return real(cues, source, output_dir, overwrite)
+
+        patch, _ = self.fake_dialog()
+        with patch, mock.patch.object(self.main_window, "save_captions", save), \
+                mock.patch.object(ac, "fallback_folders", return_value=[elsewhere]), \
+                mock.patch.object(self.main_window.QMessageBox, "warning") as warning:
+            self.window.make_captions()
+        warning.assert_not_called()
+        saved = elsewhere / "clip.srt"
+        self.assertEqual(Path(self.subtitles()), saved)                      # the cues are in use, not lost
+        self.assertEqual([c.text for c in parse_cues(read_text(saved))], [c.text for c in CUES])
+        self.assertEqual(self.window.undo_stack.count(), 1)
+        self.assertIn("saved here instead", self.window.statusBar().currentMessage())
 
 if __name__ == "__main__":
     unittest.main()

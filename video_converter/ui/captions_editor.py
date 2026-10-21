@@ -3,6 +3,7 @@ delete a caption. The times are those of the original video, the same as in the 
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 from PySide6.QtCore import QModelIndex, Qt
@@ -17,10 +18,14 @@ from ..i18n import ntr, tr
 
 TIME_COLUMNS = (0, 1)
 TEXT_COLUMN = 2
+DURATION_MARGIN = 60.0      # a caption may be placed this many seconds past the end of the video
 
 
 def clock(seconds: float) -> str:
-    """A time as the table shows it: m:ss.mmm, or h:mm:ss.mmm from an hour on."""
+    """A time as the table shows it: m:ss.mmm, or h:mm:ss.mmm from an hour on (0:00.000 for a time that
+    isn't a number)."""
+    if not math.isfinite(seconds):
+        seconds = 0.0
     ms = int(round(max(seconds, 0.0) * 1000))
     hours, rest = divmod(ms, 3_600_000)
     minutes, rest = divmod(rest, 60_000)
@@ -50,8 +55,9 @@ class CaptionsEditor(QDialog):
     """Shows `cues` in a table. After `accept()`, `cues` holds them as edited: in time order, with the
     ones that were deleted gone."""
 
-    def __init__(self, cues: list[Cue], parent: Optional[QWidget] = None):
+    def __init__(self, cues: list[Cue], parent: Optional[QWidget] = None, duration: Optional[float] = None):
         super().__init__(parent)
+        self.duration = duration if duration is not None and math.isfinite(duration) and duration > 0 else None
         self.setWindowTitle(tr("Edit captions"))
         self.setModal(True)
         self.resize(720, 460)
@@ -135,7 +141,7 @@ class CaptionsEditor(QDialog):
             return
         try:
             value = parse_time(item.text())
-            if value is None:
+            if value is None or not self._allowed(value):
                 raise ValueError(tr("Type a time such as 1:23.5 or 83.5"))
         except ValueError as exc:
             self._reject_time(item, cue, column, str(exc))
@@ -143,6 +149,9 @@ class CaptionsEditor(QDialog):
         start, end = (value, cue.end) if column == 0 else (cue.start, value)
         if column == 0 and end <= start:
             end = start + (cue.end - cue.start)         # moved past its end: the whole caption moves later
+            if not self._allowed(end):
+                self._reject_time(item, cue, column, tr("Type a time such as 1:23.5 or 83.5"))
+                return
             self._show_time(self.table.item(item.row(), 1), end)
         if end <= start:
             self._reject_time(item, cue, column, tr("A caption has to end after it starts."))
@@ -150,6 +159,12 @@ class CaptionsEditor(QDialog):
         cue.start, cue.end = start, end
         self.message.hide()
         self._show_time(item, value)
+
+    def _allowed(self, seconds: float) -> bool:
+        """Whether a typed time makes sense: a real, non-negative number, not far past the end of the video."""
+        if not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds < 0:
+            return False
+        return self.duration is None or seconds <= self.duration + DURATION_MARGIN
 
     def _reject_time(self, item: QTableWidgetItem, cue: Cue, column: int, why: str) -> None:
         self.message.setText(why)
@@ -182,5 +197,7 @@ class CaptionsEditor(QDialog):
         self.count_label.setText(ntr(count, "{n} caption", "{n} captions"))
 
     def accept(self) -> None:
-        self.cues = sorted((c for c in self.cues if c.text.strip()), key=lambda c: (c.start, c.end))
+        # A time that isn't a real number can never be stored (the cells check it), but never write one either.
+        self.cues = sorted((c for c in self.cues if c.text.strip() and math.isfinite(c.start) and math.isfinite(c.end)),
+                           key=lambda c: (c.start, c.end))
         super().accept()

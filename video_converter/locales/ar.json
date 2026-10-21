@@ -678,5 +678,13 @@
     "other": "{n} سطر ترجمة"
   },
   "Only .srt and .vtt subtitle files can be edited here": "يمكن تعديل ملفات الترجمة بصيغة srt. وvtt. فقط من هنا",
-  "The subtitle file can't be found": "ملف الترجمة غير موجود"
+  "The subtitle file can't be found": "ملف الترجمة غير موجود",
+  "The logo picture can't be read: {name}": "لا يمكن قراءة صورة الشعار: {name}",
+  "Stopping the previous run…": "جارٍ إيقاف التشغيل السابق…",
+  "Couldn't keep a copy of {name} first: {reason}": "تعذّر حفظ نسخة احتياطية من {name} أولاً: {reason}",
+  "The captions couldn't be saved next to the video, so they were saved here instead: {path}": "تعذّر حفظ الترجمة بجانب الفيديو، فتم حفظها هنا بدلاً من ذلك: {path}",
+  "The {kind} file was left as it is; the edited captions are in a new file, {name}.": "تُرك ملف {kind} كما هو؛ والترجمة المعدّلة في ملف جديد: {name}.",
+  "Use the file's own style": "استخدام نمط الملف نفسه",
+  "Keep the fonts, colors and places the .ass file was made with. Turn this off to use the font, size, color and place chosen here instead.": "احتفظ بالخطوط والألوان والأماكن التي صُنع بها هذا الملف. أوقف هذا الخيار لاستخدام الخط والحجم واللون والمكان المختارة هنا بدلاً منها.",
+  "Subtitle style": "نمط الترجمة"
 }

@@ -30,8 +30,8 @@ from ..jobs import Clip, Job, JobQueue
 from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
 from ..proxy import ProxyMaker, needs_proxy
-from ..autocaptions import captions_file_for, save_captions
-from ..captions import Logo, format_srt, parse_cues, read_text, subtitle_kind
+from ..autocaptions import captions_file_for, save_captions, save_captions_anywhere
+from ..captions import Logo, encode_srt, parse_cues, read_text_with_encoding, subtitle_kind
 from ..stills import IMAGE_EXTENSIONS, save_frame
 from ..timing import (
     output_spans_to_source, part_index, remove_part_at, restore_part_at, source_to_output, split_at,
@@ -111,7 +111,9 @@ class SettingsCommand(QUndoCommand):
 
 
 class CaptionsFileCommand(QUndoCommand):
-    """One undoable rewrite of a subtitle file: undo puts back the bytes it had."""
+    """One undoable rewrite of a subtitle file: undo puts back the bytes it had. The file as it was is
+    kept once, next to it as `name.srt.bak`, before the first time it is overwritten (the rewrite is UTF-8,
+    and the original may have been in an old code page or a form of Unicode that can't be got back exactly)."""
 
     def __init__(self, window: "MainWindow", item: MediaItem, path: Path, before: bytes, after: bytes, label: str):
         super().__init__(label)
@@ -119,7 +121,18 @@ class CaptionsFileCommand(QUndoCommand):
         self.before, self.after = before, after
 
     def redo(self) -> None:
+        self._keep_backup()
         self._write(self.after)
+
+    def _keep_backup(self) -> None:
+        backup = self.path.with_name(self.path.name + ".bak")
+        try:
+            if not backup.exists():
+                backup.write_bytes(self.before)
+        except OSError as exc:
+            self.window.statusBar().showMessage(
+                tr("Couldn't keep a copy of {name} first: {reason}", name=isolate(self.path.name),
+                   reason=exc.strerror or exc), 6000)
 
     def undo(self) -> None:
         self._write(self.before)
@@ -928,7 +941,8 @@ class MainWindow(QMainWindow):
         if not accepted or outcome is None or item not in self.items:
             return
         try:
-            path = save_captions(outcome.cues, item.path)
+            # Finished work is never thrown away: if the folder of the video won't take the file, another folder does.
+            path, moved = save_captions_anywhere(outcome.cues, item.path, save=save_captions)
         except ConversionError as exc:
             QMessageBox.warning(self, APP_NAME, str(exc))
             return
@@ -937,9 +951,12 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(SettingsCommand(self, item, item.settings, new, tr("Make captions"), mergeable=False))
         self.merge_open = False
         count = len(outcome.cues)
-        self.statusBar().showMessage(
-            ntr(count, "Added {n} caption, saved as {name}. Use Edit captions to fix any words.",
-                "Added {n} captions, saved as {name}. Use Edit captions to fix any words.", name=isolate(path.name)), 8000)
+        message = ntr(count, "Added {n} caption, saved as {name}. Use Edit captions to fix any words.",
+                      "Added {n} captions, saved as {name}. Use Edit captions to fix any words.", name=isolate(path.name))
+        if moved:
+            message = tr("The captions couldn't be saved next to the video, so they were saved here instead: "
+                         "{path}", path=isolate(str(path))) + " " + message
+        self.statusBar().showMessage(message, 15000 if moved else 8000)
 
     def edit_captions(self) -> None:
         """Open the subtitle file's captions in a table; saving rewrites the file as one undoable change."""
@@ -949,11 +966,13 @@ class MainWindow(QMainWindow):
         path = Path(item.settings.edit.subtitles.file or "")
         try:
             before = path.read_bytes()
-            cues = parse_cues(read_text(path), subtitle_kind(path, read_text(path)))
+            text, _encoding = read_text_with_encoding(path)
+            cues = parse_cues(text, subtitle_kind(path, text))
         except OSError:
             self.statusBar().showMessage(tr("The subtitle file can't be read."), 4000)
             return
         dialog = CaptionsEditor(cues, self)
+        dialog.duration = item.info.duration if item.info and item.info.duration else None   # times past the end are refused
         accepted = dialog.exec() == CaptionsEditor.DialogCode.Accepted
         edited = dialog.cues
         dialog.deleteLater()
@@ -961,7 +980,7 @@ class MainWindow(QMainWindow):
             return
         if [(c.start, c.end, c.text) for c in edited] == [(c.start, c.end, c.text) for c in cues]:
             return
-        data = format_srt(edited).encode("utf-8")
+        data = encode_srt(edited)
         if path.suffix.lower() == ".srt":
             self.undo_stack.push(CaptionsFileCommand(self, item, path, before, data, tr("Edit captions")))
         else:
@@ -975,6 +994,9 @@ class MainWindow(QMainWindow):
             new = item.settings.copy()
             new.edit.subtitles.file = str(new_path)
             self.undo_stack.push(SettingsCommand(self, item, item.settings, new, tr("Edit captions"), mergeable=False))
+            self.statusBar().showMessage(
+                tr("The {kind} file was left as it is; the edited captions are in a new file, {name}.",
+                   kind=isolate(path.suffix.lower()), name=isolate(new_path.name)), 10000)
         self.merge_open = False
 
     def captions_file_changed(self, item: MediaItem) -> None:

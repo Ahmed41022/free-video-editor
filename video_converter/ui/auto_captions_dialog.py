@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QGridLayout, QLabel, QProgressBar, QVBoxLayout, QWidget,
 )
@@ -36,6 +36,11 @@ class AutoCaptionsDialog(QDialog):
     worked = Signal(int, object, str)           # which run it was, the result (or None), what went wrong
     progressed = Signal(int, str, float, str)   # which run it was, the phase, how far through it, a few words
 
+    # The worker thread of the latest run, whichever window started it. A window closed during a run only
+    # tells that run to stop; the thread needs a moment to notice. Until it has ended, a new run waits.
+    _last_worker: Optional[threading.Thread] = None
+    WAIT_MS = 150                                # how often a waiting run looks again
+
     def __init__(self, ffmpeg: str, source: Path, duration: Optional[float], start: Optional[float],
                  end: Optional[float], store=None, parent: Optional[QWidget] = None, models_root: Optional[Path] = None,
                  runner: Runner = make_captions):
@@ -51,6 +56,10 @@ class AutoCaptionsDialog(QDialog):
         self._cancel: Optional[threading.Event] = None
         self._thread: Optional[threading.Thread] = None
         self._running = False
+        self._waiting = False
+        self._wait_timer = QTimer(self)
+        self._wait_timer.setSingleShot(True)
+        self._wait_timer.timeout.connect(self._begin)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
@@ -171,23 +180,46 @@ class AutoCaptionsDialog(QDialog):
 
     # ----- working -------------------------------------------------------------
 
+    @classmethod
+    def previous_run_active(cls) -> bool:
+        """Whether the worker of an earlier run (of this or a closed window) is still finishing."""
+        thread = cls._last_worker
+        return thread is not None and thread.is_alive()
+
     def start_work(self) -> None:
         if self._running:
             return
         self._save_choices()
         self._running = True
         self._run += 1
-        run, cancel = self._run, threading.Event()
-        self._cancel = cancel
-        options = self.options()
         self.error.hide()
         for widget in (self.language_box, self.model_box, self.translate_box, self.start_button):
             widget.setEnabled(False)
-        self.status.setText(tr("Getting the sound ready…"))
         self.status.show()
         self.bar.setValue(0)
         self.bar.setRange(0, 1000)
         self.bar.show()
+        if self.previous_run_active():
+            # Two listening runs at once would fight over the speech model and the CPU: wait for the old one.
+            self._waiting = True
+            self.status.setText(tr("Stopping the previous run…"))
+            self.bar.setRange(0, 0)
+            self._wait_timer.start(self.WAIT_MS)
+            return
+        self._begin()
+
+    def _begin(self) -> None:
+        if not self._running:
+            return
+        if self.previous_run_active():
+            self._wait_timer.start(self.WAIT_MS)
+            return
+        self._waiting = False
+        self.bar.setRange(0, 1000)
+        self.status.setText(tr("Getting the sound ready…"))
+        run, cancel = self._run, threading.Event()
+        self._cancel = cancel
+        options = self.options()
 
         def work() -> None:
             result, problem = None, ""
@@ -204,6 +236,7 @@ class AutoCaptionsDialog(QDialog):
             self._emit(self.worked, run, cancel, result, problem)
 
         self._thread = threading.Thread(target=work, name="auto-captions", daemon=True)
+        AutoCaptionsDialog._last_worker = self._thread
         self._thread.start()
 
     @staticmethod
@@ -258,7 +291,9 @@ class AutoCaptionsDialog(QDialog):
 
     def done(self, result: int) -> None:
         """Stop the work however the window closes (a half-listened video is not worth waiting for)."""
+        self._wait_timer.stop()
         if self._cancel is not None:
             self._cancel.set()
         self._running = False
+        self._waiting = False
         super().done(result)

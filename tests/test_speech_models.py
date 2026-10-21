@@ -374,5 +374,96 @@ class DownloadTests(unittest.TestCase):
         self.assertFalse(any(ready for _, ready in status))
 
 
+
+class SlowAnswer(Answer):
+    """An answer whose bytes arrive only when the test lets them: the network is slow."""
+
+    def __init__(self, data, entered, release):
+        super().__init__(data)
+        self.entered, self.release = entered, release
+
+    def read(self, n=-1):
+        self.entered.set()
+        self.release.wait(30)
+        return super().read(n)
+
+
+class CancelledRunTests(unittest.TestCase):
+    """A download that was cancelled may still be waiting on the network when the next one starts: whatever
+    it receives late must go nowhere."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.model = tiny_model()
+        self.staging = self.root / "tiny.downloading"
+        patcher = mock.patch.object(sm, "CHUNK", 1000)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_bytes_that_arrive_after_the_cancel_are_not_written(self):
+        entered, release = threading.Event(), threading.Event()
+        cancel = threading.Event()
+        outcome = []
+
+        def open_(url, headers):
+            return SlowAnswer(FILES[url.rsplit("/", 1)[1]], entered, release)
+
+        def run():
+            try:
+                sm.download_model(self.model, self.root, cancel_event=cancel, open_=open_)
+                outcome.append("finished")
+            except ConversionCancelled:
+                outcome.append("cancelled")
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        self.assertTrue(entered.wait(10))
+        cancel.set()                                  # the window is closed while the first bytes are on their way
+        part = self.staging / "config.json.part"
+        before = part.stat().st_size if part.exists() else 0
+        release.set()                                 # ...and now they arrive
+        thread.join(10)
+        self.assertEqual(outcome, ["cancelled"])
+        after = part.stat().st_size if part.exists() else 0
+        self.assertEqual(after, before)
+        self.assertFalse((self.root / "tiny").exists())
+
+    def test_a_cancelled_run_does_not_publish_a_finished_file_or_the_folder(self):
+        cancel = threading.Event()
+
+        def progress(fraction, done, total):
+            if done >= self.model.total_bytes:
+                cancel.set()                         # cancelled just as the last byte is written
+
+        with self.assertRaises(ConversionCancelled):
+            sm.download_model(self.model, self.root, progress, cancel, FakeServer())
+        self.assertFalse((self.root / "tiny").exists())
+
+    def test_a_cancel_before_a_file_is_opened_leaves_the_part_alone(self):
+        self.staging.mkdir()
+        part = self.staging / "config.json.part"
+        part.write_bytes(b"{")
+        cancel = threading.Event()
+        cancel.set()
+        server = FakeServer()
+        with self.assertRaises(ConversionCancelled):
+            sm.download_model(self.model, self.root, cancel_event=cancel, open_=server)
+        self.assertEqual(part.read_bytes(), b"{")
+        self.assertEqual(server.requests, [])
+
+    def test_repairing_a_damaged_model_keeps_the_files_that_are_fine(self):
+        server = FakeServer()
+        folder = sm.download_model(self.model, self.root, open_=server)
+        data = bytearray((folder / "model.bin").read_bytes())
+        data[9] ^= 0x33
+        (folder / "model.bin").write_bytes(bytes(data))
+        server.requests.clear()
+        sm.download_model(self.model, self.root, open_=server)
+        self.assertEqual({url.rsplit("/", 1)[1] for url, _ in server.requests}, {"model.bin"})
+        self.assertEqual(sm.verify_model(self.model, self.root), folder)
+
+
 if __name__ == "__main__":
     unittest.main()
