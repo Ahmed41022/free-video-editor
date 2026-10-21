@@ -29,11 +29,24 @@ NORMALIZED_RATE = 48000     # loudnorm works at 192 kHz inside, so its result is
 # level the noise is assumed to start at, and tn lets it follow the noise as it changes. Light only
 # takes away a gentle hiss, so speech keeps its body; Strong cleans up louder noise at the price of
 # a little more of the "underwater" sound that every noise remover has.
+#
+# Measured on a spoken clip over white noise at -36 dB, in the pauses (and the speech level stays within
+# 0.1 dB): the old values (nr 10/18, tn=1 without tr) took out 0.4 dB and Light and Strong were the same;
+# with residual tracking (tr=1) Light takes out 10 dB, and Strong, which runs the filter twice, 33 dB.
+# Noise that is mostly low rumble (pink, brown) is out of reach of this filter: 1 to 2 dB.
 AUDIO_DENOISE = {
     "off": None,
-    "light": "afftdn=nr=10:nf=-40:tn=1",
-    "strong": "afftdn=nr=18:nf=-35:tn=1",
+    "light": "afftdn=nr=12:nf=-50:tn=1:tr=1",
+    "strong": "afftdn=nr=24:nf=-45:tn=1:tr=1,afftdn=nr=24:nf=-45:tn=1:tr=1",
 }
+
+# The last stage of any sound that was made louder, mixed with music or evened out: a limiter that keeps the
+# peaks under 0 dBFS. Without it a +6 dB boost, or music on top of speech, goes past the top and is cut
+# off (clipped) by the encoder; loudnorm's own limiter doesn't work in the steady (linear) mode used here.
+# `level=disabled` leaves the volume as it is. The ceiling is a little under -1 dBFS, because an MP3 or AAC
+# file overshoots what it was given by up to half a dB, and the file should stay under -0.5 dBTP.
+LIMIT = 0.89
+LIMITER = f"alimiter=limit={LIMIT}:level=disabled"
 
 # Lets the music duck under the video's sound: a quick dip when it gets loud, a slow return.
 _DUCK = "sidechaincompress=threshold=0.015:ratio=8:attack=30:release=400"
@@ -68,6 +81,8 @@ def clip_filters(sound: Sound) -> list[str]:
     volume = _clamp(sound.volume, VOLUME_MIN, VOLUME_MAX)
     if abs(volume) > 1e-6:
         filters.append(f"volume={_db(volume)}dB")
+    if volume > 1e-6:
+        filters.append(LIMITER)         # the boost must not go past the top
     return filters
 
 
@@ -165,7 +180,8 @@ def master_filters(sound: Sound, voice: Optional[str], music: Optional[int], tot
             steps.append("[heard][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed]")
         current = "[mixed]"
     if current and sound.normalize and (measure or loudness is not None):
-        steps.append(f"{current}{loudnorm(None if measure else loudness)}{out}")
+        # The measuring pass is thrown away; the real one ends with the limiter (see LIMITER).
+        steps.append(f"{current}{loudnorm(None if measure else loudness)}{'' if measure else ',' + LIMITER}{out}")
     elif current and current != out:
-        steps.append(f"{current}anull{out}")
+        steps.append(f"{current}{LIMITER if music is not None else 'anull'}{out}")
     return steps

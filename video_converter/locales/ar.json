@@ -678,5 +678,11 @@
     "other": "{n} سطر ترجمة"
   },
   "Only .srt and .vtt subtitle files can be edited here": "يمكن تعديل ملفات الترجمة بصيغة srt. وvtt. فقط من هنا",
-  "The subtitle file can't be found": "ملف الترجمة غير موجود"
+  "The subtitle file can't be found": "ملف الترجمة غير موجود",
+  "Can't save in {folder}: {error}": "تعذر الحفظ في {folder}: {error}",
+  "Couldn't start ffmpeg: {error}": "تعذر تشغيل ffmpeg: {error}",
+  "Not even the sound fits in {limit:g} MB; choose a bigger size or remove the sound.": "لا يتسع حتى الصوت في {limit:g} MB؛ اختر حجمًا أكبر أو أزل الصوت.",
+  "The result can't be saved over {name}, a file it is made from. Choose another name or folder.": "لا يمكن حفظ النتيجة فوق الملف {name} لأنها مصنوعة منه. اختر اسمًا أو مجلدًا آخر.",
+  "This GIF runs {length} and may come out at about {size:.0f} MB, and GIFs get big fast. Shorten the clip, or lower the width or frame rate.": "مدة هذا الـ GIF {length} وقد يصل حجمه إلى نحو {size:.0f} MB، وملفات GIF تكبر بسرعة. قصّر المقطع، أو قلّل العرض أو معدل الإطارات.",
+  "This export is too complicated to start (too many cuts or texts at once). Try fewer, or export in parts.": "هذا التصدير معقد جدًا ليبدأ (قطوع أو نصوص كثيرة دفعة واحدة). جرّب عددًا أقل، أو صدّر على أجزاء."
 }
