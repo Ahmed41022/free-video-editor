@@ -8,8 +8,10 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 import zlib
+from dataclasses import asdict
 from pathlib import Path
 from unittest import mock
 
@@ -241,7 +243,8 @@ class TextFilterTests(unittest.TestCase):
         self.assertEqual(" ".join(lines).split(), long.split())
 
     def test_lines_the_person_broke_are_kept(self):
-        self.assertEqual(text_file_of(text_filter(TextItem(text="a\n\nb"), FRAME, None)), "a\n\nb")
+        # the blank line stays (as a line holding one space, so it keeps its height)
+        self.assertEqual(text_file_of(text_filter(TextItem(text="a\n\nb"), FRAME, None)), "a\n \nb")
 
     def test_the_box_the_editor_draws_is_close_to_the_real_text(self):
         if not WINDOWS:
@@ -602,8 +605,11 @@ class SubtitleParsingTests(unittest.TestCase):
 
     def test_srt(self):
         cues = parse_cues(self.SRT)
+        # A blank line only ends a cue when a new cue (its number or its time) comes next, so the stray block
+        # that follows the second cue is read as more of its text rather than dropped.
         self.assertEqual([(c.start, c.end, c.text) for c in cues],
-                         [(1.0, 3.5, "Hello\nthere"), (60.25, 62.0, "<i>Second</i>"), (3600.5, 3601.75, "Dotted times")])
+                         [(1.0, 3.5, "Hello\nthere"), (60.25, 62.0, "<i>Second</i>\n\ngarbage block without a time"),
+                          (3600.5, 3601.75, "Dotted times")])
 
     def test_webvtt(self):
         text = ("WEBVTT\n\nNOTE a comment\n\nintro\n00:01.000 --> 00:02.500 align:start position:0%\n"
@@ -1288,6 +1294,697 @@ class CommandLineTests(unittest.TestCase):
         for option in ("--text ", "--text-start", "--text-end", "--text-pos", "--text-size", "--text-color", "--logo ",
                        "--logo-pos", "--logo-size", "--logo-opacity", "--subtitles "):
             self.assertIn(option, out.getvalue())
+
+
+# ----- fixes: fonts, encodings, sloppy files, races, speed --------------------------------------------------------
+
+LAM_ALEF = "لا لأن الإطار مرحبا"     # لا لأن الإطار مرحبا
+
+
+def hollow_boxes(gray: bytes, width: int, height: int) -> int:
+    """How many shapes in a gray picture are the empty box a font draws for a character it has no glyph for:
+    an outline of a rectangle, taller than wide, with hardly any pixels inside."""
+    seen = bytearray(len(gray))
+    boxes = 0
+    for first in range(len(gray)):
+        if gray[first] <= 128 or seen[first]:
+            continue
+        stack, seen[first] = [first], 1
+        count, left, right = 0, width, 0
+        top, bottom = height, 0
+        while stack:
+            i = stack.pop()
+            x, y = i % width, i // width
+            count += 1
+            left, right, top, bottom = min(left, x), max(right, x), min(top, y), max(bottom, y)
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    nx, ny = x + dx, y + dy
+                    j = ny * width + nx
+                    if 0 <= nx < width and 0 <= ny < height and gray[j] > 128 and not seen[j]:
+                        seen[j] = 1
+                        stack.append(j)
+        w, h = right - left + 1, bottom - top + 1
+        if min(w, h) >= 15 and 0.5 < w / h < 1.1 and count < 0.14 * w * h:
+            boxes += 1
+    return boxes
+
+
+class FakeFonts:
+    """A pretend set of installed fonts: Arial and Impact lack what libass needs for Arabic, Tahoma has it all."""
+
+    GLYPHS = {
+        "arial": lambda code: code < 0x700 or code == 0x200D or 0xFEF5 <= code <= 0xFEFC,     # Arabic and lam-alef, but no U+FEFF
+        "impact": lambda code: code < 0x250,                                    # no Arabic at all
+        "tahoma": lambda code: True,
+        "segoe ui": lambda code: True,
+    }
+
+    def setUp(self):
+        self.folder = Path(tempfile.mkdtemp())
+        entries = []
+        for name in ("arial", "impact", "tahoma", "segoeui"):
+            (self.folder / f"{name}.ttf").write_bytes(b"x")
+        entries = [("Arial (TrueType)", "arial.ttf"), ("Impact (TrueType)", "impact.ttf"),
+                   ("Tahoma (TrueType)", "tahoma.ttf"), ("Segoe UI (TrueType)", "segoeui.ttf")]
+
+        def load(path):
+            has = self.GLYPHS[{"arial": "arial", "impact": "impact", "tahoma": "tahoma", "segoeui": "segoe ui"}[Path(path).stem]]
+            font = fonts.Font(path, 1000, 800, -200, 0, [], [500], 1)
+            font.has_char = has                      # type: ignore
+            return font
+
+        self.patches = [mock.patch.object(fonts, "_registry_entries", return_value=entries),
+                        mock.patch.object(fonts, "windows_fonts_dir", return_value=self.folder),
+                        mock.patch.object(fonts, "load_font", side_effect=load)]
+        for patch in self.patches:
+            patch.start()
+        fonts.forget_installed_fonts()
+
+    def tearDown(self):
+        for patch in self.patches:
+            patch.stop()
+        fonts.forget_installed_fonts()
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+
+class SubtitleFontChoiceTests(FakeFonts, unittest.TestCase):
+    def test_arabic_needs_the_lam_alef_forms_and_the_joiner_not_only_the_letters(self):
+        needed = fonts.needed_glyphs(LAM_ALEF)
+        for code in (0xFEFB, 0xFEF5, 0xFEF7, 0xFEF9, 0xFEFF, 0x200D):
+            self.assertIn(code, needed)
+        self.assertNotIn(0xFEFF, fonts.needed_glyphs("hello"))
+        self.assertEqual(fonts.needed_glyphs("a b‫"), {ord("a"), ord("b")})        # spaces and marks need no glyph
+
+    def test_a_font_that_draws_arabic_letters_but_leaves_a_box_after_lam_alef_is_not_used(self):
+        # Arial here has every Arabic letter, so the plain glyph check would let it through.
+        self.assertTrue(all(fonts.load_font(fonts.font_file("Arial")).has_char(ord(c)) for c in LAM_ALEF if c != " "))
+        self.assertEqual(fonts.subtitle_font("Arial", False, LAM_ALEF), "Segoe UI")
+        self.assertEqual(fonts.subtitle_font("Impact", True, LAM_ALEF), "Segoe UI")
+
+    def test_the_users_font_stays_when_it_can_draw_everything(self):
+        self.assertEqual(fonts.subtitle_font("Tahoma", False, LAM_ALEF), "Tahoma")
+        self.assertEqual(fonts.subtitle_font("Arial", False, "Hello there"), "Arial")
+        self.assertEqual(fonts.subtitle_font("Impact", False, "Hello there"), "Impact")
+        self.assertEqual(fonts.subtitle_font("Arial", False, ""), "Arial")
+
+    def test_hebrew_in_a_font_without_hebrew_changes_font_too(self):
+        hebrew = "שלום"
+        self.assertEqual(fonts.subtitle_font("Impact", False, hebrew), "Segoe UI")
+
+    def test_an_unknown_font_is_left_to_libass_unless_the_text_is_right_to_left(self):
+        self.assertEqual(fonts.subtitle_font("Nope Sans", False, "Hello"), "Nope Sans")
+        self.assertEqual(fonts.subtitle_font("Nope Sans", False, LAM_ALEF), "Segoe UI")
+
+    def test_the_subtitles_filter_names_the_font_that_was_chosen(self):
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        arabic, latin = folder / "ar.srt", folder / "en.srt"
+        arabic.write_text("1\n00:00:00,000 --> 00:00:01,000\n" + LAM_ALEF + "\n", encoding="utf-8")
+        latin.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n", encoding="utf-8")
+        vf = captions.subtitle_filter(Subtitles(file=str(arabic), font="Arial"), [(0.0, 9.0)]).replace("\\,", ",")
+        self.assertIn("FontName=Segoe UI,", vf)
+        vf = captions.subtitle_filter(Subtitles(file=str(latin), font="Arial"), [(0.0, 9.0)]).replace("\\,", ",")
+        self.assertIn("FontName=Arial,", vf)
+
+    def test_an_ass_files_own_fonts_are_swapped_only_when_they_cannot_draw_its_words(self):
+        script = ("[V4+ Styles]\nFormat: Name, Fontname, Fontsize, Bold\nStyle: Default,Arial,20,0\nStyle: Fancy,Impact,20,-1\n\n"
+                  "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+                  "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\\i1}" + LAM_ALEF + "{\\i0}\n")
+        fixed = captions._fix_ass_fonts(script)
+        self.assertIn("Style: Default,Segoe UI,20,0", fixed)
+        self.assertIn("Style: Fancy,Segoe UI,20,-1", fixed)
+        self.assertIn("{\\i1}" + LAM_ALEF, fixed)                  # the dialogue is untouched
+        english = script.replace(LAM_ALEF, "Hello")
+        self.assertEqual(captions._fix_ass_fonts(english), english)
+
+    def test_font_names_cannot_inject_style_keys(self):
+        self.assertEqual(fonts.safe_font_name("Arial,Outline=50:x='y'\\"), "ArialOutline50xy")
+        self.assertEqual(fonts.safe_font_name("  Segoe   UI "), "Segoe UI")
+        self.assertEqual(fonts.safe_font_name(None), "")
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = folder / "a.srt"
+        path.write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n", encoding="utf-8")
+        vf = captions.subtitle_filter(Subtitles(file=str(path), font="Arial,Outline=50,Fontsize=1"), [(0.0, 9.0)])
+        style = vf.split("force_style=")[1].replace("\\\\", "\\").replace("\\,", ",").replace("\\:", ":")
+        keys = [part.split("=")[0] for part in style.split(",")]
+        self.assertEqual(keys, ["FontName", "FontSize", "PrimaryColour", "OutlineColour", "BorderStyle", "Outline",
+                                "Shadow", "Bold", "Alignment"])
+        self.assertIn("FontName=ArialOutline50Fontsize1,", style)
+
+    def test_a_saved_font_name_is_cleaned_when_it_is_loaded(self):
+        self.assertEqual(load_subtitles({"font": "Arial,Bold=-1"}).font, "ArialBold-1")
+        self.assertEqual(load_subtitles({"font": ",=:"}).font, fonts.DEFAULT_FONT)
+        self.assertEqual(load_subtitles({"font": "Tahoma"}).font, "Tahoma")
+
+
+@unittest.skipUnless(WINDOWS, "needs the fonts that come with Windows")
+class ArabicSubtitleBoxTests(unittest.TestCase):
+    """Arial, Times New Roman and Impact used to leave an empty box after every lam-alef in burned-in subtitles."""
+
+    SIZE = (640, 180)
+
+    def setUp(self):
+        self.folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.folder, True)
+        self.srt = self.folder / "ar.srt"
+        self.srt.write_text("1\n00:00:00,000 --> 00:00:09,000\n" + LAM_ALEF + "\n", encoding="utf-8")
+
+    def frame(self, font="Arial", bold=False, patch=None):
+        vf = captions.subtitle_filter(Subtitles(file=str(self.srt), size=0.3, font=font, bold=bold), [(0.0, 9.0)])
+        if patch:
+            vf = vf.replace(*patch)
+        return render(vf, self.SIZE)
+
+    def test_no_font_leaves_boxes_after_the_ligatures(self):
+        for font in ("Arial", "Times New Roman", "Impact", "Tahoma", "Segoe UI", "Calibri"):
+            for bold in (False, True):
+                with self.subTest(font=font, bold=bold):
+                    if not fonts.font_file(font):
+                        self.skipTest(f"{font} isn't installed")
+                    gray = self.frame(font, bold)
+                    self.assertGreater(bright(gray, self.SIZE[0]), 500)
+                    self.assertEqual(hollow_boxes(gray, *self.SIZE), 0)
+
+    def test_the_boxes_were_real_with_the_font_the_old_code_gave_libass(self):
+        tahoma = self.frame("Tahoma")
+        # Force Arial into the very same filter, as the old code did.
+        old = self.frame("Tahoma", patch=("FontName=Tahoma", "FontName=Arial"))
+        if hollow_boxes(old, *self.SIZE) == 0:
+            self.skipTest("this version of Arial draws lam-alef without a box")
+        self.assertGreaterEqual(hollow_boxes(old, *self.SIZE), 3)               # one after each of the three ligatures
+        self.assertEqual(hollow_boxes(tahoma, *self.SIZE), 0)
+
+    def test_an_ass_file_with_arial_is_fixed_too(self):
+        ass = self.folder / "ar.ass"
+        ass.write_text("[Script Info]\nPlayResX: 640\nPlayResY: 180\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, "
+                       "PrimaryColour, OutlineColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, "
+                       "MarginV\nStyle: Default,Arial,70,&H00FFFFFF,&H00000000,0,1,1,0,2,10,10,10\n\n[Events]\n"
+                       "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+                       "Dialogue: 0,0:00:00.00,0:00:09.00,Default,,0,0,0,," + LAM_ALEF + "\n", encoding="utf-8")
+        vf = captions.subtitle_filter(Subtitles(file=str(ass)), [(0.0, 9.0)])
+        gray = render(vf, self.SIZE)
+        self.assertGreater(bright(gray, self.SIZE[0]), 500)
+        self.assertEqual(hollow_boxes(gray, *self.SIZE), 0)
+
+
+class SubtitleEncodingTests(unittest.TestCase):
+    SAMPLES = {
+        "cp1256": ["مرحبا بكم في قناتنا اليوم سوف نتحدث",
+                   LAM_ALEF, "أين كنت بالأمس؟ لقد انتظرتك"],
+        "cp1255": ["שלום לכולם ברוכים הבאים לערוץ שלנו",
+                   "תודה רבה על הצפייה"],
+        "cp1251": ["Привет всем добро пожаловать на наш канал",
+                   "Спасибо за просмотр"],
+        "cp1253": ["Γεια σας καλώς ήρθατε στο κανάλι μας"],
+        "cp1254": ["Merhaba herkese kanalımıza hoş geldiniz bugün önemli bir konudan bahsedeceğiz",
+                   "Teşekkürler, ışık"],
+        "cp1252": ["Bonjour à tous, bienvenue sur la chaîne. Aujourd'hui nous parlons d'un sujet très important",
+                   "Hello café", "Ich möchte über Straßenbau sprechen, größer und schöner",
+                   "¿Cómo estás? Muy bien, gracias. El niño está allí."],
+    }
+
+    @staticmethod
+    def srt(text: str) -> str:
+        return "1\r\n00:00:01,000 --> 00:00:03,000\r\n" + text + "\r\n\r\n2\r\n00:00:04,000 --> 00:00:05,000\r\nOK\r\n"
+
+    def test_each_old_code_page_is_recognised(self):
+        for encoding, texts in self.SAMPLES.items():
+            for text in texts:
+                with self.subTest(encoding=encoding, text=text[:20]):
+                    got, name = captions.decode_text(self.srt(text).encode(encoding))
+                    self.assertEqual(got, self.srt(text))
+                    self.assertEqual(name, encoding if encoding != "cp1254" or "ı" in text else name)
+
+    def test_arabic_in_windows_1256_is_no_longer_mojibake(self):
+        data = self.srt(self.SAMPLES["cp1256"][0]).encode("cp1256")
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        (folder / "a.srt").write_bytes(data)
+        text, encoding = captions.read_text_with_encoding(folder / "a.srt")
+        self.assertEqual(encoding, "cp1256")
+        self.assertEqual(read_text(folder / "a.srt"), text)
+        self.assertEqual(parse_cues(text)[0].text, self.SAMPLES["cp1256"][0])
+
+    def test_utf16_without_a_byte_order_mark(self):
+        for encoding in ("utf-16-le", "utf-16-be"):
+            for text in (self.SAMPLES["cp1256"][0], self.SAMPLES["cp1255"][0], "plain english words here"):
+                with self.subTest(encoding=encoding, text=text[:12]):
+                    got, name = captions.decode_text(self.srt(text).encode(encoding))
+                    self.assertEqual((got, name), (self.srt(text), encoding))
+
+    def test_byte_order_marks_say_what_the_file_is(self):
+        text = self.srt(self.SAMPLES["cp1256"][0])
+        self.assertEqual(captions.decode_text(b"\xef\xbb\xbf" + text.encode("utf-8")), (text, "utf-8-sig"))
+        self.assertEqual(captions.decode_text(text.encode("utf-16"))[0], text)
+        self.assertEqual(captions.decode_text(b"\xfe\xff" + text.encode("utf-16-be")), (text, "utf-16-be"))
+        self.assertEqual(captions.decode_text(text.encode("utf-32"))[0], text)
+
+    def test_valid_utf8_and_plain_ascii_are_utf8(self):
+        self.assertEqual(captions.decode_text("café م".encode("utf-8")), ("café م", "utf-8"))
+        self.assertEqual(captions.decode_text(b"plain ascii 123"), ("plain ascii 123", "utf-8"))
+        self.assertEqual(captions.decode_text(b""), ("", "utf-8"))
+
+    def test_bytes_that_are_nothing_in_particular_still_give_text(self):
+        text, name = captions.decode_text(bytes(range(128, 256)) * 3)
+        self.assertIsInstance(text, str)
+        self.assertTrue(name)
+
+    def test_smart_quotes_alone_stay_windows_1252(self):
+        self.assertEqual(captions.decode_text("“quoted” — text".encode("cp1252")),
+                         ("“quoted” — text", "cp1252"))
+
+
+class TextCleaningTests(unittest.TestCase):
+    def test_a_leading_blank_line_no_longer_hides_the_text(self):
+        for raw, wanted in (("\nHello", "Hello"), ("\n\n  \nHello\n\n", "Hello"), ("Hello\n", "Hello"),
+                            ("A\n\nB", "A\n \nB"), ("A\n\n\nB", "A\n \n \nB"), ("\r\nA\r\n\r\nB\r\n", "A\n \nB")):
+            with self.subTest(raw=raw):
+                self.assertEqual(text_file_of(text_filter(TextItem(text=raw), FRAME, None)), wanted)
+
+    def test_the_preview_draws_the_same_text_the_export_does(self):
+        wrapped, _, _ = captions.laid_out(TextItem(text="\n\nHello\n\nthere\n"), FRAME)
+        self.assertEqual(wrapped, "Hello\n \nthere")
+        self.assertEqual(text_box(TextItem(text="\nHello"), FRAME), text_box(TextItem(text="Hello"), FRAME))
+
+    def test_a_text_of_only_blank_lines_draws_nothing(self):
+        self.assertEqual(text_filter(TextItem(text="\n \n\t\n"), FRAME, None), "")
+
+    @unittest.skipUnless(WINDOWS, "needs Arial")
+    def test_the_text_really_shows_with_a_leading_line_break_and_a_blank_line_keeps_its_height(self):
+        def item(text):
+            return TextItem(text=text, size=0.2, outline=0, y=0.5)
+
+        plain = render(text_filter(item("WWW"), FRAME, None))
+        led = render(text_filter(item("\nWWW"), FRAME, None))
+        self.assertGreater(bright(led), 300)
+        self.assertEqual(led, plain)
+        tight = render(text_filter(item("WWW\nWWW"), FRAME, None))
+        gap = render(text_filter(item("WWW\n\nWWW"), FRAME, None))
+
+        def height(frame):
+            ys = [i // W for i, v in enumerate(frame) if v > 128]
+            return max(ys) - min(ys)
+        self.assertGreater(height(gap), height(tight) + 10)
+
+    def test_control_characters_are_dropped(self):
+        raw = "he\x00l\x07lo\x85 wor\x1bld\ttab next"
+        self.assertEqual(text_file_of(text_filter(TextItem(text=raw), FRAME, None)), "hello world tab\nnext")
+        self.assertFalse(captions.drawable(TextItem(text="\x01\x02")))
+        self.assertTrue(captions.drawable(TextItem(text="\x01a")))
+        self.assertEqual(captions.clean_text("a\x80b\x9fc\r\nd"), "abc\nd")
+
+    def test_control_characters_in_subtitles_are_dropped_too(self):
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = folder / "a.srt"
+        path.write_text("1\n00:00:00,000 --> 00:00:01,000\nhe\x07llo\x85 there\n", encoding="utf-8")
+        new, _, _ = retimed_subtitles(Subtitles(file=str(path)), [(0.0, 4.0)])
+        self.assertEqual(new.read_text(encoding="utf-8").split("\n")[2], "hello there")
+
+
+class SloppySubtitleTests(unittest.TestCase):
+    def test_times_without_milliseconds_and_with_odd_fractions(self):
+        text = ("1\n00:00:01 --> 00:00:02\nno ms\n\n2\n00:00:03,5 --> 00:00:04,25\nshort fractions\n\n"
+                "3\n00:00:05,1234 --> 00:00:06.98765\nlong fractions\n\n4\n01:02 --> 01:03\nminutes only\n")
+        cues = parse_cues(text)
+        self.assertEqual([c.text for c in cues], ["no ms", "short fractions", "long fractions", "minutes only"])
+        self.assertEqual([(c.start, c.end) for c in cues][:2], [(1.0, 2.0), (3.5, 4.25)])
+        self.assertAlmostEqual(cues[2].start, 5.1234, places=4)
+        self.assertAlmostEqual(cues[2].end, 6.98765, places=4)
+        self.assertEqual((cues[3].start, cues[3].end), (62.0, 63.0))
+
+    def test_webvtt_times_without_milliseconds(self):
+        cues = parse_cues("WEBVTT\n\n00:01 --> 00:02\nhi\n\n00:00:03 --> 00:00:04.5\nthere\n", "vtt")
+        self.assertEqual([(c.start, c.end, c.text) for c in cues], [(1.0, 2.0, "hi"), (3.0, 4.5, "there")])
+
+    def test_a_blank_line_inside_an_srt_cue_does_not_cut_it_off(self):
+        text = ("1\n00:00:01,000 --> 00:00:02,000\nfirst part\n\nsecond part\n\n2\n00:00:03,000 --> 00:00:04,000\nnext\n\n"
+                "00:00:05,000 --> 00:00:06,000\nno number\n\nstill the same cue\n")
+        cues = parse_cues(text)
+        self.assertEqual([c.text for c in cues], ["first part\n\nsecond part", "next", "no number\n\nstill the same cue"])
+        self.assertEqual(len(cues), 3)
+
+    def test_a_blank_line_still_ends_a_webvtt_cue(self):
+        cues = parse_cues("WEBVTT\n\n00:01.000 --> 00:02.000\none\n\nNOTE not a cue\n\n00:03.000 --> 00:04.000\ntwo\n", "vtt")
+        self.assertEqual([c.text for c in cues], ["one", "two"])
+
+    def test_an_srt_with_no_blank_lines_between_cues_is_read(self):
+        cues = parse_cues("1\n00:00:01,000 --> 00:00:02,000\none\n2\n00:00:03,000 --> 00:00:04,000\ntwo\n")
+        self.assertEqual([c.text for c in cues], ["one", "two"])
+
+    def test_a_blank_line_inside_a_cue_survives_the_rewrite_without_splitting_it(self):
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = folder / "a.srt"
+        path.write_text("1\n00:00:01,000 --> 00:00:02,000\nfirst\n\nsecond\n", encoding="utf-8")
+        new, _, _ = retimed_subtitles(Subtitles(file=str(path)), [(0.0, 4.0)])
+        again = parse_cues(new.read_text(encoding="utf-8"))
+        self.assertEqual(len(again), 1)
+        self.assertEqual(again[0].text.replace(" ", ""), "first\n\nsecond")
+
+    def test_literal_braces_are_escaped_but_real_overrides_are_not(self):
+        self.assertEqual(captions.srt_cue_text("{music} la {x}"), "\\{music\\} la \\{x\\}")
+        self.assertEqual(captions.srt_cue_text("{\\an8}top"), "{\\an8}top")
+        self.assertEqual(captions.srt_cue_text("a { b"), "a \\{ b")
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = folder / "a.srt"
+        path.write_text("1\n00:00:01,000 --> 00:00:02,000\n[laughs] {laughs}\n", encoding="utf-8")
+        new, _, _ = retimed_subtitles(Subtitles(file=str(path)), [(0.0, 4.0)])
+        self.assertIn("[laughs] \\{laughs\\}", new.read_text(encoding="utf-8"))
+
+    def test_text_in_braces_is_shown_not_swallowed(self):
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+
+        def shown(text):
+            path = folder / f"{abs(hash(text))}.srt"
+            path.write_text(f"1\n00:00:00,000 --> 00:00:09,000\n{text}\n", encoding="utf-8")
+            vf = captions.subtitle_filter(Subtitles(file=str(path), size=0.2, font="Tahoma" if WINDOWS else "Sans"),
+                                          [(0.0, 9.0)])
+            return bright(render(vf))
+
+        self.assertGreater(shown("WWWW"), 100)
+        self.assertGreater(shown("{WWWW}"), shown("WWWW"))                  # the braces are drawn as well
+
+
+class ScratchRaceTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.folder, True)
+        patcher = mock.patch.object(captions, "_scratch", self.folder)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def hammer(self, make, remove, rounds=60, workers=8):
+        """`workers` threads make the same file at the same moment, `rounds` times over; returns the failures."""
+        failures = []
+        for _ in range(rounds):
+            barrier = threading.Barrier(workers)
+
+            def work():
+                try:
+                    barrier.wait(5)
+                    make()
+                except Exception as exc:                 # noqa: BLE001 - every kind of failure counts
+                    failures.append(repr(exc))
+
+            threads = [threading.Thread(target=work) for _ in range(workers)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(30)
+            remove()
+        return failures
+
+    def test_threads_saving_the_same_content_at_once_never_collide(self):
+        data = b"1\n00:00:00,000 --> 00:00:01,000\nhello\n" * 200
+        path = captions._scratch_file(data, ".srt")
+
+        def remove():                          # once the threads are done, the file must be whole
+            self.assertEqual(path.read_bytes(), data)
+            path.unlink()
+
+        failures = self.hammer(lambda: captions._scratch_file(data, ".srt"), remove)
+        self.assertEqual(failures, [])
+        self.assertEqual([p.name for p in self.folder.iterdir() if p.name.endswith(".part")], [])
+
+    def test_different_content_in_different_threads(self):
+        failures = []
+
+        def work(n):
+            for i in range(40):
+                data = f"{n}-{i}".encode() * 100
+                try:
+                    assert captions._scratch_file(data, ".txt").read_bytes() == data
+                except Exception as exc:                 # noqa: BLE001
+                    failures.append(repr(exc))
+
+        threads = [threading.Thread(target=work, args=(n,)) for n in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+        self.assertEqual(failures, [])
+
+    def test_a_refused_replace_is_fine_when_someone_else_already_put_the_same_file_there(self):
+        data = b"same content"
+        real = captions.os.replace
+        calls = []
+
+        def refuse(src, dst):
+            calls.append(src)
+            captions.Path(dst).write_bytes(data)         # the other thread's file appears just before
+            raise PermissionError(13, "in use")
+
+        with mock.patch.object(captions.os, "replace", refuse):
+            path = captions._scratch_file(data, ".txt")
+        self.assertEqual(path.read_bytes(), data)
+        self.assertTrue(calls)
+        self.assertEqual([p.name for p in self.folder.iterdir() if p.name.endswith(".part")], [])
+        self.assertTrue(real)
+
+    def test_a_replace_that_keeps_failing_with_other_content_is_an_error(self):
+        with mock.patch.object(captions.os, "replace", side_effect=PermissionError(13, "in use")), \
+                mock.patch.object(captions.time, "sleep"):
+            with self.assertRaises(PermissionError):
+                captions._scratch_file(b"abc", ".txt")
+        self.assertEqual([p.name for p in self.folder.iterdir()], [])
+
+    def test_threads_copying_the_same_logo_at_once_never_collide(self):
+        logo_file = self.folder.parent / f"logo-{uuid_hex()}.png"
+        write_png(logo_file, 8, 8, lambda x, y: (255, 0, 0, 255))
+        self.addCleanup(logo_file.unlink, True)
+        logo = Logo(file=str(logo_file))
+        target = captions.logo_source(logo)
+
+        def remove():
+            self.assertEqual(target.read_bytes(), logo_file.read_bytes())
+            target.unlink()
+
+        failures = self.hammer(lambda: captions.logo_source(logo), remove, rounds=40)
+        self.assertEqual(failures, [])
+
+
+def uuid_hex() -> str:
+    import uuid
+    return uuid.uuid4().hex[:8]
+
+
+class LogoFileTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.tmp = Path(cls._tmp.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def run_graph(self, logo: Logo, scratch: Path, seconds: float = 3.0, at: float = 0.2):
+        """The overlay graph run for real over a black video: (the picture at `at` seconds as RGB, ffmpeg's complaint)."""
+        with mock.patch.object(captions, "_scratch", scratch):
+            statements = overlay_graph("[0:v]", "[out]", [], logo, Subtitles(), FRAME, [(0.0, None)])
+        out = self.tmp / f"{uuid_hex()}.mp4"
+        code, error = run_ffmpeg("-f", "lavfi", "-i", f"color=c=black:s={W}x{H}:d={seconds}:r=10", "-filter_complex",
+                                 ";".join(statements), "-map", "[out]", "-t", f"{seconds}", "-pix_fmt", "yuv420p",
+                                 "-c:v", "libx264", str(out))
+        if code:
+            return None, error
+        return grab(out, at, "rgb24"), ""
+
+    @staticmethod
+    def reds(frame: bytes) -> int:
+        return sum(1 for i in range(0, len(frame), 3) if frame[i] > 180 and frame[i + 1] < 90 and frame[i + 2] < 90)
+
+    def test_a_percent_sign_in_the_temp_folder_does_not_break_the_logo(self):
+        scratch = self.tmp / "fve 100%d and %03d"
+        scratch.mkdir()
+        picture = self.tmp / "red.png"
+        write_png(picture, 40, 40, lambda x, y: (255, 0, 0, 255))
+        frame, error = self.run_graph(Logo(file=str(picture), size=0.3, corner="center"), scratch)
+        self.assertIsNotNone(frame, error)
+        self.assertGreater(self.reds(frame), 500)
+
+    def test_the_graph_says_the_logo_is_a_plain_file(self):
+        picture = self.tmp / "red2.png"
+        write_png(picture, 8, 8, lambda x, y: (255, 0, 0, 255))
+        statements = overlay_graph("[0:v]", "[out]", [], Logo(file=str(picture)), Subtitles(), FRAME, [(0.0, None)])
+        self.assertIn("format_opts=pattern_type\\=none", statements[0])
+
+    def test_every_picture_type_the_dialog_offers_works(self):
+        base = self.tmp / "base.png"
+        write_png(base, 24, 24, lambda x, y: (255, 0, 0, 255))
+        for extension in captions.IMAGE_EXTENSIONS:
+            with self.subTest(extension=extension):
+                picture = self.tmp / f"pic{extension}"
+                code, error = run_ffmpeg("-i", str(base), "-frames:v", "1", "-update", "1", str(picture))
+                if code:
+                    self.skipTest(f"this ffmpeg can't make {extension}: {error[:80]}")
+                scratch = self.tmp / f"scratch{extension[1:]}%d"
+                scratch.mkdir()
+                frame, error = self.run_graph(Logo(file=str(picture), size=0.3, corner="center"), scratch)
+                self.assertIsNotNone(frame, error)
+                self.assertGreater(self.reds(frame), 200)
+
+    def test_the_logo_picker_offers_pictures_that_stay_still_not_gifs_or_videos(self):
+        self.assertEqual(captions.IMAGE_EXTENSIONS, (".png", ".jpg", ".jpeg", ".webp", ".bmp"))
+
+    def test_a_gif_still_works_as_a_logo_and_gets_no_image_pattern_option(self):
+        gif = self.tmp / "white.gif"
+        code, error = run_ffmpeg("-f", "lavfi", "-i", "color=c=white:s=40x40:d=1:r=10", str(gif))
+        self.assertEqual(code, 0, error)
+        scratch = self.tmp / "gifs 100%d"
+        scratch.mkdir(exist_ok=True)
+        logo = Logo(file=str(gif), size=0.4, corner="center")
+        with mock.patch.object(captions, "_scratch", scratch):
+            graph = overlay_graph("[0:v]", "[out]", [], logo, Subtitles(), FRAME, [(0.0, None)])[0]
+        self.assertNotIn("format_opts", graph)
+        frame, error = self.run_graph(logo, scratch, seconds=1.0, at=0.2)
+        self.assertIsNotNone(frame, error)
+        self.assertGreater(sum(1 for i in range(0, len(frame), 3) if frame[i] > 200), 300)
+
+
+class SpanMapperTests(unittest.TestCase):
+    @staticmethod
+    def reference(start, end, segments, speed=1.0, reverse=False):
+        """The mapping as it was written before it used bisection: every segment looked at for every span."""
+        from video_converter.timing import clamp_speed, output_duration
+        speed = clamp_speed(speed)
+        total = output_duration(segments, speed)
+        pieces, done = [], 0.0
+        for a, b in segments:
+            high = end if b is None else min(end, b)
+            low = max(start, a)
+            if high - low > 1e-6:
+                lo, hi = (done + low - a) / speed, (done + high - a) / speed
+                if reverse and total is not None:
+                    lo, hi = total - hi, total - lo
+                pieces.append((lo, hi))
+            if b is None:
+                break
+            done += b - a
+        pieces.sort()
+        joined = []
+        for lo, hi in pieces:
+            if joined and lo - joined[-1][1] < 0.001:
+                joined[-1] = (joined[-1][0], max(joined[-1][1], hi))
+            else:
+                joined.append((lo, hi))
+        return [(lo, hi) for lo, hi in joined if hi - lo >= 0.02]
+
+    def test_it_gives_the_same_answers_as_the_plain_loop(self):
+        import random
+        rng = random.Random(7)
+        for case in range(60):
+            cuts = sorted(rng.uniform(0, 100) for _ in range(rng.randint(0, 12)))
+            segments, at = [], 0.0
+            for i in range(0, len(cuts) - 1, 2):
+                segments.append((cuts[i], cuts[i + 1]))
+            if case % 3 == 0:
+                segments.append((cuts[-1] if cuts else 0.0, None))
+            if not segments:
+                segments = [(0.0, None)]
+            for speed in (1.0, 0.5, 2.0):
+                for reverse in (False, True):
+                    mapper = captions.SpanMapper(segments, speed, reverse)
+                    for _ in range(25):
+                        a = rng.uniform(0, 110)
+                        b = a + rng.uniform(0, 15)
+                        self.assertEqual(mapper(a, b), self.reference(a, b, segments, speed, reverse),
+                                         (segments, a, b, speed, reverse))
+                        self.assertEqual(map_span(a, b, segments, speed, reverse), mapper(a, b))
+
+    def test_overlapping_or_unordered_parts_still_work(self):
+        segments = [(5.0, 9.0), (0.0, 6.0)]
+        for a, b in ((1.0, 2.0), (4.0, 8.0), (5.5, 5.6)):
+            self.assertEqual(captions.SpanMapper(segments)(a, b), self.reference(a, b, segments))
+
+    def test_1500_cues_through_600_cuts_is_quick(self):
+        import time as clock
+        segments = [(i * 2.0, i * 2.0 + 1.5) for i in range(600)]
+        spans = [(i * 0.8, i * 0.8 + 1.2) for i in range(1500)]
+        started = clock.perf_counter()
+        slow = [self.reference(a, b, segments) for a, b in spans]
+        slow_time = clock.perf_counter() - started
+        started = clock.perf_counter()
+        mapper = captions.SpanMapper(segments)
+        fast = [mapper(a, b) for a, b in spans]
+        fast_time = clock.perf_counter() - started
+        self.assertEqual(fast, slow)
+        self.assertLess(fast_time, slow_time / 5)
+        self.assertLess(fast_time, 0.25)
+
+    def test_the_rewrite_of_a_big_file_uses_it(self):
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = folder / "big.srt"
+        path.write_text("".join(f"{i + 1}\n{captions._srt_time(i * 0.8)} --> {captions._srt_time(i * 0.8 + 0.6)}\nline {i}\n\n"
+                                for i in range(1500)), encoding="utf-8")
+        segments = [(i * 2.0, i * 2.0 + 1.5) for i in range(600)]
+        import time as clock
+        started = clock.perf_counter()
+        new, _, _ = retimed_subtitles(Subtitles(file=str(path)), segments)
+        self.assertLess(clock.perf_counter() - started, 1.0)
+        self.assertGreater(len(parse_cues(new.read_text(encoding="utf-8"))), 500)
+
+
+class AssStyleTests(unittest.TestCase):
+    ASS = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 320\nPlayResY: 180\n\n[V4+ Styles]\n"
+           "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, Bold, BorderStyle, Outline, Shadow, "
+           "Alignment, MarginL, MarginR, MarginV\nStyle: Default,Arial,40,&H000000FF,&H00000000,0,1,0,0,8,10,10,10\n\n"
+           "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+           "Dialogue: 0,0:00:00.00,0:00:09.00,Default,,0,0,0,,WWWW\n")
+
+    def setUp(self):
+        self.folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.folder, True)
+        self.path = self.folder / "a.ass"
+        self.path.write_text(self.ASS, encoding="utf-8")
+
+    def test_the_default_keeps_the_file_s_own_style(self):
+        self.assertTrue(Subtitles().own_style)
+        vf = captions.subtitle_filter(Subtitles(file=str(self.path)), [(0.0, 9.0)])
+        self.assertNotIn("force_style", vf)
+        self.assertNotIn("FontName", vf)
+
+    def test_turning_it_off_applies_the_chosen_style_as_before(self):
+        vf = captions.subtitle_filter(Subtitles(file=str(self.path), own_style=False, color="#00ff00", position="bottom"),
+                                      [(0.0, 9.0)])
+        self.assertIn("force_style", vf)
+        self.assertIn("Alignment=2", vf.replace("\\,", ","))
+
+    def test_an_srt_always_gets_the_chosen_style(self):
+        srt = self.folder / "a.srt"
+        srt.write_text("1\n00:00:00,000 --> 00:00:09,000\nWWWW\n", encoding="utf-8")
+        self.assertIn("force_style", captions.subtitle_filter(Subtitles(file=str(srt)), [(0.0, 9.0)]))
+
+    def test_the_colour_and_the_alignment_of_the_file_are_what_is_drawn(self):
+        def reds(vf):
+            frame = render(vf, pix="rgb24")
+            top = [(frame[(y * W + x) * 3], frame[(y * W + x) * 3 + 1], frame[(y * W + x) * 3 + 2])
+                   for y in range(H // 3) for x in range(W)]
+            bottom = [(frame[(y * W + x) * 3], frame[(y * W + x) * 3 + 1], frame[(y * W + x) * 3 + 2])
+                      for y in range(2 * H // 3, H) for x in range(W)]
+            red = lambda p: p[0] > 200 and p[1] < 80 and p[2] < 80          # noqa: E731
+            white = lambda p: p[0] > 200 and p[1] > 200 and p[2] > 200      # noqa: E731
+            return sum(map(red, top)), sum(map(white, bottom))
+
+        red_top, white_bottom = reds(captions.subtitle_filter(Subtitles(file=str(self.path)), [(0.0, 9.0)]))
+        self.assertGreater(red_top, 100)                 # the file says red, at the top
+        self.assertEqual(white_bottom, 0)
+        red_top, white_bottom = reds(captions.subtitle_filter(Subtitles(file=str(self.path), own_style=False, size=0.2),
+                                                              [(0.0, 9.0)]))
+        self.assertEqual(red_top, 0)                     # force_style: white, at the bottom
+        self.assertGreater(white_bottom, 100)
+
+    def test_the_setting_is_saved_and_loaded(self):
+        self.assertFalse(load_subtitles({"own_style": False}).own_style)
+        self.assertTrue(load_subtitles({"own_style": "no"}).own_style)           # junk means the default
+        self.assertTrue(load_subtitles({}).own_style)
+        self.assertFalse(load_subtitles(asdict(Subtitles(own_style=False))).own_style)
 
 
 if __name__ == "__main__":

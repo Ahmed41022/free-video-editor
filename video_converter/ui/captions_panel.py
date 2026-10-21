@@ -363,6 +363,12 @@ class CaptionsPanel(QWidget):
                 (tr("Place"), self.sub_position))):
             sub_grid.addWidget(_muted(label, wrap=False), n, 0)
             sub_grid.addWidget(widget, n, 1)
+        self.sub_own_style = QCheckBox(tr("Use the file's own style"))
+        self.sub_own_style.setToolTip(tr("Keep the fonts, colors and places the .ass file was made with. Turn this "
+                                         "off to use the font, size, color and place chosen here instead."))
+        self.sub_own_style.toggled.connect(lambda on: self._edit_subtitles(lambda sub: setattr(sub, "own_style", on),
+                                                                           tr("Subtitle style")))
+        layout.addWidget(self.sub_own_style)
         layout.addWidget(self.sub_options)
         layout.addWidget(_muted(tr("Subtitles are timed for the original video; cuts and speed changes are taken "
                                    "into account. The preview shows them under Before / after.")))
@@ -471,6 +477,9 @@ class CaptionsPanel(QWidget):
         self.sub_name.setToolTip(sub.file if has else "")
         self.sub_remove.setEnabled(has)
         self.sub_options.setVisible(has)
+        own_style_file = has and Path(sub.file).suffix.lower() in (".ass", ".ssa")
+        self.sub_own_style.setVisible(own_style_file)
+        self.sub_options.setEnabled(not (own_style_file and sub.own_style))
         self.sub_message.setVisible(has and not Path(sub.file).is_file())
         editable = has and Path(sub.file).suffix.lower() in EDITABLE_EXTENSIONS and Path(sub.file).is_file()
         self.edit_captions_button.setVisible(has)
@@ -480,6 +489,7 @@ class CaptionsPanel(QWidget):
             tr("Only .srt and .vtt subtitle files can be edited here") if Path(sub.file).is_file() else
             tr("The subtitle file can't be found"))
         if sub:
+            self.sub_own_style.setChecked(sub.own_style)
             index = self.sub_font.findText(sub.font)
             if index >= 0:
                 self.sub_font.setCurrentIndex(index)
@@ -544,7 +554,9 @@ class CaptionsPanel(QWidget):
         def apply(settings) -> None:
             if index < len(settings.edit.texts):
                 twin = copy.deepcopy(settings.edit.texts[index])
-                twin.y = min(twin.y + 0.07, 0.95)       # a little lower, so the copy doesn't hide the original
+                # A little lower, so the copy doesn't hide the original; a text near the bottom has no room
+                # for that (the copies would stack on top of each other there), so its copy goes above.
+                twin.y = twin.y + 0.07 if twin.y + 0.07 <= 0.95 else max(twin.y - 0.07, 0.05)
                 settings.edit.texts.insert(index + 1, twin)
 
         self._select_after = index + 1
@@ -603,9 +615,9 @@ class CaptionsPanel(QWidget):
     def _choose_logo(self) -> None:
         current = self.edit.logo.file if self.edit else ""
         patterns = " ".join(f"*{extension}" for extension in IMAGE_EXTENSIONS)
-        path, _ = QFileDialog.getOpenFileName(
+        path, _ = QFileDialog.getOpenFileName(      # pictures only: a video would show one frame and then freeze
             self, tr("Choose a logo"), str(Path(current).parent) if current else "",
-            tr("Pictures ({patterns})", patterns=patterns) + ";;" + tr("All files (*)"))
+            tr("Pictures ({patterns})", patterns=patterns))
         if path:
             self.edited.emit(lambda s: setattr(s.edit.logo, "file", str(Path(path))), tr("Choose logo"), True)
 

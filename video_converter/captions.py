@@ -12,21 +12,29 @@ source times; `retimed_subtitles` rewrites them onto the export's timeline, drop
 from __future__ import annotations
 
 import atexit
+import bisect
 import copy
 import hashlib
 import logging
+import math
+import os
 import re
 import shutil
 import tempfile
 import threading
+import time
 import unicodedata
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
 from .core import ConversionError
 from .i18n import N_, tr
-from .fonts import DEFAULT_FONT, load_font, pick_font, text_size, windows_fonts_dir, wrap_text
+from .fonts import (
+    DEFAULT_FONT, load_font, pick_font, safe_font_name, subtitle_font, text_size,
+    windows_fonts_dir, wrap_text,
+)
 from .timing import FADE_MAX, Segment, clamp_speed, output_duration
 
 log = logging.getLogger(__name__)
@@ -50,7 +58,7 @@ LOGO_CORNERS = {
 }
 SUBTITLE_POSITIONS = {"bottom": N_("Bottom"), "middle": N_("Middle"), "top": N_("Top")}
 SUBTITLE_EXTENSIONS = (".srt", ".vtt", ".ass", ".ssa")
-IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")      # what the logo picker offers; a .gif given another way is looped
 
 
 @dataclass
@@ -98,6 +106,7 @@ class Subtitles:
     outline: float = 0.08         # as a share of the text size
     bold: bool = False
     position: str = "bottom"      # a SUBTITLE_POSITIONS key
+    own_style: bool = True        # an .ass/.ssa file keeps its own design (fonts, colors, places) and ignores the above
 
 
 # Settings that belong to one video and aren't copied by "Apply to all files" or a preset: the texts
@@ -114,7 +123,7 @@ def has_overlays(texts: list[TextItem], logo: Logo, subtitles: Subtitles) -> boo
 
 def drawable(item: TextItem) -> bool:
     """Whether a text item draws anything: it has text and a time to be seen."""
-    return bool(item.text.strip()) and (item.end is None or item.end > item.start)
+    return bool(clean_text(item.text).strip()) and (item.end is None or item.end > item.start)
 
 
 # ----- loading saved settings --------------------------------------------------
@@ -154,7 +163,7 @@ _LOGO_RULES = {
 _SUBTITLE_RULES = {
     "file": _text(1024), "font": _TEXT_RULES["font"], "size": _in(*SUBTITLE_SIZE), "color": _TEXT_RULES["color"],
     "outline_color": _TEXT_RULES["outline_color"], "outline": _in(*OUTLINE_SIZE), "bold": _TEXT_RULES["bold"],
-    "position": _one_of(SUBTITLE_POSITIONS),
+    "position": _one_of(SUBTITLE_POSITIONS), "own_style": lambda v: isinstance(v, bool),
 }
 
 
@@ -169,6 +178,9 @@ def _load(cls, data: Any, rules: dict):
             setattr(item, name, float(value) if _is_number(value) else value)
     if isinstance(item, TextItem) and item.end is not None and item.end <= item.start:
         item.end = None
+    if isinstance(item, Subtitles):
+        # The name goes into the subtitles filter's style list, where "," and "=" would start another key.
+        item.font = safe_font_name(item.font) or DEFAULT_FONT
     return item
 
 
@@ -204,13 +216,47 @@ def scratch_dir() -> Path:
         return _scratch
 
 
+def _publish(temp: Path, path: Path, already_there) -> None:
+    """Move the finished `temp` file onto `path`. Several threads (the preview and an export) can be making
+    the very same file at once: when the move fails but `already_there(path)` says the file is in place
+    with the right content, someone else got there first and that is as good. Windows refuses to replace a
+    file that another thread has open for a moment, so the move is tried a few times."""
+    error: Optional[OSError] = None
+    if already_there(path):                 # someone finished while this thread was still writing: leave theirs alone
+        return
+    for attempt in range(8):
+        try:
+            os.replace(temp, path)
+            return
+        except OSError as exc:              # PermissionError on Windows, usually
+            error = exc
+            if already_there(path):
+                return
+            time.sleep(0.005 * (attempt + 1))
+    if already_there(path):
+        return
+    assert error is not None
+    raise error
+
+
 def _scratch_file(data: bytes, suffix: str) -> Path:
-    """`data` saved under a name made from its content, so the same content is written only once."""
+    """`data` saved under a name made from its content, so the same content is written only once. It is
+    written under a name of its own first (other threads may be saving the same content), then moved."""
     path = scratch_dir() / (hashlib.sha1(data).hexdigest()[:20] + suffix)
+
+    def same(target: Path) -> bool:
+        try:
+            return target.is_file() and target.read_bytes() == data
+        except OSError:
+            return False
+
     if not path.is_file():
-        temp = path.with_name(path.name + ".part")
-        temp.write_bytes(data)
-        temp.replace(path)
+        temp = path.with_name(f"{path.name}.{os.getpid()}-{threading.get_ident()}-{uuid.uuid4().hex[:8]}.part")
+        try:
+            temp.write_bytes(data)
+            _publish(temp, path, same)
+        finally:
+            temp.unlink(missing_ok=True)
     return path
 
 
@@ -240,14 +286,35 @@ def text_pixels(item: TextItem, frame: tuple[int, int]) -> int:
     return max(int(round(item.size * frame[1])), 6)
 
 
+def clean_text(text: str) -> str:
+    """`text` without the characters that only draw an empty box: control characters (C0 and C1) are
+    dropped, a tab becomes a space and the odd line separators become a line break."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n").replace(" ", "\n").replace(" ", "\n")
+    text = text.replace("\t", " ")
+    return "".join(ch for ch in text if ch == "\n" or unicodedata.category(ch) != "Cc")
+
+
+def drawable_text(text: str) -> str:
+    """`text` as it is drawn: clean, with no blank lines at the start or the end (drawtext draws nothing
+    at all for a text that starts with a line break) and a single space on each blank line in the middle,
+    so that the blank line keeps its height."""
+    lines = clean_text(text).split("\n")
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(line if line.strip() else " " for line in lines)
+
+
 def laid_out(item: TextItem, frame: tuple[int, int]) -> tuple[str, Optional[str], float]:
     """(the text with its line breaks, the font file, the text size in pixels) for drawing `item` in a
-    `frame` (width, height)."""
+    `frame` (width, height). The preview and the export both draw exactly this text."""
     pixels = text_pixels(item, frame)
-    path = pick_font(item.font, item.bold, item.text)
+    text = drawable_text(item.text)
+    path = pick_font(item.font, item.bold, text)
     font = load_font(path) if path else None
     padding = 2 * (BOX_PADDING if item.box else item.outline) * pixels
-    return wrap_text(item.text, font, pixels, frame[0] * WRAP_WIDTH - padding), path, float(pixels)
+    return wrap_text(text, font, pixels, frame[0] * WRAP_WIDTH - padding), path, float(pixels)
 
 
 def text_box(item: TextItem, frame: tuple[int, int]) -> tuple[float, float]:
@@ -346,7 +413,14 @@ def logo_source(logo: Logo) -> Path:
     key = f"{path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}"
     target = scratch_dir() / (hashlib.sha1(key.encode("utf-8")).hexdigest()[:20] + (path.suffix.lower() or ".png"))
     if not target.is_file():
-        shutil.copyfile(path, target)
+        temp = target.with_name(f"{target.name}.{os.getpid()}-{threading.get_ident()}-{uuid.uuid4().hex[:8]}.part")
+        try:
+            shutil.copyfile(path, temp)
+            _publish(temp, target, lambda t: t.is_file() and t.stat().st_size == stat.st_size)
+        except OSError as exc:
+            raise ConversionError(tr("The logo picture can't be read: {name}", name=path.name)) from exc
+        finally:
+            temp.unlink(missing_ok=True)
     return target
 
 
@@ -369,8 +443,13 @@ def logo_graph(src: str, out: str, logo: Logo, frame: tuple[int, int], tag: str)
     width = max(int(round(logo.size * frame[0])), 4)
     opacity = f",colorchannelmixer=aa={_n(logo.opacity, 3)}" if logo.opacity < 1 else ""
     x, y = logo_position(logo, frame)
+    source = logo_source(logo)
+    # A "%" in the path (a user name or a temp folder can have one) would be read as an image2 file-number
+    # pattern, so say it is a plain file. (The logo picker offers still pictures only: a .gif or a video chosen
+    # another way would show its first play and then freeze; looping it made ffmpeg run forever.)
+    options = "" if source.suffix.lower() == ".gif" else ":format_opts=pattern_type\\=none"     # gif has its own demuxer
     return [
-        f"movie=filename={_path_value(logo_source(logo))},scale={width}:-1:flags=lanczos,format=rgba{opacity}[logo{tag}]",
+        f"movie=filename={_path_value(source)}{options},scale={width}:-1:flags=lanczos,format=rgba{opacity}[logo{tag}]",
         f"{src}[logo{tag}]overlay=x='{x}':y='{y}'{out}",
     ]
 
@@ -384,25 +463,130 @@ class Cue:
     text: str
 
 
-_TIME = re.compile(r"(?:(\d+):)?(\d{1,2}):(\d{1,2})[.,](\d{1,3})")
+_TIME = re.compile(r"(?:(\d+):)?(\d{1,2}):(\d{1,2})(?:[.,](\d+))?")
 _ARROW = re.compile(r"([\d:.,]+)\s*-->\s*([\d:.,]+)")
 _VTT_TAG = re.compile(r"<(?!/?(?:b|i|u|font)\b)[^>]*>", re.IGNORECASE)
 
 
 def _seconds(match: re.Match) -> float:
     hours, minutes, seconds, fraction = match.groups()
-    return int(hours or 0) * 3600 + int(minutes) * 60 + int(seconds) + int(fraction.ljust(3, "0")) / 1000
+    return int(hours or 0) * 3600 + int(minutes) * 60 + int(seconds) + (
+        round(int(fraction) / 10 ** len(fraction), 6) if fraction else 0.0)
+
+
+# ----- reading a subtitle file whatever its encoding ---------------------------------
+
+# Tried in this order; the first of equal scores wins, so plain Western text stays Windows-1252.
+LEGACY_CODEPAGES = ("cp1252", "cp1256", "cp1255", "cp1251", "cp1253", "cp1254")
+# The most used letters of a language: text decoded in the right code page is full of them, text decoded in the wrong one is not.
+_COMMON_LETTERS = {
+    "ARABIC": set("اليمونرتبةهعدسىأ"),
+    "HEBREW": set("יוהלארבתמשנע"),
+    "CYRILLIC": set("оеаинтсрвлкмдпуя"),
+    "GREEK": set("αοιενταςσρκπυμηλ"),
+}
+_HEBREW_FINAL = set("ךםןףץ")                  # these only ever end a word
+_TURKISH_BYTES = bytes([0xD0, 0xF0, 0xDD, 0xFD, 0xDE, 0xFE])        # Ğ ğ İ ı Ş ş in Windows-1254 (Ð ð Ý ý Þ þ in 1252)
+
+
+def _script(ch: str) -> str:
+    try:
+        return unicodedata.name(ch).split(" ", 1)[0]
+    except ValueError:
+        return ""
+
+
+def code_page_score(text: str) -> float:
+    """How much `text` (some bytes read in one code page) looks like real writing, 0..1 (negative when it
+    holds control or replacement characters): ASCII-only text is fine; accented Latin letters are a small
+    part of a text; other scripts are one script, made of that language's usual letters, with capitals only
+    at the start of words."""
+    letters = [ch for ch in text if ch.isalpha()]
+    # Control and replacement characters never belong in subtitles; the direction marks Windows-1256 turns
+    # Turkish ı and ş into (bytes FD and FE) are about as unlikely.
+    odd = sum(1 for ch in text if ch in "�‎‏" or "\x80" <= ch <= "\x9f")
+    high = [ch for ch in letters if ord(ch) > 127]
+    if not high:
+        return 1.0 - 10.0 * odd / max(len(text), 1)
+    counts: dict[str, int] = {}
+    for ch in high:
+        counts[_script(ch)] = counts.get(_script(ch), 0) + 1
+    script, count = max(counts.items(), key=lambda kv: kv[1])
+    purity = count / len(high)
+    if script == "LATIN":
+        share = len(high) / len(letters)
+        plausible = 1.0 if share <= 0.2 else max(0.0, 1.0 - (share - 0.2) * 2.5)
+    else:
+        same = [ch for ch in high if _script(ch) == script]
+        common = _COMMON_LETTERS.get(script)
+        plausible = 0.5 if common is None else min(1.0, sum(ch.lower() in common for ch in same) / len(same) / 0.55)
+        words = [w for w in re.split(r"\W+", text) if w]
+        # A word of Latin and Arabic (or Cyrillic...) letters together ("cafי") means the wrong code page.
+        with_script = [w for w in words if any(_script(ch) == script for ch in w)]
+        mixed = sum(1 for w in with_script if any(ch.isascii() and ch.isalpha() for ch in w))
+        plausible *= 1.0 - mixed / max(len(with_script), 1)
+        if script in ("CYRILLIC", "GREEK"):         # a capital in the middle of a word means the wrong code page
+            inner = [ch for w in words for ch in w[1:] if _script(ch) == script]
+            if inner:
+                plausible *= 1.0 - sum(ch.isupper() for ch in inner) / len(inner)
+        elif script == "HEBREW":                    # final letters only end words
+            misplaced = sum(1 for w in words for ch in w[:-1] if ch in _HEBREW_FINAL)
+            plausible *= 1.0 - min(1.0, 4.0 * misplaced / max(len(same), 1))
+    return purity * plausible - 10.0 * odd / max(len(text), 1)
+
+
+def decode_text(data: bytes) -> tuple[str, str]:
+    """(the text of subtitle `data`, the encoding it was in): a byte order mark says it outright, a file
+    with the NUL bytes of UTF-16 is UTF-16 without one, valid UTF-8 is UTF-8, and anything else is read in
+    the Windows code page (Arabic, Hebrew, Cyrillic, Greek, Turkish or Western) that makes the most sense of it."""
+    if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+        return data.decode("utf-32", errors="replace"), "utf-32"
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data.decode("utf-8-sig", errors="replace"), "utf-8-sig"
+    if data.startswith(b"\xff\xfe"):
+        return data[2:].decode("utf-16-le", errors="replace"), "utf-16-le"
+    if data.startswith(b"\xfe\xff"):
+        return data[2:].decode("utf-16-be", errors="replace"), "utf-16-be"
+    if b"\x00" in data[:4096]:
+        sample = data[:4096]
+        even, odd = sample[0::2].count(0), sample[1::2].count(0)
+        half = max(len(sample) // 2, 1)
+        for name, nuls, other in (("utf-16-le", odd, even), ("utf-16-be", even, odd)):
+            if nuls / half > 0.1 and nuls > 4 * other:
+                return data.decode(name, errors="replace"), name
+    try:
+        return data.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        pass
+    best: Optional[tuple[float, str, str]] = None
+    for name in LEGACY_CODEPAGES:
+        try:
+            text = data.decode(name)
+        except UnicodeDecodeError:
+            continue
+        score = code_page_score(text)
+        if best is None or score > best[0] + 1e-9:
+            best = (score, name, text)
+    if best is None:
+        return data.decode("cp1252", errors="replace"), "cp1252"
+    if best[1] == "cp1252" and any(byte in data for byte in _TURKISH_BYTES):
+        try:
+            turkish = data.decode("cp1254")
+            if code_page_score(turkish) >= best[0] - 1e-9:
+                return turkish, "cp1254"       # Ğ ş ı... are there and nothing else tells Icelandic from Turkish
+        except UnicodeDecodeError:
+            pass
+    return best[2], best[1]
+
+
+def read_text_with_encoding(path: Path) -> tuple[str, str]:
+    """(the text of a file, the encoding it was in)."""
+    return decode_text(path.read_bytes())
 
 
 def read_text(path: Path) -> str:
-    """The text of a file, whatever Unicode form it is in; a file in an old code page is read as Windows-1252."""
-    data = path.read_bytes()
-    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return data.decode("utf-16")
-    try:
-        return data.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return data.decode("cp1252", errors="replace")
+    """The text of a file, whatever Unicode form or Windows code page it is in (see `decode_text`)."""
+    return read_text_with_encoding(path)[0]
 
 
 def subtitle_kind(path: Path, text: str) -> str:
@@ -415,29 +599,49 @@ def subtitle_kind(path: Path, text: str) -> str:
     return "srt"
 
 
+def _next_cue_start(lines: list[str], timing: int, floor: int) -> int:
+    """Where the cue whose timing line is `timing` begins: that line, or the number / name line just above it
+    (`floor` is the line the previous cue's timing is on)."""
+    above = timing - 1
+    if above > floor and lines[above].strip():
+        if lines[above].strip().isdigit() or above - 1 <= floor or not lines[above - 1].strip():
+            return above
+    return timing
+
+
 def parse_cues(text: str, kind: str = "srt") -> list[Cue]:
-    """The cues of an SRT or WebVTT file, in file order. A block with no usable time is skipped."""
+    """The cues of an SRT or WebVTT file, in file order. A block with no usable time is skipped. Times may
+    have any number of decimals or none. In an SRT file a cue's text may hold a blank line: the cue goes on until
+    the next cue (its number or its time) starts; in WebVTT a blank line always ends it."""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").strip("﻿\n").split("\n")
+    timings = []
+    for i, line in enumerate(lines):
+        found = _ARROW.search(line)
+        if found:
+            start, end = _TIME.fullmatch(found.group(1)), _TIME.fullmatch(found.group(2))
+            if start and end:
+                timings.append((i, _seconds(start), _seconds(end)))
     cues = []
-    for block in re.split(r"\n\s*\n", text.replace("\r\n", "\n").replace("\r", "\n").strip("﻿\n")):
-        lines = block.split("\n")
-        for i, line in enumerate(lines):
-            found = _ARROW.search(line)
-            if found:
-                start, end = _TIME.fullmatch(found.group(1)), _TIME.fullmatch(found.group(2))
-                break
-        else:
-            continue
-        if not (start and end):
-            continue
-        body = "\n".join(lines[i + 1:]).strip("\n")
+    for n, (i, start, end) in enumerate(timings):
+        stop = _next_cue_start(lines, timings[n + 1][0], i) if n + 1 < len(timings) else len(lines)
+        body = lines[i + 1:stop]
         if kind == "vtt":
-            body = _VTT_TAG.sub("", body)
-        if body.strip():
-            cues.append(Cue(_seconds(start), _seconds(end), body))
+            blank = next((k for k, line in enumerate(body) if not line.strip()), len(body))
+            body = body[:blank]
+        while body and not body[0].strip():
+            body.pop(0)
+        while body and not body[-1].strip():
+            body.pop()
+        joined = "\n".join(body)
+        if kind == "vtt":
+            joined = _VTT_TAG.sub("", joined)
+        if joined.strip():
+            cues.append(Cue(start, end, joined))
     return cues
 
 
 def _srt_time(seconds: float) -> str:
+    seconds = seconds if math.isfinite(seconds) else 0.0
     ms = int(round(max(seconds, 0.0) * 1000))
     return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
 
@@ -452,14 +656,72 @@ def format_srt(cues: list[Cue]) -> str:
     return "\n".join(blocks)
 
 
+def encode_srt(cues: list[Cue]) -> bytes:
+    """The bytes of an .srt file for `cues`: UTF-8 with a byte order mark, which Windows players and TVs
+    need to read Arabic and other scripts correctly."""
+    return b"\xef\xbb\xbf" + format_srt(cues).encode("utf-8")
+
+
 def write_srt(cues: list[Cue], path: Path) -> None:
     """Save `cues` as a UTF-8 .srt file at `path` (written aside first, so a failure can't leave half a file)."""
     temp = path.with_name(path.name + ".part")
     try:
-        temp.write_bytes(format_srt(cues).encode("utf-8"))
+        temp.write_bytes(encode_srt(cues))
         temp.replace(path)
     finally:
         temp.unlink(missing_ok=True)
+
+
+class SpanMapper:
+    """Moves spans of source time onto the export's timeline, for a fixed set of kept `segments`, `speed`
+    and `reverse`. Built once, it finds the segments a span touches by bisection, so mapping thousands of
+    cues through hundreds of cuts doesn't compare every cue with every segment."""
+
+    def __init__(self, segments: list[Segment], speed: float = 1.0, reverse: bool = False):
+        self.speed = clamp_speed(speed)
+        self.reverse = reverse
+        self.total = output_duration(segments, self.speed)
+        kept = []
+        for a, b in segments:
+            kept.append((a, b))
+            if b is None:                       # an open end is the last part
+                break
+        self.segments = kept
+        self.starts = [a for a, _ in kept]
+        self.ends = [math.inf if b is None else b for _, b in kept]
+        self.before: list[float] = []           # how much kept time lies before each segment
+        done = 0.0
+        for a, b in kept:
+            self.before.append(done)
+            done += (b - a) if b is not None else 0.0
+        # Bisection needs the parts in order and apart (which a real edit always has).
+        self.ordered = all(self.ends[i] <= self.starts[i + 1] for i in range(len(kept) - 1)) and all(
+            self.starts[i] <= self.starts[i + 1] for i in range(len(kept) - 1))
+
+    def __call__(self, start: float, end: float) -> list[tuple[float, float]]:
+        if self.ordered:
+            first = bisect.bisect_right(self.ends, start)       # the first segment that ends after the span starts
+            last = bisect.bisect_left(self.starts, end)         # the segments before this one start before the span ends
+            indexes = range(first, last)
+        else:
+            indexes = range(len(self.segments))
+        pieces: list[tuple[float, float]] = []
+        for i in indexes:
+            a = self.starts[i]
+            high, low = min(end, self.ends[i]), max(start, a)
+            if high - low > 1e-6:
+                lo, hi = (self.before[i] + low - a) / self.speed, (self.before[i] + high - a) / self.speed
+                if self.reverse and self.total is not None:
+                    lo, hi = self.total - hi, self.total - lo
+                pieces.append((lo, hi))
+        pieces.sort()
+        joined: list[tuple[float, float]] = []
+        for lo, hi in pieces:
+            if joined and lo - joined[-1][1] < 0.001:
+                joined[-1] = (joined[-1][0], max(joined[-1][1], hi))
+            else:
+                joined.append((lo, hi))
+        return [(lo, hi) for lo, hi in joined if hi - lo >= 0.02]
 
 
 def map_span(start: float, end: float, segments: list[Segment], speed: float = 1.0, reverse: bool = False,
@@ -467,29 +729,7 @@ def map_span(start: float, end: float, segments: list[Segment], speed: float = 1
     """Where the source time span start..end lands on the export's timeline: one piece for each kept
     part it overlaps (so a cue that runs across a cut shows before and after it), nothing if it was cut
     out. Pieces that meet are joined."""
-    speed = clamp_speed(speed)
-    total = output_duration(segments, speed)
-    pieces: list[tuple[float, float]] = []
-    done = 0.0
-    for a, b in segments:
-        high = end if b is None else min(end, b)
-        low = max(start, a)
-        if high - low > 1e-6:
-            lo, hi = (done + low - a) / speed, (done + high - a) / speed
-            if reverse and total is not None:
-                lo, hi = total - hi, total - lo
-            pieces.append((lo, hi))
-        if b is None:
-            break
-        done += b - a
-    pieces.sort()
-    joined: list[tuple[float, float]] = []
-    for lo, hi in pieces:
-        if joined and lo - joined[-1][1] < 0.001:
-            joined[-1] = (joined[-1][0], max(joined[-1][1], hi))
-        else:
-            joined.append((lo, hi))
-    return [(lo, hi) for lo, hi in joined if hi - lo >= 0.02]
+    return SpanMapper(segments, speed, reverse)(start, end)
 
 
 def _ass_seconds(text: str) -> Optional[float]:
@@ -540,6 +780,61 @@ def _play_res_y(text: str) -> int:
     return int(found.group(1)) if found else 288
 
 
+_ASS_NOTES = re.compile(r"\{[^}]*\}|\\[Nnh]")
+_BRACE_BLOCK = re.compile(r"\{(?!\\)([^{}]*)\}")
+_BRACE_OPEN = re.compile(r"(?<!\\)\{(?!\\)")
+
+
+def srt_cue_text(text: str) -> str:
+    """A cue's text as it goes into the rewritten .srt that libass reads: no control characters, a blank
+    line in the middle of a cue kept as a line holding a no-break space (a truly empty one would end the
+    cue), and "{...}" in the words escaped so it is shown, not taken for an override block. (A real override
+    such as {\\an8}, which starts with a backslash, is left alone.)"""
+    lines = [line if line.strip() else " " for line in clean_text(text).split("\n")]
+    text = "\n".join(lines)
+    text = _BRACE_BLOCK.sub(lambda m: "\\{" + m.group(1) + "\\}", text)
+    return _BRACE_OPEN.sub(lambda m: "\\{", text)
+
+
+def _fix_ass_fonts(text: str) -> str:
+    """An ASS script with the font of each style swapped for one that can draw the script's words, when the
+    style's own font can't (Arial leaves a box after every Arabic lam-alef). The rest of the design stays."""
+    lines = text.split("\n")
+    words: list[str] = []
+    columns: list[str] = []
+    section = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            section = stripped.lower()
+        elif section == "[events]" and stripped.lower().startswith("format:"):
+            columns = [c.strip().lower() for c in stripped.split(":", 1)[1].split(",")]
+        elif section == "[events]" and stripped.lower().startswith("dialogue:") and columns:
+            fields = line.split(":", 1)[1].lstrip().split(",", len(columns) - 1)
+            words.append(_ASS_NOTES.sub(" ", fields[-1]))
+    sample = "\n".join(words)
+    if not sample.strip():
+        return text
+    out, columns, section = [], [], ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            section = stripped.lower()
+        elif section.endswith("styles]") and stripped.lower().startswith("format:"):
+            columns = [c.strip().lower() for c in stripped.split(":", 1)[1].split(",")]
+        elif section.endswith("styles]") and stripped.lower().startswith("style:") and "fontname" in columns:
+            fields = line.split(":", 1)[1].lstrip().split(",", len(columns) - 1)
+            if len(fields) == len(columns):
+                at = columns.index("fontname")
+                bold = "bold" in columns and fields[columns.index("bold")].strip() in ("-1", "1")
+                chosen = subtitle_font(fields[at].strip(), bold, sample)
+                if chosen != fields[at].strip():
+                    fields[at] = chosen
+                    line = "Style: " + ",".join(fields)
+        out.append(line)
+    return "\n".join(out)
+
+
 def retimed_subtitles(subtitles: Subtitles, segments: list[Segment], speed: float = 1.0,
                       reverse: bool = False) -> tuple[Path, str, int]:
     """The subtitle file rewritten for the export: (the new file, "srt" or "ass", the height of
@@ -550,17 +845,19 @@ def retimed_subtitles(subtitles: Subtitles, segments: list[Segment], speed: floa
     except OSError:
         raise ConversionError(tr("The subtitle file can't be read: {name}", name=path.name or subtitles.file)) from None
     kind = subtitle_kind(path, text)
-
-    def mapper(start: float, end: float) -> list[tuple[float, float]]:
-        return map_span(start, end, segments, speed, reverse)
+    mapper = SpanMapper(segments, speed, reverse)
 
     if kind == "ass":
         rewritten, _ = retime_ass(text, mapper)
+        if subtitles.own_style:
+            rewritten = _fix_ass_fonts(rewritten)
         return _scratch_file(rewritten.encode("utf-8"), ".ass"), "ass", _play_res_y(text)
     lines, number = [], 0
     moved = []
     for cue in parse_cues(text, kind):
-        moved += [(lo, hi, mark_right_to_left(cue.text)) for lo, hi in mapper(cue.start, cue.end)]
+        body = mark_right_to_left(srt_cue_text(cue.text))
+        if body.strip():
+            moved += [(lo, hi, body) for lo, hi in mapper(cue.start, cue.end)]
     for lo, hi, body in sorted(moved, key=lambda m: (m[0], m[1])):
         number += 1
         lines += [str(number), f"{_srt_time(lo)} --> {_srt_time(hi)}", body, ""]
@@ -576,19 +873,27 @@ def _ass_color(color: str) -> str:
 
 
 def subtitle_filter(subtitles: Subtitles, segments: list[Segment], speed: float = 1.0, reverse: bool = False) -> str:
-    """The subtitles filter, drawing the file on the export's timeline in the chosen style."""
+    """The subtitles filter, drawing the file on the export's timeline in the chosen style. An .ass/.ssa file
+    keeps its own design (unless the style is asked for); the font is one that can draw the words."""
     path, kind, script_height = retimed_subtitles(subtitles, segments, speed, reverse)
-    size = subtitles.size * script_height
-    style = ",".join([
-        f"FontName={subtitles.font}", f"FontSize={_n(size, 2)}", f"PrimaryColour={_ass_color(subtitles.color)}",
-        f"OutlineColour={_ass_color(subtitles.outline_color)}", "BorderStyle=1",
-        f"Outline={_n(subtitles.outline * size, 2)}", "Shadow=0", f"Bold={-1 if subtitles.bold else 0}",
-        f"Alignment={ {'bottom': 2, 'middle': 10, 'top': 6}[subtitles.position] }",      # force_style numbers them the SSA way
-    ])
     options = [f"filename={_path_value(path)}"]
     fonts = windows_fonts_dir()
     if fonts:
         options.append(f"fontsdir={_path_value(fonts)}")      # so the fonts are found without any font setup
+    if kind == "ass" and subtitles.own_style:
+        return "subtitles=" + ":".join(options)
+    try:
+        words = path.read_text(encoding="utf-8")
+    except OSError:
+        words = ""
+    size = subtitles.size * script_height
+    style = ",".join([
+        f"FontName={subtitle_font(subtitles.font, subtitles.bold, words)}", f"FontSize={_n(size, 2)}",
+        f"PrimaryColour={_ass_color(subtitles.color)}",
+        f"OutlineColour={_ass_color(subtitles.outline_color)}", "BorderStyle=1",
+        f"Outline={_n(subtitles.outline * size, 2)}", "Shadow=0", f"Bold={-1 if subtitles.bold else 0}",
+        f"Alignment={ {'bottom': 2, 'middle': 10, 'top': 6}[subtitles.position] }",      # force_style numbers them the SSA way
+    ])
     options.append(f"force_style={filter_value(style)}")
     return "subtitles=" + ":".join(options)
 
