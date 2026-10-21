@@ -154,6 +154,77 @@ def pick_font(family: str, bold: bool = False, text: str = "") -> Optional[str]:
     return best
 
 
+# ----- the font for burned-in subtitles ---------------------------------------------
+
+# Tried after the chosen family when it can't draw the subtitles' text (Arial and Times New Roman can't draw
+# a clean Arabic lam-alef; Impact has no Arabic at all).
+SUBTITLE_FALLBACKS = ("Segoe UI", "Tahoma", "Calibri", "Microsoft Sans Serif")
+# libass joins "ل" + "ا" into a ligature and fills the second place with U+FEFF; a font with no glyph for that
+# draws an empty box after every lam-alef. The ligature forms and the joiner are needed as well.
+_ARABIC_NEEDS = (0xFEFB, 0xFEF5, 0xFEF7, 0xFEF9, 0xFEFF, 0x200D)
+_STYLE_KEY_JUNK = str.maketrans("", "", ",=:'\\\r\n\t{}")
+
+
+def safe_font_name(name: object) -> str:
+    """A font family name that can't break the `force_style` list or the filter syntax: the characters
+    that separate or assign style keys (`,` `=` `:` `'` `\\` and the like) are removed."""
+    return " ".join(str(name or "").translate(_STYLE_KEY_JUNK).split())
+
+
+def _is_arabic(ch: str) -> bool:
+    code = ord(ch)
+    return (0x0600 <= code <= 0x06FF or 0x0750 <= code <= 0x077F or 0x08A0 <= code <= 0x08FF
+            or 0xFB50 <= code <= 0xFDFF or 0xFE70 <= code <= 0xFEFE)
+
+
+def is_right_to_left(ch: str) -> bool:
+    return unicodedata.bidirectional(ch) in ("R", "AL")
+
+
+def needed_glyphs(text: str) -> set[int]:
+    """The character codes a font has to have a glyph for to draw `text` through libass: its letters, and
+    for Arabic the lam-alef ligature forms and the joiner too."""
+    codes = {ord(ch) for ch in text if not ch.isspace() and unicodedata.category(ch) not in ("Cf", "Cc")}
+    if any(_is_arabic(ch) for ch in text):
+        codes.update(_ARABIC_NEEDS)
+    return codes
+
+
+def font_covers(family: str, bold: bool, codes: set[int]) -> bool:
+    """Whether the installed font `family` has a glyph for every code in `codes` (False for an unknown family)."""
+    path = font_file(family, bold)
+    font = load_font(path) if path else None
+    return font is not None and all(font.has_char(code) for code in codes)
+
+
+def subtitle_font(family: str, bold: bool, text: str) -> str:
+    """The font family to give libass to draw `text`: `family` itself when it can show every character
+    (including what Arabic needs), otherwise the first of Segoe UI, Tahoma... that can, otherwise whichever
+    of them covers the most."""
+    family = safe_font_name(family) or DEFAULT_FONT
+    codes = needed_glyphs(text)
+    if not codes:
+        return family
+    rtl = any(is_right_to_left(ch) for ch in text)
+    installed = font_file(family, bold) is not None
+    if installed and font_covers(family, bold, codes):
+        return family
+    if not installed and not rtl:
+        return family                       # a font we know nothing about: libass has its own fallback for it
+    best, best_count = family, -1
+    for name in (family, *SUBTITLE_FALLBACKS, *FALLBACK_FONTS):
+        path = font_file(name, bold)
+        font = load_font(path) if path else None
+        if font is None:
+            continue
+        count = sum(1 for code in codes if font.has_char(code))
+        if count == len(codes):
+            return name
+        if count > best_count:
+            best, best_count = name, count
+    return best
+
+
 # ----- reading a font file -------------------------------------------------------
 
 @dataclass
@@ -303,6 +374,9 @@ def wrap_text(text: str, font: Optional[Font], size: float, max_width: float) ->
         return text
     lines = []
     for paragraph in text.split("\n"):
+        if not paragraph.strip():           # a blank line (a single space keeps its height) stays as it is
+            lines.append(paragraph)
+            continue
         current = ""
         for word in paragraph.split(" "):
             trial = f"{current} {word}" if current else word

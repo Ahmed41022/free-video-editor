@@ -338,6 +338,47 @@ class PanelTests(unittest.TestCase):
         self.assertFalse(self.panel.sub_message.isHidden())
         self.assertTrue(self.panel.logo_missing.isHidden())
 
+    def test_duplicating_a_text_near_the_bottom_puts_the_copy_above_it(self):
+        self.show(VideoEdit(texts=[TextItem(text="low", y=0.93), TextItem(text="mid", y=0.5), TextItem(text="edge", y=0.95)]))
+        for row, wanted in ((0, 0.86), (1, 0.57), (2, 0.88)):
+            self.panel.list.setCurrentRow(row)
+            self.panel.duplicate_button.click()
+            edit = self.apply_last()
+            self.assertAlmostEqual(edit.texts[row + 1].y, wanted, places=3)
+            self.assertNotAlmostEqual(edit.texts[row + 1].y, edit.texts[row].y, places=2)      # never stacked on the original
+            self.panel.list.setCurrentRow(row + 1)
+            self.panel.remove_button.click()
+            self.apply_last()
+
+    def test_the_logo_dialog_offers_only_still_pictures(self):
+        with mock.patch("video_converter.ui.captions_panel.QFileDialog.getOpenFileName", return_value=("", "")) as dialog:
+            self.panel.logo_choose.click()
+        filters = dialog.call_args.args[3]
+        for extension in ("*.png", "*.jpg", "*.webp", "*.bmp"):
+            self.assertIn(extension, filters)
+        self.assertNotIn("*.gif", filters)
+        self.assertNotIn("All files", filters)
+
+    def test_an_ass_file_can_keep_its_own_style(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ass, srt = Path(tmp) / "talk.ass", Path(tmp) / "talk.srt"
+            ass.write_text("[Script Info]\n", encoding="utf-8")
+            srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n", encoding="utf-8")
+            self.show(VideoEdit(subtitles=Subtitles(file=str(srt))))
+            self.assertTrue(self.panel.sub_own_style.isHidden())                  # only for .ass / .ssa
+            self.assertTrue(self.panel.sub_options.isEnabled())
+            self.show(VideoEdit(subtitles=Subtitles(file=str(ass))))
+            self.assertFalse(self.panel.sub_own_style.isHidden())
+            self.assertTrue(self.panel.sub_own_style.isChecked())                 # on by default
+            self.assertFalse(self.panel.sub_options.isEnabled())                  # the file decides, not these controls
+            self.panel.sub_own_style.click()
+            settings, label, _ = self.edits[-1]
+            self.assertEqual(label, "Subtitle style")
+            self.assertFalse(settings.edit.subtitles.own_style)
+            self.inspector.set_settings(settings, 10.0)
+            self.assertTrue(self.panel.sub_options.isEnabled())
+            self.assertFalse(self.panel.sub_own_style.isChecked())
+
     def test_the_limit_on_how_many_texts(self):
         from video_converter.captions import MAX_TEXTS
         self.show(VideoEdit(texts=[TextItem(text=str(i)) for i in range(MAX_TEXTS)]))

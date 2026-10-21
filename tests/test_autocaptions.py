@@ -558,5 +558,287 @@ class SelfTestTests(unittest.TestCase):
             self.assertIn("FAILED", report.read_text(encoding="utf-8"))
 
 
+
+class ModelRepairTests(unittest.TestCase):
+    """A model whose files have the right sizes but the wrong content was never fetched again."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.model = tiny_model()
+        self.server = FakeServer()
+
+    def damage(self, name="model.bin"):
+        folder = sm.download_model(self.model, self.root, open_=self.server)
+        data = bytearray((folder / name).read_bytes())
+        data[3] ^= 0x5A
+        (folder / name).write_bytes(bytes(data))                  # same size, other content
+        self.assertTrue(sm.is_downloaded(self.model, self.root))        # the quick check can't tell
+        with self.assertRaises(ConversionError):
+            sm.verify_model(self.model, self.root)
+        self.server.requests.clear()
+        return folder
+
+    def test_a_damaged_model_of_the_right_size_is_fetched_again_and_then_verifies(self):
+        folder = self.damage()
+        seen = []
+        result = ac.ensure_model(self.model, self.root, lambda *a: seen.append(a[0]), opener=self.server)
+        self.assertEqual(result, folder)
+        self.assertEqual(sm.verify_model(self.model, self.root), folder)
+        self.assertIn(ac.DOWNLOADING, seen)
+        self.assertLess(seen.index(ac.DOWNLOADING), len(seen) - 1)
+        self.assertEqual(seen[-1], ac.LOADING)
+
+    def test_only_the_damaged_file_is_downloaded(self):
+        self.damage("model.bin")
+        ac.ensure_model(self.model, self.root, opener=self.server)
+        self.assertEqual({url.rsplit("/", 1)[1] for url, _ in self.server.requests}, {"model.bin"})
+
+    def test_an_intact_model_is_just_verified(self):
+        sm.download_model(self.model, self.root, open_=self.server)
+        self.server.requests.clear()
+        ac.ensure_model(self.model, self.root, opener=self.server)
+        self.assertEqual(self.server.requests, [])
+
+    def test_a_missing_model_is_downloaded(self):
+        folder = ac.ensure_model(self.model, self.root, opener=self.server)
+        self.assertEqual(sm.verify_model(self.model, self.root), folder)
+
+    def test_a_damaged_model_that_cannot_be_repaired_is_an_error_not_a_loaded_model(self):
+        self.damage()
+        self.server.tamper = {"model.bin": FILES["model.bin"][::-1]}
+        with self.assertRaises(ConversionError):
+            ac.ensure_model(self.model, self.root, opener=self.server)
+
+    def test_cancelling_the_verification_is_a_cancel_not_a_download(self):
+        self.damage()
+        cancel = threading.Event()
+        cancel.set()
+        with self.assertRaises(ConversionCancelled):
+            ac.ensure_model(self.model, self.root, cancel_event=cancel, opener=self.server)
+        self.assertEqual(self.server.requests, [])
+
+
+class SaveFallbackTests(unittest.TestCase):
+    CUES = [Cue(1.0, 2.0, "Hello"), Cue(3.0, 4.0, "مرحبا")]
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.video_folder = self.tmp / "readonly"
+        self.video_folder.mkdir()
+        self.video = self.video_folder / "talk.mp4"
+        self.fallback = self.tmp / "documents"
+        real = ac.write_srt
+
+        def write(cues, path):
+            if self.video_folder in (Path(path).parent, *Path(path).parent.parents):       # anything under the read-only folder
+                raise PermissionError(13, "Access is denied")
+            real(cues, path)
+
+        patcher = mock.patch.object(ac, "write_srt", write)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_folder_that_refuses_the_file_does_not_lose_the_captions(self):
+        with self.assertRaises(ConversionError):
+            ac.save_captions(self.CUES, self.video)                     # the plain save still fails, as it should
+        path, moved = ac.save_captions_anywhere(self.CUES, self.video, fallbacks=[self.fallback])
+        self.assertTrue(moved)
+        self.assertEqual(path, self.fallback / "talk.srt")
+        self.assertEqual([(c.start, c.end, c.text) for c in parse_cues(read_text(path))],
+                         [(c.start, c.end, c.text) for c in self.CUES])
+
+    def test_the_first_fallback_that_works_is_used(self):
+        blocked = self.video_folder / "inner"
+        path, moved = ac.save_captions_anywhere(self.CUES, self.video, fallbacks=[blocked, self.fallback])
+        self.assertEqual((path.parent, moved), (self.fallback, True))
+
+    def test_nothing_changes_when_the_folder_works(self):
+        free = self.tmp / "free"
+        free.mkdir()
+        path, moved = ac.save_captions_anywhere(self.CUES, free / "talk.mp4", fallbacks=[self.fallback])
+        self.assertEqual((path, moved), (free / "talk.srt", False))
+        self.assertFalse(self.fallback.exists())
+
+    def test_when_nowhere_works_the_first_problem_is_reported(self):
+        with self.assertRaisesRegex(ConversionError, "Access is denied"):
+            ac.save_captions_anywhere(self.CUES, self.video, fallbacks=[self.video_folder / "a", self.video_folder / "b"])
+
+    def test_the_default_fallbacks_are_documents_then_the_temporary_folder(self):
+        home = self.tmp / "home"
+        (home / "Documents").mkdir(parents=True)
+        with mock.patch.object(Path, "home", return_value=home):
+            folders = ac.fallback_folders()
+        self.assertEqual(folders[0], home / "Documents" / ac.APP_NAME)
+        self.assertEqual(folders[1], Path(tempfile.gettempdir()) / ac.APP_NAME)
+
+    def test_a_fallback_never_overwrites_an_older_file(self):
+        self.fallback.mkdir()
+        (self.fallback / "talk.srt").write_text("older", encoding="utf-8")
+        path, _ = ac.save_captions_anywhere(self.CUES, self.video, fallbacks=[self.fallback])
+        self.assertEqual(path, self.fallback / "talk (1).srt")
+        self.assertEqual((self.fallback / "talk.srt").read_text(encoding="utf-8"), "older")
+
+
+class CancelTests(unittest.TestCase):
+    @staticmethod
+    def segments(count, consumed, cancel=None, cancel_at=None):
+        """A generator that does its 'work' as each segment is asked for and notes it in `consumed`."""
+        for n in range(count):
+            consumed.append(n)
+            if cancel is not None and n == cancel_at:
+                cancel.set()
+            yield SimpleNamespace(start=n, end=n + 1, text=f" w{n}", words=None)
+
+    def model(self, factory):
+        model = mock.Mock()
+        model.transcribe.side_effect = lambda audio, **kw: (factory(), SimpleNamespace(language="en"))
+        return model
+
+    def test_a_cancel_before_the_start_never_calls_the_engine(self):
+        cancel = threading.Event()
+        cancel.set()
+        model = self.model(lambda: iter([]))
+        with self.assertRaises(ConversionCancelled):
+            ac.transcribe(model, [0.0], cancel_event=cancel)
+        model.transcribe.assert_not_called()
+
+    def test_a_cancel_that_comes_while_the_speech_is_being_looked_for_stops_before_the_first_segment(self):
+        cancel, consumed = threading.Event(), []
+
+        def transcribe(audio, **kwargs):
+            cancel.set()                        # the voice detector / language detection was running
+            return self.segments(5, consumed), SimpleNamespace(language="en")
+
+        model = mock.Mock()
+        model.transcribe.side_effect = transcribe
+        with self.assertRaises(ConversionCancelled):
+            ac.transcribe(model, [0.0], cancel_event=cancel)
+        self.assertEqual(consumed, [])
+
+    def test_a_cancel_in_the_middle_stops_after_the_segment_that_was_running(self):
+        cancel, consumed = threading.Event(), []
+        model = self.model(lambda: self.segments(50, consumed, cancel, cancel_at=2))
+        with self.assertRaises(ConversionCancelled):
+            ac.transcribe(model, [0.0], cancel_event=cancel)
+        self.assertEqual(consumed, [0, 1, 2])           # nothing more was asked of the engine
+
+    def test_without_a_cancel_every_segment_is_read(self):
+        consumed = []
+        pieces, language = ac.transcribe(self.model(lambda: self.segments(4, consumed)), [0.0], seconds=4.0)
+        self.assertEqual(consumed, [0, 1, 2, 3])
+        self.assertEqual(language, "en")
+        self.assertEqual(len(pieces), 4)
+
+    def test_a_cancel_while_the_model_is_checked_stops_before_it_is_loaded(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        model = tiny_model()
+        with mock.patch.dict(sm.MODELS, {"fast": model}):
+            sm.download_model(model, root, open_=FakeServer())
+            cancel, loaded = threading.Event(), []
+            source = root / "talk.wav"
+            import wave
+            with wave.open(str(source), "wb") as out:
+                out.setnchannels(1)
+                out.setsampwidth(2)
+                out.setframerate(16000)
+                out.writeframes(b"\x10\x20" * 16000)
+
+            def progress(phase, fraction, text):
+                if phase == ac.LOADING:
+                    cancel.set()
+
+            with self.assertRaises(ConversionCancelled):
+                ac.make_captions(FFMPEG, source, ac.CaptionOptions(model="fast"), 1.0, root=root, on_progress=progress,
+                                 cancel_event=cancel, loader=lambda folder: loaded.append(folder))
+        self.assertEqual(loaded, [])
+
+
+class WavMemoryTests(unittest.TestCase):
+    RATE = 16000
+
+    def make_wav(self, folder: Path, seconds: int) -> Path:
+        import wave
+        path = folder / "long.wav"
+        block = bytes(range(256)) * 250                       # 64000 bytes = 2 s of 16 kHz 16-bit mono
+        with wave.open(str(path), "wb") as out:
+            out.setnchannels(1)
+            out.setsampwidth(2)
+            out.setframerate(self.RATE)
+            for _ in range(seconds // 2):
+                out.writeframes(block)
+        return path
+
+    def test_twenty_minutes_of_sound_take_about_twice_its_size_in_memory(self):
+        import tracemalloc
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.make_wav(Path(tmp), 20 * 60)
+            size = path.stat().st_size
+            self.assertAlmostEqual(size / (self.RATE * 2), 20 * 60, delta=1)
+            tracemalloc.start()
+            try:
+                audio = ac.read_wav(path)
+                peak = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+            self.assertEqual(audio.shape, (20 * 60 * self.RATE,))
+            self.assertEqual(str(audio.dtype), "float32")
+            self.assertLess(peak, 2.2 * size, f"peak {peak / size:.2f} x the WAV")            # it was about 4.9 x
+
+    def test_the_samples_are_converted_exactly(self):
+        import wave
+        samples = [0, 1, -1, 32767, -32768, 12345, -12345]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.wav"
+            with wave.open(str(path), "wb") as out:
+                out.setnchannels(1)
+                out.setsampwidth(2)
+                out.setframerate(self.RATE)
+                out.writeframes(b"".join(int(s).to_bytes(2, "little", signed=True) for s in samples))
+            audio = ac.read_wav(path)
+        self.assertEqual([float(x) for x in audio], [s / 32768.0 for s in samples])
+
+    def test_more_than_one_block_is_stitched_together(self):
+        import wave
+        count = ac.WAV_BLOCK * 2 + 123
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.wav"
+            with wave.open(str(path), "wb") as out:
+                out.setnchannels(1)
+                out.setsampwidth(2)
+                out.setframerate(self.RATE)
+                out.writeframes(bytes([i % 251 for i in range(2 * count)]))
+            audio = ac.read_wav(path)
+        self.assertEqual(len(audio), count)
+        raw = bytes([i % 251 for i in range(2 * count)])
+        for index in (0, 1, ac.WAV_BLOCK - 1, ac.WAV_BLOCK, ac.WAV_BLOCK + 1, count - 1):
+            value = int.from_bytes(raw[2 * index:2 * index + 2], "little", signed=True)
+            self.assertEqual(float(audio[index]), value / 32768.0, index)
+
+    def test_a_header_that_promises_more_than_the_file_has(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.make_wav(Path(tmp), 4)
+            data = path.read_bytes()
+            path.write_bytes(data[:len(data) // 2])            # cut off in the middle
+            audio = ac.read_wav(path)
+        self.assertGreater(len(audio), 0)
+        self.assertLess(len(audio), 4 * self.RATE)
+
+    def test_an_empty_or_broken_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.wav"
+            path.write_bytes(b"not a wav at all")
+            with self.assertRaises(ConversionError):
+                ac.read_wav(path)
+            path.write_bytes(b"")
+            with self.assertRaises(ConversionError):
+                ac.read_wav(path)
+
+
 if __name__ == "__main__":
     unittest.main()
