@@ -13,29 +13,75 @@ from .i18n import N_, tr
 
 log = logging.getLogger(__name__)
 
+# What each graphics card encoder is told for a quality: the x264 CRF the quality label stands for (18 High,
+# 23 Balanced, 28 Smaller file; x265 takes 5 more) -> that encoder's own number, chosen so a label gives the
+# SSIM and about the file size of x264's (H.265: x265's). Measured on 5 s of 1080p test pictures (a clean one
+# and one with camera-like noise) on an NVIDIA card and Intel graphics, by encoding at each number and picking
+# the one that lands on the CPU's SSIM and size: NVENC wants a much higher number than the CRF (31 for
+# Balanced, with H.265 higher still), Intel's ICQ somewhat higher, and a number that is too low just makes a
+# file two or three times as big for the same look. Between and beyond the anchors the numbers follow a
+# straight line. AMD's are what they always were (not measured: there is no AMD card to try them on).
+QUALITY_ANCHORS: dict[str, dict[int, int]] = {
+    "h264_nvenc": {18: 27, 23: 31, 28: 37},
+    "hevc_nvenc": {18: 29, 23: 34, 28: 40},
+    "h264_qsv": {18: 19, 23: 26, 28: 31},
+    "hevc_qsv": {18: 26, 23: 30, 28: 34},
+    "h264_amf": {18: 23, 23: 28, 28: 33},
+    "hevc_amf": {18: 23, 23: 28, 28: 33},
+}
+
+
+def card_quality(encoder: str, crf: int) -> int:
+    """`encoder`'s own quality number for the x264 CRF `crf` (see QUALITY_ANCHORS)."""
+    anchors = sorted(QUALITY_ANCHORS[encoder].items())
+    if crf <= anchors[0][0]:
+        value = anchors[0][1] + (crf - anchors[0][0])
+    elif crf >= anchors[-1][0]:
+        value = anchors[-1][1] + (crf - anchors[-1][0])
+    else:
+        (x0, y0), (x1, y1) = next(pair for pair in zip(anchors, anchors[1:]) if pair[0][0] <= crf <= pair[1][0])
+        value = y0 + (y1 - y0) * (crf - x0) / (x1 - x0)
+    return max(round(value), 0)
+
+
 # Encoder name -> function(crf, fps) giving the ffmpeg options for a constant-quality video that looks
-# about like x264's at that CRF. The scales differ (measured on noisy 1080p test video): the same number
-# gives a much bigger NVENC file, so each encoder gets its own offset. The result is 8-bit 4:2:0 H.264
-# like the CPU's, so it plays everywhere; Intel's encoder takes that as nv12 (the same pixels in a
-# different order) and needs the frame rate said out loud after cuts and speed changes.
+# about like x264's at that CRF (see QUALITY_ANCHORS). The result is 8-bit 4:2:0 like the CPU's, so it
+# plays everywhere; Intel's encoder takes that as nv12 (the same pixels in a different order) and needs the
+# frame rate said out loud after cuts and speed changes. NVENC runs variable bitrate at a constant
+# quality, with a second look at every frame (multipass) and adaptive quantization, which spends the
+# bits where the eye sees them: without those it is far behind x264.
+def _nvenc(name: str) -> Callable[[int, float], list[str]]:
+    return lambda crf, fps: ["-c:v", name, "-preset", "p5", "-rc", "vbr", "-cq", str(card_quality(name, crf)),
+                             "-b:v", "0", "-multipass", "fullres", "-spatial-aq", "1", "-temporal-aq", "1",
+                             "-pix_fmt", "yuv420p"]
+
+
+def _qsv(name: str) -> Callable[[int, float], list[str]]:
+    return lambda crf, fps: ["-c:v", name, "-preset", "medium", "-global_quality", str(card_quality(name, crf)),
+                             "-r", f"{fps:.6g}", "-pix_fmt", "nv12"]
+
+
+def _amf(name: str) -> Callable[[int, float], list[str]]:
+    return lambda crf, fps: ["-c:v", name, "-quality", "balanced", "-rc", "cqp", "-qp_i", str(card_quality(name, crf)),
+                             "-qp_p", str(card_quality(name, crf)), "-pix_fmt", "yuv420p"]
+
+
 ENCODERS: dict[str, Callable[[int, float], list[str]]] = {
-    "h264_nvenc": lambda crf, fps: ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", str(crf + 8),
-                                    "-b:v", "0", "-pix_fmt", "yuv420p"],
-    "h264_qsv": lambda crf, fps: ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", str(crf),
-                                  "-r", f"{fps:.6g}", "-pix_fmt", "nv12"],
-    "h264_amf": lambda crf, fps: ["-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", str(crf + 5),
-                                  "-qp_p", str(crf + 5), "-pix_fmt", "yuv420p"],
+    "h264_nvenc": _nvenc("h264_nvenc"),
+    "h264_qsv": _qsv("h264_qsv"),
+    "h264_amf": _amf("h264_amf"),
 }
 
 
 def _hevc(make: Callable[[int, float], list[str]]) -> Callable[[int, float], list[str]]:
-    return lambda crf, fps: [arg.replace("h264", "hevc") for arg in make(crf, fps)] + ["-tag:v", "hvc1"]
+    return lambda crf, fps: make(crf, fps) + ["-tag:v", "hvc1"]
 
 
-# The same cards' H.265 encoders. They take the same quality numbers as their H.264 cousins (a file of the
-# same quality is smaller anyway), and the result is 8-bit 4:2:0 tagged hvc1, which Apple's players want.
+# The same cards' H.265 encoders: the result is 8-bit 4:2:0 tagged hvc1, which Apple's players want.
 HEVC_ENCODERS: dict[str, Callable[[int, float], list[str]]] = {
-    name.replace("h264", "hevc"): _hevc(make) for name, make in ENCODERS.items()
+    "hevc_nvenc": _hevc(_nvenc("hevc_nvenc")),
+    "hevc_qsv": _hevc(_qsv("hevc_qsv")),
+    "hevc_amf": _hevc(_amf("hevc_amf")),
 }
 # What to tell the user, in the order to prefer them.
 LABELS = {

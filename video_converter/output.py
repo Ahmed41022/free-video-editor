@@ -40,12 +40,33 @@ GIF_FPS_RANGE = (1, 30)
 GIF_WIDTH_RANGE = (16, 1920)
 GIF_FPS_CHOICES = (10, 15, 20, 25)
 GIF_WIDTH_CHOICES = (240, 320, 480, 640, 800)
-GIF_LONG_SECONDS = 15      # a GIF longer than this is worth a warning
+GIF_LONG_SECONDS = 15      # a GIF longer than this is worth a warning when its size is not known
+# What a GIF weighs: about this many bytes for every pixel of every frame (measured: a clean test picture
+# 0.1, busy or noisy footage 0.5 to 0.8, so camera footage is taken at 0.3), and the size chat apps start
+# refusing (Discord's 10 MB), above which a GIF is worth a warning.
+GIF_BYTES_PER_PIXEL = 0.3
+GIF_WARN_BYTES = 10_000_000
 
 
-def gif_warning(seconds: Optional[float]) -> str:
-    """What to say about a GIF that runs `seconds`, or "" when it is short enough not to need it."""
-    if seconds is None or seconds <= GIF_LONG_SECONDS:
+def gif_size_estimate(width: int, height: int, fps: float, seconds: float) -> int:
+    """About how many bytes a GIF of this size, frame rate and length comes out at."""
+    return int(width * height * fps * seconds * GIF_BYTES_PER_PIXEL)
+
+
+def gif_warning(seconds: Optional[float], width: Optional[int] = None, height: Optional[int] = None,
+                fps: Optional[float] = None) -> str:
+    """What to say about a GIF that runs `seconds`, or "" when it will not get big. With its `width`, `height`
+    and `fps` the warning is about the size it is estimated to come out at; without them, about its length."""
+    if seconds is None:
+        return ""
+    if width and height and fps:
+        size = gif_size_estimate(width, height, fps, seconds)
+        if size <= GIF_WARN_BYTES:
+            return ""
+        return tr("This GIF runs {length} and may come out at about {size:.0f} MB, and GIFs get big fast. "
+                  "Shorten the clip, or lower the width or frame rate.", length=format_time(seconds),
+                  size=size / 1e6)
+    if seconds <= GIF_LONG_SECONDS:
         return ""
     return tr("This GIF runs {length}, and GIFs get big fast: it may come out at tens of megabytes. "
               "Shorten the clip, or lower the width or frame rate.", length=format_time(seconds))
@@ -76,7 +97,8 @@ UNDERUSE = 0.93                # a file smaller than this share of the limit is 
 
 # The sound of a file that has to fit: smaller than the usual 192 kbps, but never more than a sixth of it.
 AUDIO_FIT_KBPS = {"aac": 128, "opus": 96}
-MIN_AUDIO_KBPS = 48
+MIN_STEREO_KBPS = 48        # sound with less than this is mono
+MIN_AUDIO_KBPS = 24         # the least a voice can do with, in mono, when the picture needs every bit
 # Fewest bits per pixel and frame that still look like a picture, and the least bitrate at all.
 MIN_BITS_PER_PIXEL = {"h264": 0.04, "hevc": 0.028, "vp9": 0.028}
 MIN_VIDEO_KBPS = 80
@@ -101,10 +123,11 @@ def target_bytes(target_mb: float) -> int:
 
 def audio_kbps(audio: str, total_kbps: float) -> int:
     """The sound's bitrate when everything has `total_kbps`: 0 for no sound, else the usual 128 (AAC) or
-    96 (Opus), less when that would take more than a sixth of it."""
+    96 (Opus), less when that would take more than a sixth of it, and not less than MIN_STEREO_KBPS (see
+    `fit_plan` for going lower)."""
     if not audio:
         return 0
-    return int(max(MIN_AUDIO_KBPS, min(AUDIO_FIT_KBPS[audio], total_kbps / 6)))
+    return int(max(MIN_STEREO_KBPS, min(AUDIO_FIT_KBPS[audio], total_kbps / 6)))
 
 
 def total_kbps(target: int, seconds: float) -> float:
@@ -122,21 +145,29 @@ def fit_plan(target: int, seconds: float, codec: str, audio: str, fps: float,
     if seconds <= 0:
         raise ConversionError(tr("Can't fit this into a file size: it has no length."))
     total = total_kbps(target, seconds)
-    sound = audio_kbps(audio, total)
-    kbps = int(total - sound)
     fps = fps or 30.0
     minimum = MIN_BITS_PER_PIXEL[codec]
-    for index, (short, width, height) in enumerate(rungs):
-        need = max(MIN_VIDEO_KBPS, minimum * width * height * fps / 1000)
-        if kbps >= need:
-            if index and short:
-                return SizeFit(target, kbps, sound, seconds,
-                               tr("Made smaller ({short}p) so it fits in {limit:g} MB", short=short,
-                                  limit=target / MB), short)
-            return SizeFit(target, kbps, sound, seconds)
+    # The usual sound first. When the picture doesn't fit with it, the sound is lowered to the least a voice
+    # can do with (a mono 24 kbps) before the fit is given up on.
+    sounds = [audio_kbps(audio, total)]
+    if audio and sounds[0] > MIN_AUDIO_KBPS:
+        sounds.append(MIN_AUDIO_KBPS)
+    for sound in sounds:
+        kbps = int(total - sound)
+        for index, (short, width, height) in enumerate(rungs):
+            need = max(MIN_VIDEO_KBPS, minimum * width * height * fps / 1000)
+            if kbps >= need:
+                if index and short:
+                    return SizeFit(target, kbps, sound, seconds,
+                                   tr("Made smaller ({short}p) so it fits in {limit:g} MB", short=short,
+                                      limit=target / MB), short)
+                return SizeFit(target, kbps, sound, seconds)
+    if audio and total <= MIN_AUDIO_KBPS:
+        raise ConversionError(tr("Not even the sound fits in {limit:g} MB; choose a bigger size or remove the sound.",
+                                 limit=target / MB))
     _, width, height = rungs[-1]
     need = max(MIN_VIDEO_KBPS, minimum * width * height * fps / 1000)
-    fits = seconds * (total - sound) / need if total > sound else 0
+    fits = seconds * (total - sounds[-1]) / need if total > sounds[-1] else 0
     raise ConversionError(tr(
         "This video is too long to fit in {limit:g} MB. Squeezed that far, the picture would look "
         "terrible: about {length} of it fits. Shorten the video, or choose a bigger size.",

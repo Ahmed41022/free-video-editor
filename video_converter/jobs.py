@@ -106,9 +106,13 @@ def run_job(ffmpeg: str, job: Job, on_progress: Callable[[float], None]) -> Path
         job.note = f"{job.note} · {text}" if job.note and text not in job.note else (job.note or text)
 
     if job.clips:
-        output = output_file_for(job.source, job.settings, job.output_dir, joined=True)
+        # The result never takes the name of one of the clips (or of the music), and the name is made again if
+        # another program takes it before the export starts (overwrite=False).
+        output = output_file_for(job.source, job.settings, job.output_dir, joined=True,
+                                 avoid=[clip.source for clip in job.clips])
         parts = [JoinPart(clip.source, clip.settings.edit, clip.info) for clip in job.clips]
-        join = JoinJob(parts, output, job.settings.output == OUTPUT_AUDIO, job.settings.audio_quality)
+        join = JoinJob(parts, output, job.settings.output == OUTPUT_AUDIO, job.settings.audio_quality,
+                       overwrite=False)
         encoder = None if join.audio_only else choose_encoder(ffmpeg, job.settings.edit.use_gpu, hardware_codec(
             job.settings.edit))
         return join_clips(ffmpeg, join, on_progress, job.cancel_event, encoder, note)
@@ -116,9 +120,11 @@ def run_job(ffmpeg: str, job: Job, on_progress: Callable[[float], None]) -> Path
     edit = job.settings.edit
     if job.settings.output == OUTPUT_AUDIO:
         audio = ConversionJob(job.source, output, job.settings.audio_quality, edit.start, edit.end, edit.keep,
-                              edit.speed, edit.reverse, edit.audio_fade_in, edit.audio_fade_out, edit.sound)
+                              edit.speed, edit.reverse, edit.audio_fade_in, edit.audio_fade_out, edit.sound,
+                              overwrite=False)
         return convert(ffmpeg, audio, on_progress, job.cancel_event)
-    return convert_video(ffmpeg, VideoJob(job.source, output, edit), on_progress, job.cancel_event, job.info,
+    return convert_video(ffmpeg, VideoJob(job.source, output, edit, overwrite=False), on_progress, job.cancel_event,
+                         job.info,
                          choose_encoder(ffmpeg, edit.use_gpu, hardware_codec(edit)), note)
 
 

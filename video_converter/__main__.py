@@ -41,6 +41,7 @@ from .core import (
     output_path_for,
     parse_time,
     probe_media,
+    same_file,
     unique_output_path,
 )
 from .gpu import choose_encoder
@@ -495,6 +496,9 @@ def run_cli(argv: list[str]) -> int:
         parser.error("--music-volume and --duck need --music")
     if not args.video and args.fps != "source":
         parser.error("--fps needs --video")
+    if not args.video and args.mute:
+        parser.error("--mute needs --video: an MP3 is nothing but sound (to remove the sound of a video, "
+                     "export it with --video)")
     if not args.video and picture_values != {name: getattr(VideoEdit(), name) for name in picture_values}:
         parser.error("the picture options need --video")
     caption_values = _caption_edit(args, parser)
@@ -538,7 +542,9 @@ def run_cli(argv: list[str]) -> int:
             if info.duration and args.frame_at > info.duration:
                 raise ConversionError(f"The video is only {format_time(info.duration)} long.")
             frame_edit = _with_cuts(edit, args.cut, info.duration) if args.cut else edit
-            target = args.frame_out if args.overwrite else unique_output_path(args.frame_out)
+            target = args.frame_out
+            if not args.overwrite or same_file(target, source):
+                target = unique_output_path(target, [source])
             output = save_frame(ffmpeg, source, target, args.frame_at, frame_edit, info)
         except ConversionError as exc:
             print(f"{source.name}: FAILED - {exc}", file=sys.stderr)
@@ -568,7 +574,8 @@ def run_cli(argv: list[str]) -> int:
 
     if args.join:
         first = args.files[0]
-        target = output_path_for(first, args.output_dir, args.overwrite, extension, " (joined)")
+        target = output_path_for(first, args.output_dir, args.overwrite, extension, " (joined)",
+                                 avoid=args.files)
         try:
             parts = []
             for source in args.files:
@@ -581,7 +588,7 @@ def run_cli(argv: list[str]) -> int:
                 parts.append(JoinPart(source, part_edit, info))
             for part in parts:
                 _warn_reverse(part.source.name, part.edit, part.info, not args.video, parts[0].info.fps or DEFAULT_FPS)
-            job = JoinJob(parts, target, audio_only=not args.video, quality=quality)
+            job = JoinJob(parts, target, audio_only=not args.video, quality=quality, overwrite=args.overwrite)
             output = join_clips(ffmpeg, job, on_progress=lambda f: show(f, target.name),
                                 encoder=choose_encoder(ffmpeg, edit.use_gpu, edit.output_format.codec), on_note=note)
         except ConversionError as exc:
@@ -591,6 +598,7 @@ def run_cli(argv: list[str]) -> int:
         return 0
 
     failures = 0
+    chosen: list[Path] = []         # the results of this run so far: two inputs with the same name must not share one
     for source in args.files:
         try:
             if not source.is_file():
@@ -614,13 +622,17 @@ def run_cli(argv: list[str]) -> int:
             if gif and info.has_video:
                 _warn_gif(source.name, file_edit, info)
             if not args.video:
-                target = output_path_for(source, args.output_dir, args.overwrite)
+                target = output_path_for(source, args.output_dir, args.overwrite, avoid=[*args.files, *chosen])
+                chosen.append(target)
                 job = ConversionJob(source, target, quality, args.start, args.end, file_edit.keep, args.speed,
-                                    args.reverse, args.fade_in, args.fade_out, file_edit.sound)
+                                    args.reverse, args.fade_in, args.fade_out, file_edit.sound,
+                                    overwrite=args.overwrite)
                 output = convert(ffmpeg, job, on_progress=lambda f, n=source.name: show(f, n))
             else:
-                target = output_path_for(source, args.output_dir, args.overwrite, extension, f" ({output_tag(edit)})")
-                output = convert_video(ffmpeg, VideoJob(source, target, file_edit),
+                target = output_path_for(source, args.output_dir, args.overwrite, extension, f" ({output_tag(edit)})",
+                                         avoid=[*args.files, *chosen])
+                chosen.append(target)
+                output = convert_video(ffmpeg, VideoJob(source, target, file_edit, overwrite=args.overwrite),
                                        on_progress=lambda f, n=source.name: show(f, n),
                                        encoder=choose_encoder(ffmpeg, edit.use_gpu, edit.output_format.codec),
                                        on_note=note)

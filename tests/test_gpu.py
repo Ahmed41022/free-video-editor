@@ -42,12 +42,14 @@ class EncoderOptionTests(unittest.TestCase):
         self.assertEqual(after(args, "-b:v"), "0")
         self.assertEqual(after(args, "-preset"), "p5")
         self.assertEqual(after(args, "-pix_fmt"), "yuv420p")
-        self.assertEqual(int(after(args, "-cq")), 23 + 8)
+        self.assertEqual(int(after(args, "-cq")), 31)
+        for flag, value in (("-multipass", "fullres"), ("-spatial-aq", "1"), ("-temporal-aq", "1")):
+            self.assertEqual(after(args, flag), value)
 
     def test_intel_uses_global_quality_and_says_the_frame_rate(self):
         args = gpu.encoder_args("h264_qsv", 23, 29.97)
         self.assertEqual(args[:2], ["-c:v", "h264_qsv"])
-        self.assertEqual(after(args, "-global_quality"), "23")
+        self.assertEqual(after(args, "-global_quality"), "26")
         self.assertEqual(after(args, "-r"), "29.97")
 
     def test_amd_uses_a_fixed_quantizer(self):
@@ -103,7 +105,8 @@ class CommandTests(unittest.TestCase):
     def test_the_quality_choices_reach_the_card(self):
         numbers = [after(video_command("ffmpeg", self.job(crf=crf), INFO, encoder="h264_nvenc"), "-cq")
                    for crf in (18, 23, 28)]
-        self.assertEqual(numbers, ["26", "31", "36"])
+        # each label aims at the SSIM and size of x264's (see gpu.QUALITY_ANCHORS)
+        self.assertEqual(numbers, ["27", "31", "37"])
 
     def test_the_frame_rate_comes_from_the_video(self):
         cmd = video_command("ffmpeg", self.job(), INFO, encoder="h264_qsv")
@@ -118,7 +121,7 @@ class CommandTests(unittest.TestCase):
         card, _ = join_command("ffmpeg", job, encoder="h264_nvenc")
         self.assertEqual(after(cpu, "-c:v"), "libx264")
         self.assertEqual(after(card, "-c:v"), "h264_nvenc")
-        self.assertEqual(after(card, "-cq"), "36")
+        self.assertEqual(after(card, "-cq"), "37")
         self.assertEqual(after(card, "-filter_complex"), after(cpu, "-filter_complex"))
         self.assertEqual(after(card, "-movflags"), "+faststart")
 

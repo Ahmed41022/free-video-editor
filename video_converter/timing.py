@@ -16,6 +16,7 @@ Segment = tuple[float, Optional[float]]    # the end is None only when the lengt
 MIN_PART = 0.1          # shortest part the editor makes, in seconds
 SNAP_EDGE = 0.05        # kept ranges this close to the very start or end reach it
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
+CUT_FADE = 0.004        # the sound fades out and in over this long (seconds) at every cut, so there is no click
 FADE_MAX = 30.0
 _EPS = 1e-6
 
@@ -184,7 +185,14 @@ def snap_segments(segments: list[Segment], fps: Optional[float],
             snapped[-1] = (snapped[-1][0], b)       # the gap between two parts was less than a frame
         else:
             snapped.append((a, b))
-    return snapped or list(segments)
+    if snapped or not segments:
+        return snapped
+    # Every part is shorter than a frame (a trim of a few milliseconds): none of them would show, and an
+    # export of nothing but the sound is not what was asked for. Keep the one frame at the first part.
+    first = round(segments[0][0] * rate) / rate
+    if duration and first + 1 / rate > duration:
+        first = max(duration - 1 / rate, 0.0)
+    return [(first, first + 1 / rate)]
 
 
 def frame_margin(fps: Optional[float]) -> float:
@@ -288,6 +296,21 @@ def relative(segments: list[Segment]) -> list[Segment]:
     return [(a - base, None if b is None else b - base) for a, b in segments]
 
 
+def _cut_fades(after_cut: bool, before_cut: bool, length: Optional[float]) -> str:
+    """The short fades of a part of the sound that has a cut at its start (`after_cut`) and/or its end
+    (`before_cut`). Two parts of a wave that don't fit end and begin with a jump, which is heard as a click;
+    a few milliseconds of fade on both sides make it silent. The length of the part stays what it was."""
+    span = CUT_FADE if length is None else min(CUT_FADE, length / 2)
+    if span < 0.0005:
+        return ""
+    fades = []
+    if after_cut:
+        fades.append(f"afade=t=in:st=0:d={_n(span, 5)}")
+    if before_cut and length is not None:
+        fades.append(f"afade=t=out:st={_n(length - span, 6)}:d={_n(span, 5)}")
+    return "".join("," + f for f in fades)
+
+
 def select_filters(src: str, out: str, segments: list[Segment], audio: bool, tag: str = "",
                    margin: float = 0.0) -> list[str]:
     """Filters that keep `segments` (relative to the input start) of stream `src` and play
@@ -301,10 +324,12 @@ def select_filters(src: str, out: str, segments: list[Segment], audio: bool, tag
     copies = [f"[{kind}in{tag}_{i}]" for i in range(len(segments))]
     pieces = [f"[{kind}seg{tag}_{i}]" for i in range(len(segments))]
     filters = [f"{src}{split}={len(segments)}{''.join(copies)}"]
-    for copy, piece, (a, b) in zip(copies, pieces, segments):
+    for i, (copy, piece, (a, b)) in enumerate(zip(copies, pieces, segments)):
+        length = None if b is None else b - a
         a = max(a - margin, 0.0)
         bounds = f"start={_n(a, 6)}" + (f":end={_n(max(b - margin, 0.0), 6)}" if b is not None else "")
-        filters.append(f"{copy}{trim}={bounds},{setpts}=PTS-STARTPTS{piece}")
+        fades = _cut_fades(i > 0, i < len(segments) - 1, length) if audio else ""
+        filters.append(f"{copy}{trim}={bounds},{setpts}=PTS-STARTPTS{fades}{piece}")
     flags = "v=0:a=1" if audio else "v=1:a=0"
     filters.append(f"{''.join(pieces)}concat=n={len(segments)}:{flags}{out}")
     return filters

@@ -371,9 +371,10 @@ class FilterStringTests(unittest.TestCase):
         graph = audio_filters("[0:a:0]", "[a]", [(1.0, 2.0), (3.0, 4.0), (6.0, 8.0)])
         self.assertEqual(graph, ";".join([
             "[0:a:0]asplit=3[ain_0][ain_1][ain_2]",
-            "[ain_0]atrim=start=0:end=1,asetpts=PTS-STARTPTS[aseg_0]",
-            "[ain_1]atrim=start=2:end=3,asetpts=PTS-STARTPTS[aseg_1]",
-            "[ain_2]atrim=start=5:end=7,asetpts=PTS-STARTPTS[aseg_2]",
+            # a few milliseconds of fade at each cut, none at the very start and end
+            "[ain_0]atrim=start=0:end=1,asetpts=PTS-STARTPTS,afade=t=out:st=0.996:d=0.004[aseg_0]",
+            "[ain_1]atrim=start=2:end=3,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.004,afade=t=out:st=0.996:d=0.004[aseg_1]",
+            "[ain_2]atrim=start=5:end=7,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.004[aseg_2]",
             "[aseg_0][aseg_1][aseg_2]concat=n=3:v=0:a=1[a]",
         ]))
 
@@ -441,8 +442,12 @@ class FrameSnapTests(unittest.TestCase):
         self.assertEqual(snap_segments([(0.0, 1.02), (1.04, 2.0)], 10.0), [(0.0, 2.0)])
         self.assertEqual(snap_segments([(0.0, 1.0), (1.51, 1.53), (2.0, 3.0)], 10.0), [(0.0, 1.0), (2.0, 3.0)])
 
-    def test_nothing_is_lost_when_every_part_is_shorter_than_a_frame(self):
-        self.assertEqual(snap_segments([(1.01, 1.02)], 10.0), [(1.01, 1.02)])
+    def test_one_frame_is_kept_when_every_part_is_shorter_than_a_frame(self):
+        # not the sound alone: the part's frame, one frame long
+        self.assertEqual(snap_segments([(1.01, 1.02)], 10.0), [(1.0, 1.1)])
+        (start, end), = snap_segments([(1.01, 1.02)], 10.0, duration=1.05)       # the frame before the end of the file
+        self.assertAlmostEqual(start, 0.95)
+        self.assertAlmostEqual(end, 1.05)
 
     def test_the_end_cannot_pass_the_end_of_the_file(self):
         self.assertEqual(snap_segments([(0.0, 5.96)], 10.0, duration=5.96), [(0.0, 5.96)])

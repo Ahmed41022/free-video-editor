@@ -36,6 +36,7 @@ from video_converter.project import (
 from video_converter.sound import (
     AUDIO_DENOISE,
     DEFAULT_MUSIC_VOLUME,
+    LIMITER,
     Loudness,
     Sound,
     clip_filters,
@@ -139,19 +140,21 @@ class VolumeFilterTests(unittest.TestCase):
         self.assertEqual(clip_filters(Sound()), [])
 
     def test_the_volume_is_in_decibels(self):
-        self.assertIn("[snd0]volume=6dB[a]", graph_of(command_for(VideoEdit(volume=6.0))))
+        self.assertIn("[snd0]volume=6dB,alimiter=limit=0.89:level=disabled[a]", graph_of(command_for(VideoEdit(volume=6.0))))
         self.assertIn("volume=-12.5dB", graph_of(command_for(VideoEdit(volume=-12.5))))
 
     def test_the_volume_is_kept_within_20_decibels(self):
-        self.assertEqual(clip_filters(Sound(volume=99)), ["volume=20dB"])
+        self.assertEqual(clip_filters(Sound(volume=99)), ["volume=20dB", LIMITER])
         self.assertEqual(clip_filters(Sound(volume=-99)), ["volume=-20dB"])
 
     def test_it_comes_after_the_cuts_speed_reverse_and_fades(self):
         edit = VideoEdit(volume=3.0, speed=2.0, reverse=True, audio_fade_out=1.0, keep=[(0.0, 1.0), (2.0, 4.0)])
         graph = graph_of(command_for(edit))
-        positions = [graph.index(word) for word in ("atrim", "atempo", "areverse", "afade", "volume=3dB")]
+        # (the short fades at the cuts come with the cuts; the fade out of the export is the last "afade")
+        positions = [graph.index(word) for word in ("atrim", "atempo", "areverse")]
+        positions += [graph.rindex("afade"), graph.index("volume=3dB")]
         self.assertEqual(positions, sorted(positions))
-        self.assertIn("[snd0]volume=3dB[a]", graph)
+        self.assertIn("[snd0]volume=3dB,alimiter=limit=0.89:level=disabled[a]", graph)
 
     def test_a_muted_video_has_no_sound_to_change(self):
         cmd = command_for(VideoEdit(volume=6.0, audio_denoise="strong", normalize=True, mute=True))
@@ -193,7 +196,7 @@ class NoiseReductionFilterTests(unittest.TestCase):
 
     def test_noise_reduction_comes_before_the_volume(self):
         self.assertEqual([f.split("=")[0] for f in clip_filters(Sound(denoise="light", volume=3.0))],
-                         ["afftdn", "volume"])
+                         ["afftdn", "volume", "alimiter"])
 
     def test_an_unknown_name_does_nothing(self):
         self.assertEqual(clip_filters(Sound(denoise="medium")), [])
@@ -241,7 +244,7 @@ class LoudnessFilterTests(unittest.TestCase):
         graph = graph_of(cmd)
         self.assertIn("[voice]loudnorm=I=-14:TP=-1", graph)
         self.assertIn("measured_I=-27.30", graph)
-        self.assertTrue(graph.endswith("aresample=48000[a]"))
+        self.assertTrue(graph.endswith("aresample=48000,alimiter=limit=0.89:level=disabled[a]"))
         self.assertEqual(cmd[cmd.index("[a]") - 1], "-map")
 
     def test_without_a_measurement_nothing_is_normalized(self):
@@ -373,7 +376,7 @@ class JoinFilterTests(unittest.TestCase):
         cmd, _ = self.command(VideoEdit(aspect=None, volume=6.0), VideoEdit(aspect=None, audio_denoise="strong"))
         graph = graph_of(cmd)
         self.assertEqual(graph.count("volume=6dB"), 1)
-        self.assertEqual(graph.count("afftdn"), 1)
+        self.assertEqual(graph.count("afftdn"), 2)      # Strong runs the filter twice
         self.assertLess(graph.index("volume=6dB"), graph.index("afftdn"))     # the first clip's comes first
 
     def test_the_music_is_laid_over_the_joined_sound(self):
