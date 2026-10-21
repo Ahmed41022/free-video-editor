@@ -91,7 +91,7 @@ class BitrateMathTests(unittest.TestCase):
         self.assertEqual(output.audio_kbps("opus", 5000), 96)
         self.assertEqual(output.audio_kbps("aac", 5000), 128)
         self.assertEqual(output.audio_kbps("aac", 450), 75)        # a sixth of everything, no more
-        self.assertEqual(output.audio_kbps("aac", 100), output.MIN_AUDIO_KBPS)
+        self.assertEqual(output.audio_kbps("aac", 100), output.MIN_STEREO_KBPS)
         self.assertEqual(output.audio_kbps("", 5000), 0)
 
     def test_a_longer_video_gets_a_lower_bitrate(self):
@@ -125,7 +125,7 @@ class BitrateMathTests(unittest.TestCase):
 
     def test_a_size_nothing_can_fit_is_refused_with_how_much_would(self):
         with self.assertRaises(ConversionError) as caught:
-            self.plan(3600)
+            self.plan(1500)
         message = str(caught.exception)
         self.assertIn("too long to fit in 10 MB", message)
         self.assertIn("Shorten the video", message)
@@ -361,7 +361,8 @@ class CommandTests(unittest.TestCase):
         cmd = self.command()
         self.assertEqual(cmd[cmd.index("-c:a"):cmd.index("-map_metadata")],
                          ["-c:a", "aac", "-b:a", "192k", "-c:v", "libx264", "-preset", "medium", "-pix_fmt",
-                          "yuv420p", "-crf", "23", "-movflags", "+faststart"])
+                          "yuv420p", "-threads", str(video.ENCODER_THREADS), "-r", "15", "-crf", "23",
+                          "-profile:v", "high", "-level", "4.1", "-movflags", "+faststart"])
 
     def test_h265(self):
         cmd = self.command(video_format="hevc")
@@ -540,7 +541,12 @@ class GraphicsCardH265Tests(unittest.TestCase):
     def test_the_options_use_the_same_quality_numbers_as_h264(self):
         for name, make in gpu.ENCODERS.items():
             hevc = gpu.HEVC_ENCODERS[name.replace("h264", "hevc")](23, 30.0)
-            self.assertEqual([a.replace("hevc", "h264") for a in hevc if a not in ("-tag:v", "hvc1")], make(23, 30.0))
+            # the same options, with the quality number of their own (see gpu.QUALITY_ANCHORS)
+            def without_numbers(args):
+                skip = {"-cq", "-global_quality", "-qp_i", "-qp_p"}
+                return [a for i, a in enumerate(args) if not (i and args[i - 1] in skip)]
+            self.assertEqual(without_numbers([a.replace("hevc", "h264") for a in hevc if a not in ("-tag:v", "hvc1")]),
+                             without_numbers(make(23, 30.0)))
             self.assertEqual(hevc[-2:], ["-tag:v", "hvc1"])
 
     def test_the_bitrate_replaces_the_quality(self):
@@ -1102,11 +1108,11 @@ class FrameTests(unittest.TestCase):
             save_frame(FFMPEG, self.clip, self.tmp / "frame.png", 1.0, VideoEdit(aspect=None),
                        MediaInfo(duration=3.0, has_audio=True))
 
-    def test_a_moment_after_the_end_is_an_error_not_an_empty_file(self):
+    def test_a_moment_after_the_end_saves_the_last_frame(self):
         target = self.tmp / "late.png"
-        with self.assertRaises(ConversionError):
-            save_frame(FFMPEG, self.clip, target, 99.0, VideoEdit(aspect=None), self.info)
-        self.assertFalse(target.exists())
+        save_frame(FFMPEG, self.clip, target, 99.0, VideoEdit(aspect=None), self.info)
+        self.assertTrue(target.is_file())
+        self.assertGreater(target.stat().st_size, 0)
 
 
 # ----- the command line -------------------------------------------------------------------------

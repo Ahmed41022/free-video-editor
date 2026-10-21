@@ -276,7 +276,7 @@ class VideoCommandTests(unittest.TestCase):
     def test_cuts_seek_to_the_first_kept_part_and_stop_after_the_last(self):
         cmd = command_for(VideoEdit(keep=[(1.0, 2.0), (3.0, 5.0)]))
         before_input = cmd[:cmd.index("-i")]
-        self.assertEqual(before_input[-4:], ["-ss", "1.000", "-to", "5.000"])
+        self.assertEqual(before_input[-4:], ["-ss", "0.999500", "-to", "4.999500"])
 
     def test_cut_times_are_relative_to_the_seek_point(self):
         graph = graph_of(command_for(VideoEdit(keep=[(1.0, 2.0), (3.0, 5.0)])))
@@ -295,7 +295,7 @@ class VideoCommandTests(unittest.TestCase):
 
     def test_the_trim_and_the_cuts_combine(self):
         cmd = command_for(VideoEdit(keep=[(1.0, 3.0), (4.0, 6.0)], start=2.0, end=5.0))
-        self.assertEqual(cmd[:cmd.index("-i")][-4:], ["-ss", "2.000", "-to", "5.000"])
+        self.assertEqual(cmd[:cmd.index("-i")][-4:], ["-ss", "1.999500", "-to", "4.999500"])
         graph = graph_of(cmd)
         self.assertIn("[vin0_0]trim=start=0:end=0.966667,", graph)          # 2..3, half a frame early
         self.assertIn("[vin0_1]trim=start=1.966667:end=2.966667,", graph)   # 4..5
@@ -304,7 +304,8 @@ class VideoCommandTests(unittest.TestCase):
 
     def test_speed_changes_the_timestamps_and_keeps_the_source_frame_rate(self):
         graph = graph_of(command_for(VideoEdit(speed=2.0)))
-        self.assertIn("[t0]setpts=PTS/2,fps=15[tempo0]", graph)
+        # a quarter of an output frame later (1/60 s), so no frame is half way between two slots
+        self.assertIn("[t0]setpts=PTS/2+0.016667/TB,fps=15[tempo0]", graph)
         self.assertIn("atempo=2", graph)
 
     def test_normal_speed_adds_no_retiming_filters(self):
@@ -424,7 +425,8 @@ class JoinCommandTests(unittest.TestCase):
         cmd, _ = self.build([part("a.mp4", 640, 360, 15.0, True, duration=10.0, keep=[(1.0, 2.0), (3.0, 5.0)]),
                              part("b.mp4", 640, 360, 15.0, True, duration=2.0)])
         inputs = cmd[cmd.index("-y") + 1:cmd.index("-filter_complex")]
-        self.assertEqual(inputs, ["-ss", "1.000", "-to", "5.000", "-i", "a.mp4", "-to", "2.000", "-i", "b.mp4"])
+        # a hair before the times, so the frame that sits on a time is kept (see core.SEEK_SLACK)
+        self.assertEqual(inputs, ["-ss", "0.999500", "-to", "4.999500", "-i", "a.mp4", "-to", "1.999500", "-i", "b.mp4"])
         graph = graph_of(cmd)
         self.assertIn("[0:v:0]split=2", graph)
         self.assertIn("[1:v:0]setpts=PTS-STARTPTS[t1]", graph)

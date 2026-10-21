@@ -260,8 +260,11 @@ class CommandTests(unittest.TestCase):
     def test_no_steady_rate_changes_nothing(self):
         cmd = cmd_for(VideoEdit(aspect=None))
         self.assertNotIn("fps=", graph_of(cmd))
-        for flag in ("-profile:v", "-level", "-ar", "-ac"):
+        for flag in ("-ar", "-ac"):
             self.assertNotIn(flag, cmd)
+        # a picture whose frame rate changes still says its level (the highest rate it declares: 1728x1080 at 120)
+        self.assertEqual((after(cmd, "-profile:v"), after(cmd, "-level")), ("high", "5.1"))
+        self.assertNotIn("-r", cmd)
 
     def test_a_steady_export_is_high_profile_with_a_matching_level_and_stereo_48k_aac(self):
         cmd = cmd_for(VideoEdit(aspect=None, frame_rate=60))
@@ -336,7 +339,7 @@ class JoinCommandTests(unittest.TestCase):
     def test_without_a_setting_the_first_clips_rate_still_wins(self):
         cmd = self.build([part("a.mp4", 640, 360, 15.0), part("b.mp4", 640, 360, 60.0)])
         self.assertEqual(graph_of(cmd).count("fps=15"), 2)
-        self.assertNotIn("-level", cmd)
+        self.assertEqual((after(cmd, "-r"), after(cmd, "-level")), ("15", "4.1"))     # said out loud, not worked out
 
     def test_a_steady_rate_wins_over_the_first_clips(self):
         first = part("a.mp4", 1920, 1080, 30.0, VideoEdit(aspect=None, frame_rate=60))
@@ -353,7 +356,8 @@ class JoinCommandTests(unittest.TestCase):
     def test_only_the_first_clips_setting_counts(self):
         second = part("b.mp4", 640, 360, 60.0, VideoEdit(aspect=None, frame_rate=30))
         cmd = self.build([part("a.mp4", 640, 360, 60.0), second])
-        self.assertNotIn("-level", cmd)
+        self.assertEqual((after(cmd, "-r"), after(cmd, "-level")), ("60", "4.1"))
+        self.assertNotIn("-ar", cmd)           # not the phone-safe sound: no steady rate was asked for
         self.assertEqual(graph_of(cmd).count("fps=60"), 2)
 
 
