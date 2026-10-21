@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 import shutil
@@ -12,9 +13,10 @@ import tempfile
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Iterable, Iterator, Optional
 
 from .i18n import N_, tr
 from .sound import Loudness, Sound, master_filters, music_args, parse_loudness, voice_filters
@@ -41,6 +43,7 @@ DEFAULT_QUALITY = "192 kbps"
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 _VIDEO_STREAM_RE = re.compile(r"Stream #\d+:\d+.*?: Video: .*?(\d{2,5})x(\d{2,5})")
+_COVER_STREAM_RE = re.compile(r"Stream #\d+:(\d+)[^\n]*?: Video: [^\n]*\(attached pic\)")
 _BITRATE_RE = re.compile(r"bitrate:\s*(\d+)\s*kb/s")
 _ROTATION_RE = re.compile(r"rotation of (-?\d+(?:\.\d+)?) degrees")
 _FPS_RE = re.compile(r"(\d+(?:\.\d+)?) fps")
@@ -97,14 +100,36 @@ def is_media_file(path: Path) -> bool:
     return path.suffix.lower() in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS
 
 
-def unique_output_path(path: Path) -> Path:
-    """Return `path`, or `name (1).mp3`, `name (2).mp3`, ... if it already exists."""
-    if not path.exists():
+def _path_key(path: Path) -> str:
+    """A file's identity for comparing names: absolute, with any symbolic links and the case of the
+    drive's file names (Windows ignores it) taken out."""
+    try:
+        resolved = path.resolve()
+    except OSError:
+        resolved = path.absolute()
+    return os.path.normcase(str(resolved))
+
+
+def same_file(a: Path, b: Path) -> bool:
+    """Whether `a` and `b` name the same file (either of them may not exist yet)."""
+    if _path_key(a) == _path_key(b):
+        return True
+    try:
+        return a.exists() and b.exists() and os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def unique_output_path(path: Path, avoid: Iterable[Path] = ()) -> Path:
+    """Return `path`, or `name (1).mp3`, `name (2).mp3`, ... if it already exists or is one of `avoid`
+    (the files of the same run, whose names are taken even though nothing has been written there yet)."""
+    taken = {_path_key(p) for p in avoid}
+    if not path.exists() and _path_key(path) not in taken:
         return path
     n = 1
     while True:
         candidate = path.with_name(f"{path.stem} ({n}){path.suffix}")
-        if not candidate.exists():
+        if not candidate.exists() and _path_key(candidate) not in taken:
             return candidate
         n += 1
 
@@ -115,11 +140,19 @@ def output_path_for(
     overwrite: bool = False,
     suffix: str = ".mp3",
     name_tag: str = "",
+    avoid: Iterable[Path] = (),
 ) -> Path:
     """Where to save the result for `source`. `name_tag` is appended to the file name,
-    e.g. " (edited)", so an exported MP4 never replaces the original video."""
+    e.g. " (edited)", so an exported MP4 never replaces the original video.
+
+    The result is never `source` itself, nor any of `avoid` (the other inputs of the run, and the outputs
+    already chosen in it): a name that would land on one of them gets a number instead, even with
+    `overwrite`, which only replaces files that are neither."""
     target = (output_dir or source.parent) / f"{source.stem}{name_tag}{suffix}"
-    return target if overwrite else unique_output_path(target)
+    protected = [source, *avoid]
+    if overwrite and not any(same_file(target, p) for p in protected):
+        return target
+    return unique_output_path(target, protected)
 
 
 def parse_time(text: str) -> Optional[float]:
@@ -136,7 +169,8 @@ def parse_time(text: str) -> Optional[float]:
             seconds = seconds * 60 + float(part)
     except ValueError:
         raise ValueError(tr("Invalid time: {text} (use seconds, m:ss or h:mm:ss)", text=repr(text))) from None
-    if seconds < 0:
+    # float() takes "nan" and "inf" (and "1e999"), which are not times and would break everything after them.
+    if not math.isfinite(seconds) or seconds < 0:
         raise ValueError(tr("Invalid time: {text}", text=repr(text)))
     return seconds
 
@@ -160,6 +194,7 @@ class MediaInfo:
     fps: Optional[float] = None    # frames per second of the first video stream (the average)
     bitrate: Optional[int] = None  # whole file, in kilobits per second, when ffmpeg says
     max_fps: Optional[float] = None    # the highest rate the stream declares ("tbr"), when ffmpeg says
+    cover_stream: Optional[int] = None     # index of the cover picture of a music file (an "attached pic"), if any
 
     @property
     def has_video(self) -> bool:
@@ -203,6 +238,9 @@ def parse_media_info(text: str) -> MediaInfo:
     if rate:
         info.bitrate = int(rate.group(1))
     # Cover art in a music file is a "video" stream too, but not one to edit.
+    cover = _COVER_STREAM_RE.search(text)
+    if cover:
+        info.cover_stream = int(cover.group(1))
     video = next((m for m in _VIDEO_STREAM_RE.finditer(text)
                   if "(attached pic)" not in text[m.start():].split("\n", 1)[0]), None)
     if video:
@@ -246,20 +284,145 @@ def probe_duration(ffmpeg: str, source: Path) -> Optional[float]:
     return probe_media(ffmpeg, source).duration
 
 
+# How far inside a frame's time the input is cut. Frames sit exactly on multiples of 1/fps, and a start
+# that is rounded up (0.0416667 -> 0.042) drops the frame there, one that is rounded up at the end keeps
+# one frame too many. Starting and stopping a hair early keeps exactly the frames asked for.
+SEEK_SLACK = 0.0005
+
+
 def trim_args(start: Optional[float], end: Optional[float]) -> list[str]:
     """Input options that keep only start..end of the source."""
     args = []
     if start:
-        args += ["-ss", f"{start:.3f}"]
+        args += ["-ss", f"{max(start - SEEK_SLACK, 0.0):.6f}"]
     if end is not None:
-        args += ["-to", f"{end:.3f}"]
+        args += ["-to", f"{max(end - SEEK_SLACK, 0.0):.6f}"]
     return args
+
+
+# ----- processes: starting, stopping, long filter graphs -----------------------------------------
+
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    _KILL_ON_JOB_CLOSE = 0x2000
+    _EXTENDED_LIMITS = 9                      # JobObjectExtendedLimitInformation
+    _PROCESS_SET_QUOTA, _PROCESS_TERMINATE = 0x0100, 0x0001
+
+    class _BasicLimits(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class _IoCounters(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_uint64) for name in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount", "ReadTransferCount",
+            "WriteTransferCount", "OtherTransferCount")]
+
+    class _ExtendedLimits(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", _BasicLimits), ("IoInfo", _IoCounters),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _k32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+    _k32.CreateJobObjectW.restype = wintypes.HANDLE
+    _k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+    _k32.SetInformationJobObject.restype = wintypes.BOOL
+    _k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    _k32.OpenProcess.restype = wintypes.HANDLE
+    _k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    _k32.AssignProcessToJobObject.restype = wintypes.BOOL
+    _k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    _k32.TerminateJobObject.restype = wintypes.BOOL
+    _k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _k32.CloseHandle.restype = wintypes.BOOL
+
+
+class ProcessJob:
+    """A Windows job object that holds an ffmpeg and everything it starts. Ending the job ends them all at
+    once (no walking the tree with taskkill, which takes a second or two), and Windows ends them too when
+    the last handle to the job closes, so a crash of the app can't leave an ffmpeg running."""
+
+    def __init__(self, handle: int):
+        self._handle: Optional[int] = handle
+
+    @classmethod
+    def create(cls) -> Optional["ProcessJob"]:
+        """A new job that kills what is in it when it is closed, or None where that isn't possible."""
+        if sys.platform != "win32":
+            return None
+        try:
+            handle = _k32.CreateJobObjectW(None, None)
+            if not handle:
+                return None
+            limits = _ExtendedLimits()
+            limits.BasicLimitInformation.LimitFlags = _KILL_ON_JOB_CLOSE
+            if not _k32.SetInformationJobObject(handle, _EXTENDED_LIMITS, ctypes.byref(limits), ctypes.sizeof(limits)):
+                _k32.CloseHandle(handle)
+                return None
+            return cls(handle)
+        except (OSError, AttributeError):
+            return None
+
+    def add(self, proc: subprocess.Popen) -> bool:
+        """Put the running `proc` in the job. False when Windows says no (the app itself may run in a
+        job that doesn't allow another)."""
+        if self._handle is None:
+            return False
+        process = _k32.OpenProcess(_PROCESS_SET_QUOTA | _PROCESS_TERMINATE, False, proc.pid)
+        if not process:
+            return False
+        try:
+            return bool(_k32.AssignProcessToJobObject(self._handle, process))
+        finally:
+            _k32.CloseHandle(process)
+
+    def terminate(self) -> bool:
+        """End everything in the job. True when Windows did it."""
+        return self._handle is not None and bool(_k32.TerminateJobObject(self._handle, 1))
+
+    def close(self) -> None:
+        if self._handle is not None:
+            _k32.CloseHandle(self._handle)
+            self._handle = None
+
+
+def start_process(cmd: list[str], **kwargs) -> subprocess.Popen:
+    """`subprocess.Popen(cmd, **kwargs)`, with the process put in its own job on Windows (see ProcessJob).
+    A program that can't be started (not there, or a command line longer than Windows allows) is a
+    ConversionError with a message to show."""
+    try:
+        proc = subprocess.Popen(cmd, **kwargs)
+    except OSError as exc:
+        log.error("Couldn't start %s: %s", cmd[0] if cmd else "?", exc)
+        if getattr(exc, "winerror", None) == 206 or len(subprocess.list2cmdline(cmd)) > 32000:
+            raise ConversionError(tr("This export is too complicated to start (too many cuts or texts at once). "
+                                     "Try fewer, or export in parts.")) from exc
+        raise ConversionError(tr("Couldn't start ffmpeg: {error}", error=exc)) from exc
+    job = ProcessJob.create()
+    if job is not None and not job.add(proc):
+        job.close()
+        job = None
+    proc.fve_job = job          # type: ignore[attr-defined]
+    return proc
 
 
 def stop_process(proc: subprocess.Popen) -> None:
     """Stop `proc` and anything it started. An ffmpeg found through a launcher (a Chocolatey or
     Scoop shim, say) is only the launcher: ending it alone leaves the real ffmpeg running with its
-    files open, so on Windows the whole tree is ended."""
+    files open. A process started with `start_process` is in a job, which ends all of them at once;
+    any other one on Windows has its whole tree ended with taskkill."""
+    job: Optional[ProcessJob] = getattr(proc, "fve_job", None)
+    if job is not None and job.terminate():
+        try:
+            proc.wait(timeout=1.0)
+            return
+        except subprocess.TimeoutExpired:
+            pass                                    # something got out of the job: do it the slow way
     if sys.platform == "win32":
         try:
             subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True,
@@ -267,7 +430,68 @@ def stop_process(proc: subprocess.Popen) -> None:
         except (OSError, subprocess.SubprocessError):
             pass
     if proc.poll() is None:
-        proc.terminate()
+        proc.kill()
+
+
+# A filter graph longer than this goes in a file: the whole command line may not pass 32767 characters on
+# Windows, and a video with many cuts (Remove silences makes hundreds) has a graph of tens of thousands.
+GRAPH_FILE_MIN = 1500
+_graph_flags: dict[str, str] = {}
+
+
+def _graph_flag(ffmpeg: str) -> str:
+    """The ffmpeg option that reads a filter graph from a file: -/filter_complex since ffmpeg 7, before that
+    -filter_complex_script (which newer versions still know, but call deprecated)."""
+    if ffmpeg not in _graph_flags:
+        flag = "-/filter_complex"
+        try:
+            text = subprocess.run([ffmpeg, "-version"], capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
+                                  timeout=15).stdout
+            match = re.search(r"version n?(\d+)\.", text)
+            if match and int(match.group(1)) < 7:
+                flag = "-filter_complex_script"
+        except (OSError, subprocess.SubprocessError):
+            pass
+        _graph_flags[ffmpeg] = flag
+    return _graph_flags[ffmpeg]
+
+
+def has_long_graph(cmd: list[str]) -> bool:
+    return any(arg == "-filter_complex" and i + 1 < len(cmd) and len(cmd[i + 1]) > GRAPH_FILE_MIN
+               for i, arg in enumerate(cmd))
+
+
+def with_graph_files(cmd: list[str], folder: Path) -> list[str]:
+    """`cmd` with each long -filter_complex graph written to a file in `folder` and read from there."""
+    result: list[str] = []
+    i = 0
+    while i < len(cmd):
+        if cmd[i] == "-filter_complex" and i + 1 < len(cmd) and len(cmd[i + 1]) > GRAPH_FILE_MIN:
+            path = folder / f"graph{len(result)}.txt"
+            path.write_text(cmd[i + 1], encoding="utf-8")
+            result += [_graph_flag(cmd[0]), str(path)]
+            i += 2
+        else:
+            result.append(cmd[i])
+            i += 1
+    return result
+
+
+@contextmanager
+def graph_files(cmd: list[str]) -> Iterator[list[str]]:
+    """The command to run for `cmd`: itself, or (when a graph is long) with the graph in a temporary file."""
+    if not has_long_graph(cmd):
+        yield cmd
+        return
+    with tempfile.TemporaryDirectory(prefix="fve-graph-", ignore_cleanup_errors=True) as folder:
+        yield with_graph_files(cmd, Path(folder))
+
+
+def input_files(cmd: list[str], cwd: Optional[Path] = None) -> list[Path]:
+    """The files an ffmpeg command reads (its -i options)."""
+    base = Path(cwd) if cwd else Path.cwd()
+    return [base / cmd[i + 1] for i, arg in enumerate(cmd[:-1]) if arg == "-i" and cmd[i + 1] != "-"]
 
 
 def remove_file(path: Path, seconds: float = 2.0) -> None:
@@ -285,6 +509,15 @@ def remove_file(path: Path, seconds: float = 2.0) -> None:
             time.sleep(0.05)
 
 
+def check_not_input(output: Path, inputs: Iterable[Path]) -> None:
+    """Refuse an `output` that is one of the files being read: ffmpeg would write over its own input, and a
+    failed or cancelled export would delete it."""
+    for source in inputs:
+        if same_file(output, source):
+            raise ConversionError(tr("The result can't be saved over {name}, a file it is made from. "
+                                     "Choose another name or folder.", name=Path(source).name))
+
+
 def run_ffmpeg(
     cmd: list[str],
     output: Path,
@@ -300,21 +533,35 @@ def run_ffmpeg(
     is known). Setting `cancel_event` stops ffmpeg and removes the partial file.
     `cwd` is ffmpeg's working folder, for filters that read or write files by name.
     `report` collects everything ffmpeg prints on stderr (for filters that print their results).
+    A long filter graph is passed in a file (see `GRAPH_FILE_MIN`).
     """
+    check_not_input(output, input_files(cmd, cwd))
     output.parent.mkdir(parents=True, exist_ok=True)
     log.info("ffmpeg: %s", subprocess.list2cmdline(cmd))
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        stdin=subprocess.DEVNULL,
-        creationflags=_NO_WINDOW,
-        cwd=cwd,
-    )
+    with graph_files(cmd) as run_cmd:
+        proc = start_process(
+            run_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdin=subprocess.DEVNULL,
+            creationflags=_NO_WINDOW,
+            cwd=cwd,
+        )
+        job: Optional[ProcessJob] = proc.fve_job       # type: ignore[attr-defined]
+        try:
+            return _watch(proc, output, duration, on_progress, cancel_event, report)
+        finally:
+            if job is not None:
+                job.close()         # anything still running in it ends here
 
+
+def _watch(proc: subprocess.Popen, output: Path, duration: Optional[float],
+           on_progress: Optional[Callable[[float], None]], cancel_event: Optional[threading.Event],
+           report: Optional[list[str]]) -> Path:
+    """Follow a started ffmpeg to its end: progress, cancelling, and what it printed if it failed."""
     # Drain stderr on a separate thread so a chatty ffmpeg can't block on a full pipe.
     errors: deque[str] = deque(maxlen=20)
     def read_errors() -> None:
@@ -377,6 +624,93 @@ def run_ffmpeg(
     return output
 
 
+# ----- writing the result: a part file, replaced when it is done --------------------------------
+
+@dataclass
+class StagedOutput:
+    part: Path      # where ffmpeg writes: next to `final`, as "name.part.mp4"
+    final: Path     # the name the finished file gets
+
+
+def part_path(final: Path) -> Path:
+    """"name.part.mp4" for "name.mp4": the real extension stays last, so ffmpeg still knows the format. The
+    name is made now (an empty file), so that a second export into the same folder can't pick it too."""
+    n = 1
+    while True:
+        tag = ".part" if n == 1 else f".part{n}"
+        candidate = final.with_name(f"{final.stem}{tag}{final.suffix}")
+        try:
+            with open(candidate, "xb"):
+                return candidate
+        except FileExistsError:
+            n += 1
+        except OSError as exc:
+            raise ConversionError(tr("Can't save in {folder}: {error}", folder=final.parent, error=exc)) from exc
+
+
+def _replace(part: Path, final: Path) -> Path:
+    """Move the finished `part` onto `final`. A final name that stays in use (an open player) gets a number."""
+    deadline = time.monotonic() + 2.0
+    while True:
+        try:
+            os.replace(part, final)
+            return final
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+    other = unique_output_path(final)
+    log.warning("%s is in use; saving as %s instead", final, other)
+    os.replace(part, other)
+    return other
+
+
+@contextmanager
+def staged_output(final: Path, inputs: Iterable[Path] = (), overwrite: bool = True) -> Iterator[StagedOutput]:
+    """Write an export under a temporary name and give it its real one only when it is complete.
+
+    The name `final` is taken at once (an empty file made exclusively, so no other program picks it too);
+    with `overwrite` a file that is already there stays until it is replaced. ffmpeg writes `.part`, which
+    is renamed over `final` when the block ends well and deleted when it ends any other way (an error, or
+    a cancel), so a half-written file never has the real name. `final` is never one of the `inputs`.
+    The yielded StagedOutput's `final` is the name in the end (another one if this was taken meanwhile)."""
+    final = Path(final)
+    inputs = [Path(p) for p in inputs]
+    check_not_input(final, inputs)
+    try:
+        final.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ConversionError(tr("Can't save in {folder}: {error}", folder=final.parent, error=exc)) from exc
+    reserved = False
+    while True:
+        try:
+            with open(final, "xb"):
+                reserved = True
+            break
+        except FileExistsError:
+            if overwrite:
+                break
+            final = unique_output_path(final, inputs)       # someone else took the name since it was chosen
+        except OSError as exc:
+            raise ConversionError(tr("Can't save in {folder}: {error}", folder=final.parent, error=exc)) from exc
+    part = None
+    try:
+        part = part_path(final)
+        staged = StagedOutput(part, final)
+        yield staged
+        staged.final = _replace(part, final)
+    except BaseException:
+        if part is not None:
+            remove_file(part)
+        if reserved:
+            try:
+                if final.stat().st_size == 0:
+                    remove_file(final)
+            except OSError:
+                pass
+        raise
+
+
 @dataclass
 class ConversionJob:
     source: Path
@@ -390,6 +724,7 @@ class ConversionJob:
     fade_in: float = 0.0
     fade_out: float = 0.0
     sound: Sound = field(default_factory=Sound)       # volume, loudness, noise reduction, music
+    overwrite: bool = True      # False: the output name was chosen as free, and is made another if it gets taken
 
 
 def check_trim(start: Optional[float], end: Optional[float]) -> None:
@@ -432,6 +767,20 @@ def scaled(on_progress: Optional[Callable[[float], None]], start: float, share: 
     return lambda fraction: on_progress(start + share * min(max(fraction, 0.0), 1.0))
 
 
+def never_back(on_progress: Optional[Callable[[float], None]]) -> Optional[Callable[[float], None]]:
+    """A progress callback that passes on only what moves forward: a step that starts over (a second try
+    of an export, or the CPU taking over from the graphics card) doesn't send the bar back to 0."""
+    if on_progress is None:
+        return None
+    reached = [0.0]
+
+    def report(fraction: float) -> None:
+        if fraction > reached[0]:
+            reached[0] = fraction
+            on_progress(fraction)
+    return report
+
+
 def measure_loudness(cmd: list[str], scratch: Path, duration: Optional[float],
                      on_progress: Optional[Callable[[float], None]],
                      cancel_event: Optional[threading.Event], cwd: Optional[Path] = None) -> Optional[Loudness]:
@@ -450,10 +799,11 @@ def measure_loudness(cmd: list[str], scratch: Path, duration: Optional[float],
 
 
 def mp3_command(ffmpeg: str, job: ConversionJob, segments: list[Segment], voice: bool, total: Optional[float],
-                loudness: Optional[Loudness] = None, measure: bool = False) -> list[str]:
+                loudness: Optional[Loudness] = None, measure: bool = False, cover: Optional[int] = None) -> list[str]:
     """The ffmpeg command that makes `job`'s MP3. `voice` is whether the source's own sound is used
     (False when the file has none and only the music is). With `measure` it is the loudness pass
-    instead: the same sound, thrown away after loudnorm has measured it."""
+    instead: the same sound, thrown away after loudnorm has measured it. `cover` is the index of the
+    source's cover picture, which the MP3 keeps."""
     sound = job.sound
     music = sound.music and Path(sound.music).resolve()
     filters: list[str] = []
@@ -473,9 +823,14 @@ def mp3_command(ffmpeg: str, job: ConversionJob, segments: list[Segment], voice:
            *trim_args(segments[0][0], segments[-1][1]), "-i", str(job.source),
            *(music_args(str(music)) if music else []),
            *(["-filter_complex", ";".join(filters)] if filters else [])]
-    cmd += ["-map", final or "0:a:0", "-vn"]
+    cmd += ["-map", final or "0:a:0"]
+    if measure or cover is None:
+        cmd.append("-vn")
     if measure:
         return [*cmd, "-f", "null", "-progress", "pipe:1", "-nostats", "-"]
+    if cover is not None:
+        # The cover picture of a music file travels as it is (an MP3 holds a JPEG or PNG one).
+        cmd += ["-map", f"0:{cover}", "-c:v", "copy", "-disposition:v:0", "attached_pic", "-id3v2_version", "3"]
     return [*cmd, "-map_metadata", "0", "-c:a", "libmp3lame", *QUALITY_PRESETS[job.quality],
             "-progress", "pipe:1", "-nostats", str(job.output)]
 
@@ -504,13 +859,17 @@ def convert(
     if sound.music and total is None:
         raise music_length_error()
     voice = info.has_audio or not sound.music      # without sound of its own, the music is all there is
-    measured = None
-    share = 0.0
-    if sound.normalize and (info.has_audio or sound.music):
-        share = LOUDNESS_SHARE_AUDIO
-        with tempfile.TemporaryDirectory(prefix="fve-loudness-") as folder:
-            measured = measure_loudness(mp3_command(ffmpeg, job, segments, voice, total, measure=True),
-                                        Path(folder) / "loudness", total, scaled(on_progress, 0.0, share),
-                                        cancel_event, Path(folder))
-    cmd = mp3_command(ffmpeg, job, segments, voice, total, measured)
-    return run_ffmpeg(cmd, job.output, total, scaled(on_progress, share, 1 - share), cancel_event)
+    inputs = [job.source, *([Path(sound.music)] if sound.music else [])]
+    with staged_output(job.output, inputs, job.overwrite) as staged:
+        measured = None
+        share = 0.0
+        if sound.normalize and (info.has_audio or sound.music):
+            share = LOUDNESS_SHARE_AUDIO
+            with tempfile.TemporaryDirectory(prefix="fve-loudness-") as folder:
+                measured = measure_loudness(mp3_command(ffmpeg, job, segments, voice, total, measure=True),
+                                            Path(folder) / "loudness", total, scaled(on_progress, 0.0, share),
+                                            cancel_event, Path(folder))
+        cmd = mp3_command(ffmpeg, replace(job, output=staged.part), segments, voice, total, measured,
+                          cover=info.cover_stream if info.has_audio else None)
+        run_ffmpeg(cmd, staged.part, total, scaled(on_progress, share, 1 - share), cancel_event)
+    return staged.final

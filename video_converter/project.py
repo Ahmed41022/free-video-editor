@@ -6,7 +6,7 @@ import copy
 import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from .captions import drawable, keep_own_captions, load_logo, load_subtitles, load_texts
 from .core import DEFAULT_QUALITY, QUALITY_PRESETS, output_path_for
@@ -233,17 +233,20 @@ def apply_preset(settings: ClipSettings, values: dict[str, Any]) -> ClipSettings
 
 
 def output_file_for(source: Path, settings: ClipSettings, output_dir: Optional[Path] = None,
-                    joined: bool = False) -> Path:
-    """Where an export of `source` with `settings` should go (never an existing file).
+                    joined: bool = False, avoid: Iterable[Path] = ()) -> Path:
+    """Where an export of `source` with `settings` should go (never an existing file, nor `source` or
+    any of the other files in `avoid`, such as the rest of a joined export's clips).
     A `joined` export, named after its first clip, is "name (joined).mp4" or ".mp3". The extension
     follows the video format: .mp4, .webm, .mov or .gif."""
     audio = settings.output == OUTPUT_AUDIO
     extension = settings.edit.output_format.extension
     if joined:
-        return output_path_for(source, output_dir, suffix=".mp3" if audio else extension, name_tag=" (joined)")
+        return output_path_for(source, output_dir, suffix=".mp3" if audio else extension, name_tag=" (joined)",
+                               avoid=avoid)
     if audio:
-        return output_path_for(source, output_dir)
-    return output_path_for(source, output_dir, suffix=extension, name_tag=f" ({output_tag(settings.edit)})")
+        return output_path_for(source, output_dir, avoid=avoid)
+    return output_path_for(source, output_dir, suffix=extension, name_tag=f" ({output_tag(settings.edit)})",
+                           avoid=avoid)
 
 
 def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
