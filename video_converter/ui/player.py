@@ -120,7 +120,8 @@ class Player(QObject):
         self._resume = None
         self._pending_seek = None
         self._awaiting_paint = False
-        self.media.stop()
+        # No stop() first: setSource() ends the playback itself, and a stop() on a player that was paused while its
+        # file was still loading hangs inside Qt's media backend (the app freezes when files are switched quickly).
         self.source, self.upright = path, upright and path is not None
         self.media.setSource(QUrl.fromLocalFile(str(path)) if path else QUrl())
         if path:
