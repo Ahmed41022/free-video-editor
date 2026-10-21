@@ -206,7 +206,10 @@ jobs:
           $p = Start-Process -FilePath "release\FreeVideoEditor.exe" -PassThru
           Start-Sleep -Seconds 20
           if ($p.HasExited) { throw "FreeVideoEditor.exe exited early with code $($p.ExitCode)" }
-          Stop-Process -Id $p.Id -Force
+          # The one-file exe is a launcher that runs the app as its child: end the whole tree, or the app keeps
+          # running and the installed copy started below hands its start over to it (only one copy runs at a time).
+          taskkill /PID $p.Id /T /F | Out-Null
+          $p.WaitForExit(30000) | Out-Null
           "FreeVideoEditor.exe stayed running for 20 seconds"
 
       # Installs the real installer (per user, silently), checks what it put on disk, runs the installed program
@@ -230,7 +233,8 @@ jobs:
           $app = Start-Process -FilePath (Join-Path $dir "Free Video Editor.exe") -PassThru
           Start-Sleep -Seconds 15
           if ($app.HasExited) { throw "The installed program exited early with code $($app.ExitCode)" }
-          Stop-Process -Id $app.Id -Force
+          taskkill /PID $app.Id /T /F | Out-Null
+          $app.WaitForExit(30000) | Out-Null
           "The installed program stayed running for 15 seconds"
           Start-Process -FilePath (Join-Path $dir "unins000.exe") -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -Wait
           $deadline = (Get-Date).AddSeconds(120)
