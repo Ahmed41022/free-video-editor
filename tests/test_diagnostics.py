@@ -311,7 +311,7 @@ class AboutTests(unittest.TestCase):
         self.assertIn("Qt", text)
 
     def test_the_version_is_2_4_0(self):
-        self.assertEqual(__version__, "3.0.0")
+        self.assertEqual(__version__, "3.0.1")
 
     def test_it_links_to_the_licenses_folder_in_the_repository_when_run_from_source(self):
         folder = diagnostics.licenses_folder()
