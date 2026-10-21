@@ -9,6 +9,7 @@ from PySide6.QtGui import QBrush, QColor, QContextMenuEvent, QMouseEvent, QPaint
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ..core import format_time
+from ..i18n import tr
 from ..timing import MIN_PART, Range, normalize_keep, removed_parts, split_points
 from . import theme
 
@@ -41,6 +42,12 @@ def normalize_trim(start: Optional[float], end: Optional[float], duration: float
     if end is not None and duration > 0 and end >= duration - SNAP_EDGE:
         end = None
     return start, end
+
+
+def ruler_label_left(x: float, text_width: float, widget_width: float, gap: float = 3, edge: float = 2) -> float:
+    """Where a ruler label starts: just right of its tick, but slid left when that would run it off the widget,
+    so the last label is not cut off."""
+    return max(min(x + gap, widget_width - edge - text_width), 0.0)
 
 
 def tick_step(duration: float, width: float, min_gap_px: float = 70) -> float:
@@ -109,6 +116,7 @@ class Timeline(QWidget):
         self.keep: list[Range] = []
         self.thumbnails: list[QPixmap] = []
         self.waveform: list[float] = []
+        self.waveform_loading = False
         self.text_spans: list[list[Range]] = []     # for each text, the parts of the source it is shown over
         self.text_selected = -1
         self._drag: Optional[str] = None   # "in", "out", "cut" or "playhead"
@@ -121,6 +129,7 @@ class Timeline(QWidget):
         self.start = self.end = None
         self.keep = []
         self.thumbnails, self.waveform = [], []
+        self.waveform_loading = False
         self.text_spans, self.text_selected = [], -1
         self.update()
 
@@ -153,9 +162,16 @@ class Timeline(QWidget):
         self.thumbnails = pixmaps
         self.update()
 
-    def setWaveform(self, levels: list[float]) -> None:
+    def setWaveform(self, levels: list[float], loading: bool = False) -> None:
+        """Show the sound's levels. `loading` says they are still being read, so an empty lane means "wait"
+        rather than "this file has no sound"."""
         self.waveform = levels
+        self.waveform_loading = loading
         self.update()
+
+    def wave_message(self) -> str:
+        """What the empty sound lane says."""
+        return tr("Loading…") if self.waveform_loading else tr("No sound")
 
     # ----- geometry -----------------------------------------------------------
 
@@ -275,16 +291,20 @@ class Timeline(QWidget):
 
         p.setPen(QColor(c["muted"]))
         if self.duration <= 0:
-            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "The timeline appears when you select a video")
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("The timeline appears when you select a video"))
             return
 
         # ruler
         step = tick_step(self.duration, width)
+        metrics = p.fontMetrics()
         t = 0.0
         while t <= self.duration + 1e-6:
             x = self._x(t)
             p.drawLine(QPointF(x, RULER_H - 5), QPointF(x, RULER_H - 1))
-            p.drawText(QRectF(x + 3, 0, 80, RULER_H - 3), Qt.AlignmentFlag.AlignVCenter, format_time(t))
+            label = format_time(t)
+            left = ruler_label_left(x, metrics.horizontalAdvance(label), self.width())
+            p.drawText(QRectF(left, 0, 80, RULER_H - 3), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                       label)
             t += step
 
         # thumbnails
@@ -319,7 +339,7 @@ class Timeline(QWidget):
                 p.drawLine(QPointF(x, mid - h), QPointF(x, mid + h))
         else:
             p.setPen(QColor(c["muted"]))
-            p.drawText(wave, Qt.AlignmentFlag.AlignCenter, "No sound")
+            p.drawText(wave, Qt.AlignmentFlag.AlignCenter, self.wave_message())
 
         top, bottom = thumbs.top(), wave.bottom()
 

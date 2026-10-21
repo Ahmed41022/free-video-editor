@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import AUDIO_EXTENSIONS, QUALITY_PRESETS, format_time, parse_time
-from ..i18n import N_, tr
+from ..i18n import N_, join_parts, tr
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, PRESETS, ClipSettings
 from ..output import (
     DEFAULT_TARGET_MB, GIF_FPS_CHOICES, GIF_WIDTH_CHOICES, OUTPUT_FORMATS, TARGET_PRESETS, TARGET_RANGE,
@@ -672,7 +672,7 @@ class Inspector(QScrollArea):
         self.folder_label = QLabel()
         self.folder_label.setWordWrap(True)
         self.export_section.grid.addWidget(self.folder_label, 0, 0, 1, 2)
-        change = QPushButton(tr("Change…"))
+        change = self.change_button = QPushButton(tr("Change…"))
         change.clicked.connect(self.outputFolderRequested)
         self.export_section.grid.addWidget(change, 1, 0, 1, 2)
 
@@ -949,7 +949,8 @@ class Inspector(QScrollArea):
             self.trim_info.setText("")
         gaps = removed_parts(edit.keep, self.duration)
         if gaps:
-            shown = ", ".join(f"{format_time(a)}–{format_time(b)}" for a, b in gaps[:4])
+            # Each range is isolated, so "0:10.0–0:12.0" keeps its order inside an Arabic sentence.
+            shown = join_parts([f"{format_time(a)}–{format_time(b)}" for a, b in gaps[:4]], tr(", "))
             more = " " + tr("and {n} more", n=len(gaps) - 4) if len(gaps) > 4 else ""
             self.cut_info.setText(tr("Cut out: {parts}{more}", parts=shown, more=more))
         elif edit.keep:

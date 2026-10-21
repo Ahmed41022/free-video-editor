@@ -17,7 +17,7 @@ try:
     from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
     from PySide6.QtGui import QWheelEvent
     from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox
+    from PySide6.QtWidgets import QApplication, QCheckBox, QInputDialog, QMenu, QMessageBox
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
@@ -502,3 +502,222 @@ class QueuePanelTests(unittest.TestCase):
         shown = {name: getattr(rows[0], name).isVisible() for name in ("cancel_button", "details_button")}
         self.assertTrue(shown["cancel_button"])
         self.assertFalse(shown["details_button"])
+
+
+def use_arabic(test):
+    """Switch the whole app to Arabic (right to left) for the length of one test."""
+    from video_converter import i18n
+    from video_converter.ui import language
+
+    i18n.set_language("ar")
+    language.apply_to_app(app)
+
+    def restore():
+        i18n.set_language("en")
+        language.apply_to_app(app)
+
+    test.addCleanup(restore)
+
+
+class QueueArabicTests(unittest.TestCase):
+    def test_the_texts_of_a_row_line_up_on_the_same_edge_in_arabic(self):
+        from video_converter.jobs import Job, JobState
+        from video_converter.project import ClipSettings
+        from video_converter.ui.queue_panel import JobRow
+        use_arabic(self)
+        job = Job(Path("clip.mp4"), ClipSettings())
+        job.state = JobState.QUEUED
+        row = JobRow(job)
+        self.addCleanup(row.deleteLater)
+        for label in (row.title, row.status):
+            alignment = label.alignment()
+            self.assertTrue(alignment & Qt.AlignmentFlag.AlignRight, label.text())
+            self.assertTrue(alignment & Qt.AlignmentFlag.AlignAbsolute, label.text())
+
+    def test_english_rows_keep_the_usual_alignment(self):
+        from video_converter.jobs import Job
+        from video_converter.project import ClipSettings
+        from video_converter.ui.queue_panel import JobRow
+        row = JobRow(Job(Path("clip.mp4"), ClipSettings()))
+        self.addCleanup(row.deleteLater)
+        self.assertFalse(row.title.alignment() & Qt.AlignmentFlag.AlignAbsolute)
+
+
+class TimelineTextTests(unittest.TestCase):
+    def test_the_empty_lane_says_loading_until_the_sound_has_been_read(self):
+        from video_converter.ui.timeline import Timeline
+        timeline = Timeline()
+        self.addCleanup(timeline.deleteLater)
+        self.assertEqual(timeline.wave_message(), "No sound")
+        timeline.setWaveform([], loading=True)
+        self.assertEqual(timeline.wave_message(), "Loading…")
+        timeline.setWaveform([0.5, 0.7])
+        timeline.setWaveform([], loading=False)
+        self.assertEqual(timeline.wave_message(), "No sound")
+        timeline.setWaveform([], loading=True)
+        timeline.clear()
+        self.assertEqual(timeline.wave_message(), "No sound")
+
+    def test_the_timeline_texts_are_translated(self):
+        from video_converter.ui.timeline import Timeline
+        use_arabic(self)
+        timeline = Timeline()
+        self.addCleanup(timeline.deleteLater)
+        self.assertNotEqual(timeline.wave_message(), "No sound")
+        timeline.setWaveform([], loading=True)
+        self.assertNotEqual(timeline.wave_message(), "Loading…")
+        from video_converter import i18n
+        self.assertNotEqual(i18n.tr("The timeline appears when you select a video"),
+                            "The timeline appears when you select a video")
+        timeline.resize(600, 120)
+        timeline.grab()                       # painting the empty timeline, and then a loaded one, works
+        timeline.setDuration(10.0)
+        timeline.grab()
+
+    def test_the_last_ruler_label_stays_inside_the_widget(self):
+        from video_converter.ui.timeline import MARGIN, ruler_label_left
+        width, text = 500, 38
+        self.assertEqual(ruler_label_left(MARGIN, text, width), MARGIN + 3)             # a tick at the start
+        self.assertEqual(ruler_label_left(250, text, width), 253)                       # one in the middle
+        for x in (width - MARGIN, width - MARGIN - 20, width - 5):
+            left = ruler_label_left(x, text, width)
+            self.assertLessEqual(left + text, width - 2, x)
+            self.assertGreaterEqual(left, 0)
+        self.assertEqual(ruler_label_left(10, 600, 100), 0)           # never off the left edge either
+
+    def test_the_labels_of_a_real_timeline_fit(self):
+        from PySide6.QtGui import QFontMetrics
+        from video_converter.core import format_time
+        from video_converter.ui.timeline import Timeline, ruler_label_left, tick_step
+        timeline = Timeline()
+        self.addCleanup(timeline.deleteLater)
+        timeline.resize(640, 120)
+        timeline.setDuration(60.0)
+        metrics = QFontMetrics(timeline.font())
+        step, t = tick_step(60.0, timeline.track_width), 0.0
+        while t <= 60.0 + 1e-6:
+            label = format_time(t)
+            left = ruler_label_left(timeline._x(t), metrics.horizontalAdvance(label), timeline.width())
+            self.assertLessEqual(left + metrics.horizontalAdvance(label), timeline.width() - 2, label)
+            t += step
+
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class CutListArabicTests(WindowTestCase):
+    def cut_info(self):
+        from video_converter.video import VideoEdit
+        from video_converter.project import ClipSettings
+        edit = VideoEdit(keep=[(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)])
+        self.window.inspector.set_settings(ClipSettings(edit=edit), 10.0)
+        return self.window.inspector.cut_info.text()
+
+    def test_english_cut_list_is_unchanged(self):
+        text = self.cut_info()
+        self.assertIn("Cut out: 0:01.0–0:02.0, 0:03.0–0:04.0, 0:05.0–0:10.0", text)
+
+    def test_each_range_is_isolated_and_the_separator_is_arabic(self):
+        from video_converter.i18n import FSI, PDI
+        use_arabic(self)
+        text = self.cut_info()
+        for span in ("0:01.0–0:02.0", "0:03.0–0:04.0", "0:05.0–0:10.0"):
+            self.assertIn(f"{FSI}{span}{PDI}", text)
+        self.assertIn(f"{PDI}، {FSI}", text)
+        self.assertNotIn(", ", text)
+
+
+class SmallFixesTests(WindowTestCase):
+    def test_a_theme_that_follows_the_system_stays_that_way(self):
+        window = self.window
+        self.assertEqual(window.theme_choice, "system")
+        window._save_preferences()
+        self.assertEqual(window.store.value("theme"), "system")
+        self.assertIn(window.theme_mode, ("dark", "light"))
+        window.toggle_theme()                       # the button is an explicit choice
+        window._save_preferences()
+        self.assertEqual(window.store.value("theme"), window.theme_mode)
+        self.assertIn(window.store.value("theme"), ("dark", "light"))
+
+    def test_the_saved_system_theme_survives_a_restart(self):
+        from video_converter.ui.main_window import MainWindow
+        self.window._save_preferences()
+        self.window.store.sync()
+        again = MainWindow(FFMPEG, QSettings(self.window.store.fileName(), QSettings.Format.IniFormat))
+        self.addCleanup(lambda: (again.close(), again.loader.shutdown(wait=True), again.deleteLater()))
+        self.assertEqual(again.theme_choice, "system")
+        again._save_preferences()
+        self.assertEqual(again.store.value("theme"), "system")
+
+    def test_wheel_zoom_ticks_are_one_undo_step(self):
+        self.load(self.first)
+        window, view = self.window, self.window.view
+        item = window.current
+        self.assertIsNotNone(view.crop, "the preview has no crop box to zoom")
+        count = window.undo_stack.count()
+        for _ in range(5):
+            wheel(view, 120)
+        self.assertEqual(window.undo_stack.count(), count + 1)
+        self.assertAlmostEqual(item.settings.edit.zoom, 1.5)
+        self.assertEqual(window.undo_stack.text(count), "Zoom")
+        self.assertTrue(pump(3, lambda: not window.merge_open), "the zoom never finished")
+        wheel(view, 120)                              # after a pause it is a new step
+        self.assertEqual(window.undo_stack.count(), count + 2)
+        window.undo_stack.undo()
+        self.assertAlmostEqual(item.settings.edit.zoom, 1.5)
+        window.undo_stack.undo()
+        self.assertAlmostEqual(item.settings.edit.zoom, 1.0)
+
+    def test_a_wheel_turn_that_changes_nothing_adds_no_step(self):
+        self.load(self.first)
+        window = self.window
+        count = window.undo_stack.count()
+        wheel(window.view, -120)                       # already at the smallest zoom
+        self.assertEqual(window.undo_stack.count(), count)
+
+    def test_a_failed_restart_keeps_the_window_open(self):
+        from video_converter.ui import language
+        window = self.window
+        with mock.patch.object(language, "restart", return_value=False) as restart, \
+                mock.patch.object(QMessageBox, "warning") as warning, \
+                mock.patch.object(type(window), "close") as close:
+            window.restart_app()
+        restart.assert_called_once()
+        warning.assert_called_once()
+        close.assert_not_called()
+
+    def test_a_restart_that_starts_closes_the_window(self):
+        from video_converter.ui import language
+        window = self.window
+        with mock.patch.object(language, "restart", return_value=True), \
+                mock.patch.object(type(window), "close", return_value=True) as close:
+            window.restart_app()
+        close.assert_called_once()
+
+    def test_saving_a_preset_under_an_old_name_asks_before_replacing(self):
+        self.load(self.first)
+        window = self.window
+        with mock.patch.object(QInputDialog, "getText", return_value=("Mine", True)), \
+                mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as asked:
+            window.save_preset()                                     # a new name: no question
+            asked.assert_not_called()
+            self.assertEqual(window.user_presets["Mine"]["edit"]["speed"], 1.0)
+            window.inspector.speed_box.setValue(2.0)
+            window.save_preset()                                     # the name is taken: asked, and the answer is no
+            asked.assert_called_once()
+            self.assertEqual(window.user_presets["Mine"]["edit"]["speed"], 1.0)
+            asked.return_value = QMessageBox.StandardButton.Yes
+            window.save_preset()
+            self.assertEqual(window.user_presets["Mine"]["edit"]["speed"], 2.0)
+
+    def test_the_output_folder_menu_opens_under_its_button(self):
+        window = self.window
+        shown = []
+        button = window.inspector.change_button
+        class FakeMenu:
+            def __init__(self, *args): pass
+            def addAction(self, *args): return mock.MagicMock()
+            def exec(self, pos=None): shown.append(pos)
+
+        with mock.patch("video_converter.ui.main_window.QMenu", FakeMenu):
+            button.click()                    # the same as pressing Space on the focused button
+        self.assertEqual(len(shown), 1)
+        self.assertEqual(shown[0], button.mapToGlobal(QPoint(0, button.height())))

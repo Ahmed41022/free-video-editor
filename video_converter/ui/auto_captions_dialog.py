@@ -16,7 +16,7 @@ from ..autocaptions import (
     DOWNLOADING, LANGUAGES, LISTENING, LOADING, PREPARING, CaptionOptions, CaptionResult, make_captions,
 )
 from ..core import ConversionCancelled
-from ..i18n import N_, isolate, tr
+from ..i18n import N_, isolate, tr, trc
 from ..speech_models import DEFAULT_MODEL, MODELS, is_downloaded
 
 # What the window remembers between runs.
@@ -101,7 +101,7 @@ class AutoCaptionsDialog(QDialog):
         layout.addWidget(self.error)
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
-        self.start_button = self.buttons.addButton(tr("Start"), QDialogButtonBox.ButtonRole.AcceptRole)
+        self.start_button = self.buttons.addButton(trc("button", "Start"), QDialogButtonBox.ButtonRole.AcceptRole)
         self.cancel_button = self.buttons.button(QDialogButtonBox.StandardButton.Cancel)
         self.cancel_button.setText(tr("Cancel"))
         self.start_button.clicked.connect(self.start_work)

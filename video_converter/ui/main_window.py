@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QSettings, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QSettings, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QImage, QKeySequence, QPixmap, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QHBoxLayout,
@@ -25,7 +25,7 @@ from .. import APP_NAME, __version__, diagnostics, gpu, i18n, updates
 from ..core import (
     AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, ConversionError, MediaInfo, format_time, is_media_file, probe_media,
 )
-from ..i18n import isolate, join_parts, ntr, tr
+from ..i18n import isolate, join_parts, ntr, tr, trc
 from ..jobs import Clip, Job, JobQueue
 from ..media import extract_thumbnails, extract_waveform
 from ..project import OUTPUT_AUDIO, OUTPUT_VIDEO, ClipSettings, apply_to, describe
@@ -201,10 +201,12 @@ class MainWindow(QMainWindow):
         self.output_dir: Optional[Path] = None
         self.user_presets: dict[str, dict] = {}
         self.merge_open = False
-        self.theme_mode = "dark"
+        self.theme_mode = "dark"              # the theme in use: "dark" or "light"
+        self.theme_choice = "system"          # the theme asked for: "system", "dark" or "light" (what is saved)
         self.models_root: Optional[Path] = None       # where the speech models are kept (None = the app's own folder)
         self.tmpdir = Path(tempfile.mkdtemp(prefix="videoconverter-"))
         self.closed = False
+        self._restarting = False              # closing to start the app again, after the user agreed to stop exports
         self.confirm_heavy_exports = True     # ask before an export that needs a lot of memory
         self.smooth_previews = True           # play a small copy of big videos (View menu)
         self.check_updates = True             # look for a newer version once a day (Help menu)
@@ -260,7 +262,7 @@ class MainWindow(QMainWindow):
 
         self.add_action = action(tr("Add files"), "add", self.choose_files, "Ctrl+O")
         self.folder_action = action(tr("Add folder"), "folder", self.choose_folder)
-        self.remove_action = action(tr("Remove"), "trash", self.remove_selected, tip=tr("Remove the selected file"))
+        self.remove_action = action(trc("toolbar", "Remove"), "trash", self.remove_selected, tip=tr("Remove the selected file"))
         toolbar.addSeparator()
         self.undo_action = self.undo_stack.createUndoAction(self, tr("Undo"))
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
@@ -440,10 +442,21 @@ class MainWindow(QMainWindow):
         return answer
 
     def restart_app(self) -> None:
-        """Close the window (asking about exports still running), then start the app again with the same files."""
+        """Start the app again with the same files and close this window (asking first about exports still
+        running). If the new copy can't be started, this window stays open and says so."""
         paths = [str(item.path) for item in self.items]
-        if self.close():
-            language.restart(paths)
+        if self.queue.busy and QMessageBox.question(
+                self, tr("Exports still running"), tr("Some exports haven't finished. Stop them and quit?")
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        # Start the new copy first: if it can't be started, this window stays open instead of just vanishing.
+        if not language.restart(paths):
+            QMessageBox.warning(self, APP_NAME, tr("Couldn't restart the app. Close it and open it again yourself "
+                                                   "to use the new language."))
+            return
+        self._restarting = True        # the question about running exports was answered above
+        if not self.close():
+            self._restarting = False
 
     def _connect(self) -> None:
         self.media_list.currentRowChanged.connect(lambda row: self.select(self._item_at(row)))
@@ -497,7 +510,8 @@ class MainWindow(QMainWindow):
 
     def _load_preferences(self) -> None:
         mode = self._saved_text("theme", "system")
-        self.theme_mode = theme.apply_theme(QApplication.instance(), mode if mode in ("dark", "light") else "system")
+        self.theme_choice = mode if mode in ("dark", "light") else "system"
+        self.theme_mode = theme.apply_theme(QApplication.instance(), self.theme_choice)
         geometry = self._saved_bytes("geometry")
         if geometry is not None:
             self.restoreGeometry(geometry)
@@ -543,12 +557,13 @@ class MainWindow(QMainWindow):
         self.store.setValue("splitMain", self.main_split.saveState())
         self.store.setValue("outputDir", str(self.output_dir) if self.output_dir else "")
         self.store.setValue("presets", json.dumps(self.user_presets))
-        self.store.setValue("theme", self.theme_mode)
+        self.store.setValue("theme", self.theme_choice)      # what was asked for ("system" too), not what it came to
         self.store.setValue("smoothPreviews", self.smooth_previews)
         self.store.setValue(updates.ENABLED_KEY, self.check_updates)
 
     def toggle_theme(self) -> None:
-        self.theme_mode = theme.apply_theme(QApplication.instance(), "light" if self.theme_mode == "dark" else "dark")
+        self.theme_choice = "light" if self.theme_mode == "dark" else "dark"       # the button is an explicit choice
+        self.theme_mode = theme.apply_theme(QApplication.instance(), self.theme_choice)
         self.refresh_icons()
         for widget in (self.view, self.timeline):
             widget.update()
@@ -761,7 +776,7 @@ class MainWindow(QMainWindow):
         self.timeline.setDuration(info.duration or 0.0 if info else 0.0)
         self.time_label.setText(f"{format_time(self.player.position)} / {format_time(info.duration or 0 if info else 0)}")
         self.timeline.setThumbnails(item.thumbs)
-        self.timeline.setWaveform(item.waveform)
+        self.timeline.setWaveform(item.waveform, loading=item.loading)
         if info is not None and not info.has_video:
             self.view.clear(item.error or tr("Audio only: there's no picture to preview."))
         self._show_settings(item)
@@ -933,7 +948,7 @@ class MainWindow(QMainWindow):
         if self.current:
             new = self.current.settings.copy()
             new.edit.keep = list(keep)
-            self.push_settings(new, tr("Cut"), final=False)
+            self.push_settings(new, trc("undo", "Cut"), final=False)
 
     def cut_at(self, action: str, t: Optional[float] = None) -> None:
         """Split, cut out ("remove") or put back ("restore") the part at `t` (default: the
@@ -1113,6 +1128,11 @@ class MainWindow(QMainWindow):
         name, ok = QInputDialog.getText(self, tr("Save preset"), tr("Name for these settings:"))
         name = name.strip()
         if ok and name:
+            if name in self.user_presets and QMessageBox.question(
+                    self, tr("Save preset"), tr("A preset called “{name}” already exists. Replace it?", name=name),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+                return
             self.user_presets[name] = self.current.settings.to_dict()
             self.inspector.set_presets(self.user_presets)
             self._save_preferences()
@@ -1123,7 +1143,9 @@ class MainWindow(QMainWindow):
         menu.addAction(tr("Choose a folder…"), self._pick_output_folder)
         reset = menu.addAction(tr("Next to each original file"), lambda: self._set_output_folder(None))
         reset.setEnabled(self.output_dir is not None)
-        menu.exec(self.cursor().pos())
+        # Under the Change… button, whether it was clicked or pressed from the keyboard (the mouse may be anywhere).
+        button = self.inspector.change_button
+        menu.exec(button.mapToGlobal(QPoint(0, button.height())))
 
     def _pick_output_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, tr("Save exports to"), str(self.output_dir or ""))
@@ -1611,7 +1633,7 @@ class MainWindow(QMainWindow):
             event.acceptProposedAction()
 
     def closeEvent(self, event) -> None:
-        if self.queue.busy:
+        if self.queue.busy and not self._restarting:
             answer = QMessageBox.question(self, tr("Exports still running"),
                                           tr("Some exports haven't finished. Stop them and quit?"))
             if answer != QMessageBox.StandardButton.Yes:
