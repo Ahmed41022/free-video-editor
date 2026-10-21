@@ -339,7 +339,7 @@ class WindowTests(unittest.TestCase):
     def test_a_size_that_cannot_be_fitted_is_said_in_the_panel_before_exporting(self):
         self.load(self.clip)
         item = self.window.current
-        item.info = MediaInfo(duration=7200.0, width=1920, height=1080, has_audio=True, fps=30.0)
+        item.info = MediaInfo(duration=1800.0, width=1920, height=1080, has_audio=True, fps=30.0)
         inspector = self.window.inspector
         inspector.crf_box.setCurrentIndex(inspector.crf_box.findData("fit"))
         self.assertTrue(visible(inspector.size_error, inspector))

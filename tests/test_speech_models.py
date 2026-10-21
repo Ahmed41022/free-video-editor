@@ -237,7 +237,7 @@ class DownloadTests(unittest.TestCase):
         proc = subprocess.Popen([sys.executable, "-c", code, str(self.root), str(seconds)], stdout=subprocess.PIPE,
                                 text=True, cwd=Path(__file__).resolve().parents[1])
         self.addCleanup(proc.stdout.close)
-        self.addCleanup(proc.kill)
+        self.addCleanup(lambda: (proc.kill(), proc.wait(timeout=30)))
         self.assertEqual(proc.stdout.readline().strip(), "held")
         return proc
 
@@ -277,6 +277,7 @@ class DownloadTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 10)
         self.assertFalse(self.staging.exists())
         other.kill()
+        other.wait(timeout=30)
 
     def test_a_wait_that_runs_out_says_another_copy_is_downloading(self):
         with FileLock(self.root / sm.LOCK_NAME, timeout=5), mock.patch.object(sm, "LOCK_WAIT", 0.3):
