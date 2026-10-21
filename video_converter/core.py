@@ -315,6 +315,7 @@ if sys.platform == "win32":
     from ctypes import wintypes
 
     _KILL_ON_JOB_CLOSE = 0x2000
+    _BASIC_ACCOUNTING = 1                     # JobObjectBasicAccountingInformation
     _EXTENDED_LIMITS = 9                      # JobObjectExtendedLimitInformation
     _PROCESS_SET_QUOTA, _PROCESS_TERMINATE = 0x0100, 0x0001
 
@@ -335,6 +336,12 @@ if sys.platform == "win32":
                     ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
                     ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
 
+    class _Accounting(ctypes.Structure):
+        _fields_ = [("TotalUserTime", ctypes.c_int64), ("TotalKernelTime", ctypes.c_int64),
+                    ("ThisPeriodTotalUserTime", ctypes.c_int64), ("ThisPeriodTotalKernelTime", ctypes.c_int64),
+                    ("TotalPageFaultCount", wintypes.DWORD), ("TotalProcesses", wintypes.DWORD),
+                    ("ActiveProcesses", wintypes.DWORD), ("TotalTerminatedProcesses", wintypes.DWORD)]
+
     _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     _k32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
     _k32.CreateJobObjectW.restype = wintypes.HANDLE
@@ -346,6 +353,9 @@ if sys.platform == "win32":
     _k32.AssignProcessToJobObject.restype = wintypes.BOOL
     _k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
     _k32.TerminateJobObject.restype = wintypes.BOOL
+    _k32.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD,
+                                               wintypes.LPVOID]
+    _k32.QueryInformationJobObject.restype = wintypes.BOOL
     _k32.CloseHandle.argtypes = [wintypes.HANDLE]
     _k32.CloseHandle.restype = wintypes.BOOL
 
@@ -393,6 +403,24 @@ class ProcessJob:
         """End everything in the job. True when Windows did it."""
         return self._handle is not None and bool(_k32.TerminateJobObject(self._handle, 1))
 
+    def wait_until_empty(self, timeout: float) -> bool:
+        """Wait up to `timeout` seconds for every process in the job to be gone; True when they are. Ending a
+        job only starts ending its processes, and a real ffmpeg behind a launcher keeps its files open until
+        it is gone, after the launcher itself has ended."""
+        if self._handle is None:
+            return False
+        info = _Accounting()
+        deadline = time.monotonic() + timeout
+        while True:
+            if not _k32.QueryInformationJobObject(self._handle, _BASIC_ACCOUNTING, ctypes.byref(info),
+                                                  ctypes.sizeof(info), None):
+                return False
+            if info.ActiveProcesses == 0:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.01)
+
     def close(self) -> None:
         if self._handle is not None:
             _k32.CloseHandle(self._handle)
@@ -428,7 +456,8 @@ def stop_process(proc: subprocess.Popen) -> None:
     if job is not None and job.terminate():
         try:
             proc.wait(timeout=1.0)
-            return
+            if job.wait_until_empty(timeout=2.0):
+                return
         except subprocess.TimeoutExpired:
             pass                                    # something got out of the job: do it the slow way
     if sys.platform == "win32":

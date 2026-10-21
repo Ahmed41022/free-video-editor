@@ -564,6 +564,24 @@ class JobObjectTests(unittest.TestCase):
         self.assertLess(time.perf_counter() - started, 1.0)
         proc.fve_job.close()
 
+    def test_a_file_the_child_has_open_can_be_removed_as_soon_as_it_is_stopped(self):
+        # Like ffmpeg behind a Chocolatey or Scoop launcher: the launcher ends first, the real program with the
+        # open file a moment later. A cancelled export removes its temporary folder right after stopping.
+        with tempfile.TemporaryDirectory() as tmp:
+            held, ready = Path(tmp) / "passlog.temp", Path(tmp) / "ready"
+            child = (f"f = open({str(held)!r}, 'w'); open({str(ready)!r}, 'w').close(); "
+                     "import time; time.sleep(60)")
+            launcher = (f"import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', {child!r}]); "
+                        "time.sleep(60)")
+            proc = start_process([sys.executable, "-c", launcher], stdout=subprocess.DEVNULL)
+            deadline = time.monotonic() + 20
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(ready.exists())
+            stop_process(proc)
+            held.unlink()            # PermissionError if the child still had it open
+            proc.fve_job.close()
+
     def test_closing_the_job_ends_what_is_in_it(self):
         proc = start_process([sys.executable, "-c", "import time; time.sleep(60)"])
         proc.fve_job.close()
