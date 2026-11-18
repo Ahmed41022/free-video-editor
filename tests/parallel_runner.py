@@ -316,7 +316,8 @@ def report(outcomes, crashes, started, expected_ids, durations, out):
         print(line, file=out)
     print("-" * 70, file=out)
     print(f"Ran {ran} test{'s' if ran != 1 else ''} in {elapsed:.3f}s\n", file=out)
-    ok = not (failures or errors or any(outcome.get("unexpected") for outcome in outcomes.values() if "rows" in outcome))
+    unexpected = any(outcome.get("unexpected") for outcome in outcomes.values() if "rows" in outcome)
+    ok = not (failures or errors or unexpected)
     extras = [f"{name}={n}" for name, n in (("failures", failures), ("errors", errors), ("skipped", skipped)) if n]
     if ok:
         print("OK" + (f" (skipped={skipped})" if skipped else ""), file=out)
