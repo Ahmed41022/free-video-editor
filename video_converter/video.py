@@ -664,6 +664,11 @@ _HEAD_INFO = ["-hide_banner", "-nostdin", "-loglevel", "info", "-y"]       # lou
 _TAIL = ["-progress", "pipe:1", "-nostats"]
 _X264 = ["-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p"]
 _FASTSTART = ["-movflags", "+faststart"]
+# A picture that keeps the changing frame rate of its source (no `-r`) is told so out loud. ffmpeg 6.1.1 (the
+# Ubuntu 24.04 build, measured) otherwise picks a steady rate for an MP4 on its own, the highest there is, and
+# fills the gaps with copies: a 30/120 fps recording came out with 360 frames instead of 225. ffmpeg 7.1
+# (the one that ships in the exe) already keeps the times as they are, so there it changes nothing.
+_KEEP_TIMES = ["-fps_mode", "vfr"]
 _AAC = ["-c:a", "aac", "-b:a", "192k"]
 # What every phone plays: AAC LC at 48 kHz in stereo (more channels are mixed down).
 _AAC_PHONE = [*_AAC, "-ar", "48000", "-ac", "2"]
@@ -720,7 +725,7 @@ def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[floa
         card_rate = fps or (native_rate(changing_rate[0]) if changing_rate else DEFAULT_FPS)
         # Only H.264 gets a level here: the cards refuse an H.265 one ("Invalid Level") for a changing rate.
         args = encoder_args(encoder, crf, float(card_rate), level if codec == "h264" else None, kbps)
-        return [*args, *(rate if "-r" not in args else []), *_FASTSTART]
+        return [*args, *((rate or _KEEP_TIMES) if "-r" not in args else []), *_FASTSTART]
     number = "1" if first_pass else "2"
     bitrate = [*rate, "-b:v", f"{kbps}k"]
     if codec == "hevc":
@@ -741,6 +746,8 @@ def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[floa
         if level:
             args += ["-profile:v", "high", "-level", level]
     # The first pass writes nothing but its notes, and only an MP4 or MOV has a front to move.
+    if not known:
+        args += _KEEP_TIMES
     return args if first_pass or fmt.extension == ".webm" else [*args, *_FASTSTART]
 
 
