@@ -432,11 +432,12 @@ class OutputNameTests(unittest.TestCase):
             self.assertEqual(target.name, "song (1).mp3")
             shouted = output_path_for(Path(tmp) / "SONG.MP3", overwrite=True).name
             if (Path(tmp) / "SONG.MP3").exists():
-                # A case-insensitive file system (Windows NTFS, where this was run; macOS is untested): SONG.MP3 is song.mp3, so it is not replaced.
+                # A case-insensitive file system (Windows NTFS, where this was run; macOS is untested):
+                # SONG.MP3 is song.mp3, so it is not replaced.
                 self.assertEqual(shouted, "SONG (1).mp3")
             else:
-                # A case-sensitive one (Linux, measured in WSL Ubuntu; the file system type was not checked): SONG.MP3 is another file than song.mp3, which
-                # does not exist, so SONG.mp3 is free to be written.
+                # A case-sensitive one (Linux, measured in WSL Ubuntu; the file system type was not checked):
+                # SONG.MP3 is another file than song.mp3, which does not exist, so SONG.mp3 is free to be written.
                 self.assertEqual(shouted, "SONG.mp3")
 
     def test_the_other_inputs_and_the_outputs_so_far_are_not_picked_either(self):
