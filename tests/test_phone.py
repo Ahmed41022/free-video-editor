@@ -266,6 +266,29 @@ class CommandTests(unittest.TestCase):
         self.assertEqual((after(cmd, "-profile:v"), after(cmd, "-level")), ("high", "5.1"))
         self.assertNotIn("-r", cmd)
 
+    def test_a_picture_that_keeps_its_changing_rate_says_so_with_fps_mode_vfr(self):
+        # Regression guard. Measured with a 30/120 fps clip: left unsaid, ffmpeg 6.1.1 (Ubuntu 24.04, WSL) wrote
+        # an MP4 with a steady step at the highest rate, filling the gaps with copies (360 frames instead of 225),
+        # while the bundled 7.1 on Windows kept the times (225). With "-fps_mode vfr" both gave 225. It must not
+        # be given together with "-r": 6.1.1 refused that ("-r ... together with a non-CFR -fps_mode"). Other
+        # ffmpeg versions (6.0, 7.0, 7.1 on Linux, anything older than 5.1) are untested.
+        for encoder in (None, "h264_nvenc", "h264_amf"):
+            with self.subTest(encoder=encoder):
+                cmd = cmd_for(VideoEdit(aspect=None), encoder=encoder)
+                self.assertEqual(after(cmd, "-fps_mode"), "vfr")
+                self.assertNotIn("-r", cmd)
+        # Intel's encoder has to be steady, so it gets "-r" (the average rate) and no -fps_mode, as before.
+        cmd = cmd_for(VideoEdit(aspect=None), encoder="h264_qsv")
+        self.assertIn("-r", cmd)
+        self.assertNotIn("-fps_mode", cmd)
+        for edit in (VideoEdit(aspect=None, frame_rate=60), VideoEdit(aspect=None, frame_rate=30, speed=2.0)):
+            with self.subTest(steady=edit.frame_rate):
+                cmd = cmd_for(edit)
+                self.assertIn("-r", cmd)
+                self.assertNotIn("-fps_mode", cmd)
+        self.assertIn("-fps_mode", video_codec_args(23, video_format="hevc"))
+        self.assertNotIn("-fps_mode", video_codec_args(23, None, 30.0))
+
     def test_a_steady_export_is_high_profile_with_a_matching_level_and_stereo_48k_aac(self):
         cmd = cmd_for(VideoEdit(aspect=None, frame_rate=60))
         self.assertIn("fps=60", graph_of(cmd))
@@ -542,6 +565,11 @@ class SteadyExportTests(unittest.TestCase):
         self.check_phone_file(self.export("steady30.mp4", VideoEdit(aspect=None, frame_rate=30)), 30, 3.0, 41)
 
     def test_without_the_setting_the_rate_still_varies(self):
+        # This failed on Linux (ffmpeg 6.1.1, WSL): the export had a single step, 1/120 s, i.e. 360 frames with
+        # copies where the source has 225. The bundled 7.1 on Windows gave 225. Fixed in the app by
+        # "-fps_mode vfr" (see video_codec_args); the command is guarded by
+        # test_a_picture_that_keeps_its_changing_rate_says_so_with_fps_mode_vfr. Why the two builds differ was
+        # not investigated.
         out = self.export("asis.mp4", VideoEdit(aspect=None))
         self.assertGreater(len({b - a for a, b in zip(frame_times(out), frame_times(out)[1:])}), 1)
 

@@ -332,7 +332,30 @@ ffmpeg, and the editor tests (`tests/test_ui.py`) need PySide6, so run them from
 `.venv\Scripts\python -m unittest discover -s tests`. No test uses the network or writes to your models folder;
 one optional test runs the real Fast speech model on made-up sound, and only if that model has already been
 downloaded on the PC.
-GitHub runs the whole suite on every push and pull request (`.github/workflows/tests.yml`).
+GitHub runs the whole suite on every push and pull request, on Windows and on Linux (`.github/workflows/tests.yml`).
+
+**In parallel.** `python -m tests` runs the same tests on several processes, which is several times faster
+(measured on one PC with 8 workers: about 75 seconds, against 8 minutes for `unittest discover`). It finds exactly the tests `unittest discover` finds, runs each test
+class on one worker (so the class's setup runs once), and prints like `unittest`: the failures, then `Ran N tests`,
+then `OK` or `FAILED`. The exit code is 1 if a test fails, errors or a worker dies.
+
+```bash
+python -m tests                                   # everything, one worker per CPU (at most 8)
+python -m tests -j 4 -v                           # four workers, one line per test
+python -m tests test_phone test_video.VideoExportTests   # only these modules, classes or tests
+python -m tests --list                            # the ids of the tests, without running them
+python -m tests --durations 15                    # also the slowest classes and tests
+python -m tests --timeout 300                     # end a worker whose test takes longer than 300 s (default 900)
+```
+
+**On Linux** (the tests also run on Ubuntu 24.04; the exe is Windows-only): install ffmpeg and what Qt needs
+without a screen, then the Python packages (`faster-whisper` is optional; without it two more tests skip, as measured: 30 skips against 28).
+
+```bash
+sudo apt install ffmpeg libxcb-cursor0 libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libasound2t64 fonts-dejavu-core
+python3 -m venv .venv && .venv/bin/pip install PySide6==6.12.0 numpy
+QT_QPA_PLATFORM=offscreen QT_AUDIO_BACKEND=alsa PYTHONUTF8=1 FFMPEG_PATH=$(command -v ffmpeg) .venv/bin/python -m tests
+```
 
 ## Releases
 

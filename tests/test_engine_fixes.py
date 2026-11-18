@@ -107,8 +107,14 @@ def difference(a, b):
 
 def counter_clip(path, seconds=4, rate="15"):
     """A tiny clip whose frame number N is its brightness (N * 4), so the frames an export kept can be read."""
+    # "-color_range pc" says the gray levels are the full 0..255. Measured with ffprobe: without it, ffmpeg 6.1.1
+    # (Ubuntu 24.04, in WSL) wrote this clip as yuv420p with no range, and the bundled 7.1 essentials build on
+    # Windows wrote yuvj420p/pc. Read back from the 6.1.1 file, the levels were stretched: brightness 0..16 all
+    # came out as 0, so frames 0-4 looked alike and the other numbers were off by a few. That made the
+    # frame-number tests fail on Linux; the export was fine. With the range said, the tests pass on both
+    # builds. Other ffmpeg builds and platforms: untested.
     ff("-f", "lavfi", "-i", f"color=gray:size=16x16:rate={rate}:duration={seconds},format=gray,geq=lum='mod(N,64)*4'",
-       "-c:v", "libx264", "-qp", "0", "-pix_fmt", "gray", path)
+       "-c:v", "libx264", "-qp", "0", "-pix_fmt", "gray", "-color_range", "pc", path)
 
 
 def frame_numbers(path):
@@ -117,7 +123,10 @@ def frame_numbers(path):
 
 
 def count_frames(path):
-    result = text_of("-i", path, "-map", "0:v:0", "-c", "copy", "-f", "null", "-")
+    # The picture is decoded, not copied. Measured: for a stream copy, ffmpeg 6.1.1 (Ubuntu 24.04, WSL) prints
+    # no "frame=" count, only a size and a time, while the bundled 7.1 on Windows does. Decoding printed it on
+    # both, and the tests pass on both. Other builds: untested.
+    result = text_of("-i", path, "-map", "0:v:0", "-f", "null", "-")
     return int(re.findall(r"frame=\s*(\d+)", result)[-1])
 
 
@@ -421,7 +430,15 @@ class OutputNameTests(unittest.TestCase):
             target = output_path_for(source, overwrite=True)
             self.assertNotEqual(target, source)
             self.assertEqual(target.name, "song (1).mp3")
-            self.assertEqual(output_path_for(Path(tmp) / "SONG.MP3", overwrite=True).name, "SONG (1).mp3")
+            shouted = output_path_for(Path(tmp) / "SONG.MP3", overwrite=True).name
+            if (Path(tmp) / "SONG.MP3").exists():
+                # A case-insensitive file system (Windows NTFS, where this was run; macOS is untested):
+                # SONG.MP3 is song.mp3, so it is not replaced.
+                self.assertEqual(shouted, "SONG (1).mp3")
+            else:
+                # A case-sensitive one (Linux, measured in WSL Ubuntu; the file system type was not checked):
+                # SONG.MP3 is another file than song.mp3, which does not exist, so SONG.mp3 is free to be written.
+                self.assertEqual(shouted, "SONG.mp3")
 
     def test_the_other_inputs_and_the_outputs_so_far_are_not_picked_either(self):
         with tempfile.TemporaryDirectory() as tmp:

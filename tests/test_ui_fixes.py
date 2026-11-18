@@ -752,3 +752,78 @@ class SmallFixesTests(WindowTestCase):
             button.click()                    # the same as pressing Space on the focused button
         self.assertEqual(len(shown), 1)
         self.assertEqual(shown[0], button.mapToGlobal(QPoint(0, button.height())))
+
+
+class FakeApplication:
+    """Stands in for the application: it keeps the style sheet and palette it is given and says what was set. The
+    real one was measured to take seconds for each change once many widgets were alive."""
+
+    def __init__(self):
+        from PySide6.QtGui import QPalette
+        self.sheet, self.current_palette, self.calls = "", QPalette(), []
+
+    def styleSheet(self):
+        return self.sheet
+
+    def setStyleSheet(self, sheet):
+        self.sheet = sheet
+        self.calls.append("sheet")
+
+    def palette(self):
+        return type(self.current_palette)(self.current_palette)      # a copy, like the real one's
+
+    def setPalette(self, palette):
+        self.current_palette = palette
+        self.calls.append("palette")
+
+    def setStyle(self, name):
+        self.calls.append("style")
+
+
+class ThemeAppliedOnceTests(unittest.TestCase):
+    """Setting a style, a palette or a style sheet on the application again was measured to get slower with every
+    widget a test left alive (seconds per window on Windows), so a window opened with the theme that is already
+    in place must not set them. A different theme, or a change made by something else, is still applied."""
+
+    def setUp(self):
+        from video_converter.ui import theme
+        self.theme = theme
+        saved = dict(theme._current), dict(theme._applied)
+        self.addCleanup(lambda: (theme._current.clear(), theme._current.update(saved[0]),
+                                 theme._applied.clear(), theme._applied.update(saved[1])))
+        self.app = FakeApplication()
+        theme.apply_theme(self.app, "dark")
+        self.app.calls.clear()
+
+    def test_the_first_time_everything_is_set(self):
+        from video_converter.ui import theme
+        fresh = FakeApplication()
+        theme.apply_theme(fresh, "light")
+        self.assertEqual(sorted(fresh.calls), ["palette", "sheet", "style"])
+
+    def test_the_same_theme_is_not_set_again(self):
+        self.assertEqual(self.theme.apply_theme(self.app, "dark"), "dark")
+        self.assertEqual(self.app.calls, [])
+
+    def test_another_theme_is_set(self):
+        dark_sheet = self.app.styleSheet()
+        self.assertEqual(self.theme.apply_theme(self.app, "light"), "light")
+        self.assertEqual(sorted(self.app.calls), ["palette", "sheet", "style"])
+        self.assertNotEqual(self.app.styleSheet(), dark_sheet)
+        self.assertEqual(self.theme.colors()["window"], self.theme.LIGHT["window"])
+        self.assertEqual(self.theme.apply_theme(self.app, "dark"), "dark")
+        self.assertEqual(self.app.styleSheet(), dark_sheet)
+
+    def test_a_style_sheet_changed_by_something_else_is_put_right(self):
+        sheet_before = self.app.styleSheet()
+        self.app.setStyleSheet("QWidget { font-size: 30pt; }")
+        self.theme.apply_theme(self.app, "dark")
+        self.assertEqual(self.app.styleSheet(), sheet_before)
+
+    def test_a_palette_changed_by_something_else_is_put_right(self):
+        palette_before = self.app.palette()
+        changed = self.app.palette()
+        changed.setColor(changed.ColorRole.Window, Qt.GlobalColor.magenta)
+        self.app.setPalette(changed)
+        self.theme.apply_theme(self.app, "dark")
+        self.assertEqual(self.app.palette(), palette_before)

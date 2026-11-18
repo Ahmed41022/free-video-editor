@@ -22,6 +22,9 @@ LIGHT = {
 _current = dict(DARK)
 
 
+_applied: dict[int, str] = {}       # the application (by id) the theme was last set on, and which one
+
+
 def colors() -> dict[str, str]:
     """The active theme's colors, for widgets that paint themselves."""
     return _current
@@ -42,7 +45,6 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
     _current.clear()
     _current.update(c)
 
-    app.setStyle("Fusion")
     palette = QPalette()
     role = QPalette.ColorRole
     for r, key in ((role.Window, "window"), (role.Base, "base"), (role.AlternateBase, "panel"),
@@ -54,9 +56,7 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
     disabled = QPalette.ColorGroup.Disabled
     for r in (role.Text, role.WindowText, role.ButtonText):
         palette.setColor(disabled, r, QColor(c["muted"]))
-    app.setPalette(palette)
-
-    app.setStyleSheet(f"""
+    sheet = f"""
         QWidget {{ font-size: 10pt; }}
         QMainWindow, QDialog {{ background: {c['window']}; }}
         QToolBar {{ background: {c['panel']}; border: none; border-bottom: 1px solid {c['border']};
@@ -107,5 +107,17 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
                                                                          border: none; }}
         QPushButton#chip {{ padding: 4px 6px; }}
         QCheckBox {{ spacing: 6px; }}
-    """)
+    """
+    # Measured in the test suite (Windows): setting these on the application for every new window took seconds
+    # per window once many widgets were alive, which fits Qt styling every live widget again (not checked in
+    # Qt's own code). So with the same theme already in place (a second window, or the same choice made again)
+    # nothing is set. What counts as "in place" is read back from the application, so a change made by anything
+    # else is put right as before.
+    if _applied.get(id(app)) == resolved and app.styleSheet() == sheet and app.palette() == palette:
+        return resolved
+    app.setStyle("Fusion")
+    app.setPalette(palette)
+    app.setStyleSheet(sheet)
+    _applied.clear()
+    _applied[id(app)] = resolved
     return resolved

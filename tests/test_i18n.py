@@ -9,6 +9,7 @@ import ast
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1138,7 +1139,8 @@ class LanguageSettingTests(WindowCase):
         # versions returned (bool, pid), and unpacking it broke every language change in 3.0.0.
         from video_converter.ui import language
 
-        with tempfile.TemporaryDirectory() as tmp:
+        tmp = tempfile.mkdtemp()
+        try:
             marker = Path(tmp) / "started"
             code = f"open({str(marker)!r}, 'w').close()"
             with mock.patch.object(language, "restart_command", return_value=(sys.executable, ["-c", code], tmp)):
@@ -1147,6 +1149,18 @@ class LanguageSettingTests(WindowCase):
             while not marker.exists() and time.monotonic() < deadline:
                 time.sleep(0.05)
             self.assertTrue(marker.exists(), "the program was not started")
+        finally:
+            # The started program has this folder as its working folder and may still be shutting down when it
+            # has written the marker; on Windows a folder in use can't be removed, so try again for a while.
+            # (On a PC busy with other work that race made this test fail once, in a run of the parallel runner.)
+            for _ in range(100):
+                try:
+                    shutil.rmtree(tmp)
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            else:
+                shutil.rmtree(tmp, ignore_errors=True)
         with mock.patch.object(language, "restart_command", return_value=("C:/no/such/program.exe", [], tmp)), \
                 self.assertLogs("video_converter.ui.language", "ERROR"):
             self.assertFalse(language.restart([]))

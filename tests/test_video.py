@@ -547,7 +547,8 @@ class VideoExportTests(unittest.TestCase):
     def stream_lengths(self, path, rate):
         """(seconds of picture, seconds of sound) of an exported file: the picture counted in frames,
         the sound decoded to the sample."""
-        shown = subprocess.run([FFMPEG, "-i", str(path), "-map", "0:v:0", "-c", "copy", "-f", "null", "-"],
+        # Decoded, not copied: ffmpeg 6.1.1 (WSL) printed no "frame=" count for a stream copy, the Windows 7.1 did.
+        shown = subprocess.run([FFMPEG, "-i", str(path), "-map", "0:v:0", "-f", "null", "-"],
                                capture_output=True, text=True)
         frames = int(re.findall(r"frame=\s*(\d+)", shown.stderr)[-1])
         sound = subprocess.run([FFMPEG, "-v", "error", "-i", str(path), "-map", "0:a:0", "-f", "s16le", "-ac", "1",
