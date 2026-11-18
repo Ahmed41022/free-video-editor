@@ -238,7 +238,7 @@ class WindowTests(unittest.TestCase):
         from urllib.parse import parse_qs, urlparse
         body = parse_qs(urlparse(url).query)["body"][0]
         self.assertIn(__version__, body)
-        self.assertIn("Windows", body)
+        self.assertIn(diagnostics.windows_version(), body)      # "Windows 11 (build ...)", or the platform's name
         self.assertIn("h264_nvenc", body)
         self.assertIn("Export 3 started: holiday.mp4", body)
 

@@ -541,6 +541,9 @@ class SelfTestTests(unittest.TestCase):
     def test_the_engine_and_its_voice_detector_load(self):
         self.assertTrue(ac.self_test().startswith("ok:"))
 
+    # It runs the real self test, which loads the engine: on a machine without faster-whisper (the Linux test
+    # setup, measured on Ubuntu 24.04) the flag rightly reports a failure and returns 1.
+    @unittest.skipUnless(ENGINE, "the speech engine (faster-whisper) is not installed")
     def test_the_exe_flag_writes_its_result_to_a_file_and_returns_zero(self):
         try:
             from video_converter.ui import app
