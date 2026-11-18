@@ -349,7 +349,7 @@ python -m tests --timeout 300                     # end a worker whose test take
 ```
 
 **On Linux** (the tests also run on Ubuntu 24.04; the exe is Windows-only): install ffmpeg and what Qt needs
-without a screen, then the Python packages (`faster-whisper` is optional; without it a few caption tests skip).
+without a screen, then the Python packages (`faster-whisper` is optional; without it two more tests skip, as measured: 30 skips against 28).
 
 ```bash
 sudo apt install ffmpeg libxcb-cursor0 libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libasound2t64 fonts-dejavu-core

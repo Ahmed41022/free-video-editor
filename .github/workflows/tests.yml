@@ -54,7 +54,7 @@ jobs:
         # python -m tests runs the test classes on one worker process per CPU (see tests/parallel_runner.py); it
         # finds exactly the tests `unittest discover -s tests` finds. A test that runs longer than 10 minutes gets
         # every thread's stack dumped and its worker ended, which fails the run, and the step is stopped after
-        # 20 minutes whatever happens (the suite takes about 4).
+        # 20 minutes whatever happens (on the developer PC it takes about 75 seconds; on GitHub's machines: not measured).
         run: python -X faulthandler -m tests --timeout 600 --durations 15
 
   test-linux:
@@ -69,7 +69,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # ffmpeg is the distribution's (6.1.1 on 24.04); the rest is what Qt needs to start without a screen.
+      # ffmpeg is the distribution's (6.1.1 when tested in WSL Ubuntu 24.04); the rest is what Qt needs to start without a screen.
       - name: Install ffmpeg and the libraries Qt needs
         run: |
           sudo apt-get update

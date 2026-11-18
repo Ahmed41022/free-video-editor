@@ -664,10 +664,10 @@ _HEAD_INFO = ["-hide_banner", "-nostdin", "-loglevel", "info", "-y"]       # lou
 _TAIL = ["-progress", "pipe:1", "-nostats"]
 _X264 = ["-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p"]
 _FASTSTART = ["-movflags", "+faststart"]
-# A picture that keeps the changing frame rate of its source (no `-r`) is told so out loud. ffmpeg 6.1.1 (the
-# Ubuntu 24.04 build, measured) otherwise picks a steady rate for an MP4 on its own, the highest there is, and
-# fills the gaps with copies: a 30/120 fps recording came out with 360 frames instead of 225. ffmpeg 7.1
-# (the one that ships in the exe) already keeps the times as they are, so there it changes nothing.
+# A picture that keeps the changing frame rate of its source (no `-r`) is told so out loud. Measured with a
+# 30/120 fps clip: without this, ffmpeg 6.1.1 (Ubuntu 24.04, WSL) wrote an MP4 with a steady step at the
+# highest rate and copies in the gaps (360 frames instead of 225); the bundled 7.1 on Windows kept the times
+# (225) with or without it. Other ffmpeg versions and platforms: untested.
 _KEEP_TIMES = ["-fps_mode", "vfr"]
 _AAC = ["-c:a", "aac", "-b:a", "192k"]
 # What every phone plays: AAC LC at 48 kHz in stereo (more channels are mixed down).

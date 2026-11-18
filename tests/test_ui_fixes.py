@@ -756,7 +756,7 @@ class SmallFixesTests(WindowTestCase):
 
 class FakeApplication:
     """Stands in for the application: it keeps the style sheet and palette it is given and says what was set. The
-    real one would polish every live widget of the test run each time, which takes seconds."""
+    real one was measured to take seconds for each change once many widgets were alive."""
 
     def __init__(self):
         from PySide6.QtGui import QPalette
@@ -781,9 +781,9 @@ class FakeApplication:
 
 
 class ThemeAppliedOnceTests(unittest.TestCase):
-    """Setting a style, a palette or a style sheet on the application makes Qt polish every live widget again, so
-    a window opened with the theme that is already in place must not set them (it made the whole suite slower with
-    every window a test left behind). A different theme, or a change made by something else, is still applied."""
+    """Setting a style, a palette or a style sheet on the application again was measured to get slower with every
+    widget a test left alive (seconds per window on Windows), so a window opened with the theme that is already
+    in place must not set them. A different theme, or a change made by something else, is still applied."""
 
     def setUp(self):
         from video_converter.ui import theme

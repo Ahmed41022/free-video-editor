@@ -108,9 +108,10 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
         QPushButton#chip {{ padding: 4px 6px; }}
         QCheckBox {{ spacing: 6px; }}
     """
-    # Setting a style, a palette or a style sheet on the application makes Qt polish every widget that is alive
-    # again, so with the same theme already in place (a second window, or the same choice made again) nothing is
-    # set. What counts as "in place" is read back from the application, so a change made by anything else is put
+    # Measured in the test suite (Windows): setting these on the application for every new window took seconds
+    # per window once many widgets were alive, which fits Qt styling every live widget again (not checked in
+    # Qt's own code). So with the same theme already in place (a second window, or the same choice made again)
+    # nothing is set. What counts as "in place" is read back from the application, so a change made by anything else is put
     # right as before.
     if _applied.get(id(app)) == resolved and app.styleSheet() == sheet and app.palette() == palette:
         return resolved
