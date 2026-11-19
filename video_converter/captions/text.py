@@ -28,7 +28,7 @@ def text_pixels(item: TextItem, frame: tuple[int, int]) -> int:
 def clean_text(text: str) -> str:
     """`text` without the characters that only draw an empty box: control characters (C0 and C1) are
     dropped, a tab becomes a space and the odd line separators become a line break."""
-    text = text.replace("\r\n", "\n").replace("\r", "\n").replace(" ", "\n").replace(" ", "\n")
+    text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\u2028", "\n").replace("\u2029", "\n")
     text = text.replace("\t", " ")
     return "".join(ch for ch in text if ch == "\n" or unicodedata.category(ch) != "Cc")
 

@@ -1591,7 +1591,7 @@ class TextCleaningTests(unittest.TestCase):
         self.assertGreater(height(gap), height(tight) + 10)
 
     def test_control_characters_are_dropped(self):
-        raw = "he\x00l\x07lo\x85 wor\x1bld\ttab next"
+        raw = "he\x00l\x07lo\x85 wor\x1bld\ttab\u2028next"
         self.assertEqual(text_file_of(text_filter(TextItem(text=raw), FRAME, None)), "hello world tab\nnext")
         self.assertFalse(captions.drawable(TextItem(text="\x01\x02")))
         self.assertTrue(captions.drawable(TextItem(text="\x01a")))
