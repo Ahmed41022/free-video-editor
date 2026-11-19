@@ -20,7 +20,7 @@ os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
     from PySide6.QtCore import QEvent, QSettings
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QMenu
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
@@ -28,6 +28,7 @@ from video_converter import proxy  # noqa: E402
 from video_converter.core import (  # noqa: E402
     ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, parse_media_info, probe_media,
 )
+from video_converter.core import runner  # noqa: E402
 from video_converter.proxy import ProxyMaker, needs_proxy, proxy_command, proxy_size  # noqa: E402
 
 FFMPEG = find_ffmpeg()
@@ -356,6 +357,411 @@ class ProxyMakerTests(unittest.TestCase):
         self.assertEqual(self.done, [])
 
 
+def paced(*args, **kwargs):
+    """The preview command reading its input no faster than it plays (-re), so that a copy of a
+    short file takes as long as the file does and can be paused part-way."""
+    cmd = proxy_command(*args, **kwargs)
+    cmd.insert(cmd.index("-i"), "-re")
+    return cmd
+
+
+class FakeRuns:
+    """Stands in for run_ffmpeg. A run "works" until the test releases it, stands still while it is
+    paused and raises ConversionCancelled when it is cancelled. Runs are told apart by the name of
+    the source file (without its extension), which is the key the tests use."""
+
+    def __init__(self, sample=None):
+        self.sample = sample  # a real video to write as the finished copy
+        self.guard = threading.Lock()
+        self.events = []  # (what, key), in order
+        self.working = set()  # the keys whose run is going on right now
+        self.gates = {}
+
+    def gate(self, key):
+        with self.guard:
+            return self.gates.setdefault(key, threading.Event())
+
+    def release(self, key):
+        self.gate(key).set()
+
+    def note(self, what, key, working):
+        with self.guard:
+            self.events.append((what, key))
+            (self.working.add if working else self.working.discard)(key)
+
+    def count(self, what, key):
+        with self.guard:
+            return self.events.count((what, key))
+
+    def __call__(self, cmd, output, duration, on_progress, cancel_event, cwd=None):
+        key = Path(cmd[cmd.index("-i") + 1]).stem
+        gate = self.gate(key)
+        self.note("start", key, True)
+        on_progress(0.4)
+        paused = False
+        while not cancel_event.is_set():
+            if cancel_event.paused != paused:
+                paused = cancel_event.paused
+                self.note("pause" if paused else "resume", key, not paused)
+            if gate.is_set() and not paused:
+                output.write_bytes(self.sample.read_bytes() if self.sample else b"copy")
+                self.note("finish", key, False)
+                on_progress(1.0)
+                return output
+            time.sleep(0.005)
+        self.note("cancel", key, False)
+        raise ConversionCancelled()
+
+    def working_is(self, *keys):
+        with self.guard:
+            return self.working == set(keys)
+
+
+def recording_processes(test):
+    """Remember every ffmpeg the run_ffmpeg calls of this test start, and return the list."""
+    started = []
+    real = runner.start_process
+
+    def start(*args, **kwargs):
+        proc = real(*args, **kwargs)
+        started.append(proc)
+        return proc
+
+    patcher = mock.patch.object(runner, "start_process", side_effect=start)
+    patcher.start()
+    test.addCleanup(patcher.stop)
+    return started
+
+
+def rmtree_when_free(path, seconds=10):
+    """Remove a folder, trying again while Windows still has a file in it open (it lets go a moment
+    after the process that had it is gone)."""
+    end = time.monotonic() + seconds
+    while True:
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if time.monotonic() > end:
+                raise
+            time.sleep(0.1)
+
+
+class ProxyMakerSchedulingTests(unittest.TestCase):
+    """Which copy gets the work, with stand-ins for ffmpeg: pausing, carrying on, the cap, the time
+    limit."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.tmp = Path(cls._tmp.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def setUp(self):
+        self.fake = FakeRuns()
+        patcher = mock.patch.object(proxy, "run_ffmpeg", self.fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.done, self.dropped = [], []
+        self.maker = ProxyMaker(
+            "ffmpeg", self.tmp / f"folder-{self.id().split('.')[-1]}", lambda key, fraction: None,
+            lambda key, path, error: self.done.append(key), self.dropped.append)
+        self.addCleanup(self.maker.shutdown)
+
+    def ask(self, *keys):
+        for key in keys:
+            self.assertTrue(self.maker.request(key, self.tmp / f"{key}.mp4", info(1920, 1080)))
+
+    def until(self, condition, what="it never happened"):
+        self.assertTrue(pump(TIMEOUT, condition), what)
+
+    def test_moving_the_focus_pauses_the_running_copy_and_runs_the_other(self):
+        self.ask("a")
+        self.until(lambda: self.fake.working_is("a"))
+        self.ask("b")
+        self.assertEqual(self.maker.state("b"), "waiting")
+        self.assertTrue(self.fake.working_is("a"), "a waiting copy took the work")
+        self.maker.focus("b")
+        self.until(lambda: self.fake.working_is("b"))
+        self.assertEqual((self.maker.state("a"), self.maker.state("b")), ("paused", "running"))
+        self.assertTrue(self.maker.paused("a"))
+        self.assertTrue(self.maker.active("a"), "a paused copy is still wanted")
+        self.assertEqual(self.fake.count("start", "a"), 1)
+
+    def test_a_paused_copy_carries_on_when_the_one_in_front_is_done(self):
+        self.ask("a", "b")
+        self.until(lambda: self.fake.working_is("a"))
+        self.maker.focus("b")
+        self.until(lambda: self.fake.working_is("b"))
+        self.fake.release("b")
+        self.until(lambda: self.fake.working_is("a"))
+        self.assertEqual(self.done, ["b"])
+        self.assertEqual(self.fake.count("resume", "a"), 1)
+        self.assertEqual(self.fake.count("start", "a"), 1, "the paused copy started over")
+        self.fake.release("a")
+        self.until(lambda: self.done == ["b", "a"])
+
+    def test_going_back_to_a_paused_copy_resumes_it_and_pauses_the_other(self):
+        self.ask("a", "b")
+        self.maker.focus("b")
+        self.until(lambda: self.fake.working_is("b"))
+        self.maker.focus("a")
+        self.until(lambda: self.fake.working_is("a"))
+        self.assertEqual(self.maker.state("b"), "paused")
+        self.assertEqual(self.fake.count("start", "a"), 1)
+
+    def test_without_a_focus_the_copies_are_made_in_the_order_they_were_asked_for(self):
+        self.ask("a", "b", "c")
+        self.until(lambda: self.fake.working_is("a"))
+        self.fake.release("a")
+        self.until(lambda: self.fake.working_is("b"))
+        self.fake.release("b")
+        self.until(lambda: self.fake.working_is("c"))
+        self.assertEqual(self.fake.count("pause", "a"), 0)
+
+    def test_a_parked_copy_stays_paused_whatever_the_focus(self):
+        self.ask("a")
+        self.until(lambda: self.fake.working_is("a"))
+        self.maker.park("a")
+        self.until(lambda: self.fake.working_is())
+        self.maker.focus("a")
+        self.maker.focus(None)
+        pump(0.3)
+        self.assertTrue(self.fake.working_is(), "a parked copy carried on")
+        self.assertEqual(self.maker.state("a"), "paused")
+        self.ask("b")
+        self.until(lambda: self.fake.working_is("b"))
+        self.maker.park("a", False)
+        pump(0.2)
+        self.assertTrue(self.fake.working_is("b"), "the copy running was interrupted")
+        self.fake.release("b")
+        self.until(lambda: self.fake.working_is("a"))
+
+    def test_a_copy_that_is_in_front_goes_first_when_it_is_no_longer_parked(self):
+        self.ask("a", "b")
+        self.until(lambda: self.fake.working_is("a"))
+        self.maker.park("a")
+        self.until(lambda: self.fake.working_is("b"))
+        self.maker.focus("a")
+        pump(0.2)
+        self.assertTrue(self.fake.working_is("b"), "a parked copy went first")
+        self.maker.park("a", False)
+        self.until(lambda: self.fake.working_is("a"))
+        self.assertEqual(self.maker.state("b"), "paused")
+        self.fake.release("a")
+        self.until(lambda: self.fake.working_is("b"))
+
+    def test_holding_keeps_the_other_paused_copies_paused(self):
+        self.ask("a", "b")
+        self.until(lambda: self.fake.working_is("a"))
+        self.maker.focus("b")
+        self.until(lambda: self.fake.working_is("b"))
+        self.maker.focus("somebody else", hold=True)
+        self.until(lambda: self.fake.working_is())
+        pump(0.3)
+        self.assertTrue(self.fake.working_is(), "a paused copy carried on during the hold")
+        self.assertEqual((self.maker.state("a"), self.maker.state("b")), ("paused", "paused"))
+        self.maker.focus(None, hold=False)
+        self.until(lambda: self.fake.working_is("b"), "nothing carried on after the hold")
+
+    def test_the_copy_in_front_runs_even_during_a_hold(self):
+        self.ask("a", "b")
+        self.until(lambda: self.fake.working_is("a"))
+        self.maker.focus("b", hold=True)
+        self.until(lambda: self.fake.working_is("b"))
+        self.assertEqual(self.maker.state("a"), "paused")
+        self.fake.release("b")
+        pump(0.3)
+        self.assertTrue(self.fake.working_is(), "the paused copy carried on during the hold")
+
+    def test_at_most_MAX_PAUSED_copies_are_kept_and_the_oldest_is_dropped(self):
+        with mock.patch.object(proxy, "MAX_PAUSED", 2):
+            self.ask("a")
+            self.until(lambda: self.fake.working_is("a"))
+            for key in ("b", "c", "d"):
+                self.ask(key)
+                self.maker.focus(key)
+                self.until(lambda key=key: self.fake.working_is(key))
+        self.assertEqual(self.dropped, ["a"])
+        self.assertFalse(self.maker.active("a"))
+        self.until(lambda: self.fake.count("cancel", "a") == 1, "the dropped copy kept running")
+        self.assertEqual([self.maker.state(key) for key in "bcd"], ["paused", "paused", "running"])
+
+    def test_a_copy_paused_for_too_long_is_dropped(self):
+        with mock.patch.object(proxy, "PAUSED_KEEP_SECONDS", 0.3):
+            self.ask("a", "b")
+            self.until(lambda: self.fake.working_is("a"))
+            self.maker.focus("b")
+            self.until(lambda: self.dropped == ["a"], "the paused copy was never dropped")
+        self.assertFalse(self.maker.active("a"))
+        self.until(lambda: self.fake.count("cancel", "a") == 1)
+        self.assertEqual(self.maker.state("b"), "running", "the copy in front was disturbed")
+
+    def test_a_copy_that_carried_on_is_not_dropped_by_the_timer_of_its_pause(self):
+        with mock.patch.object(proxy, "PAUSED_KEEP_SECONDS", 0.4):
+            self.ask("a", "b")
+            self.maker.focus("b")
+            self.until(lambda: self.fake.working_is("b"))
+            self.maker.focus("a")
+            self.until(lambda: self.fake.working_is("a"))
+            pump(0.9)
+        self.assertNotIn("a", self.dropped)
+        self.assertTrue(self.fake.working_is("a"))
+
+    def test_the_default_limits_are_a_few_copies_and_minutes(self):
+        self.assertEqual(proxy.MAX_PAUSED, 3)
+        self.assertEqual(proxy.PAUSED_KEEP_SECONDS, 300.0)
+
+    def test_a_dropped_copy_can_be_asked_for_again_and_starts_over(self):
+        with mock.patch.object(proxy, "PAUSED_KEEP_SECONDS", 0.2):
+            self.ask("a", "b")
+            self.maker.focus("b")
+            self.until(lambda: self.dropped == ["a"])
+        self.assertTrue(self.maker.request("a", self.tmp / "a.mp4", info(1920, 1080)))
+        self.maker.focus("a")
+        self.until(lambda: self.fake.count("start", "a") == 2)
+
+    def test_cancelling_a_paused_copy_stops_it(self):
+        self.ask("a", "b")
+        self.maker.focus("b")
+        self.until(lambda: self.fake.working_is("b"))
+        self.maker.cancel("a")
+        self.until(lambda: self.fake.count("cancel", "a") == 1)
+        self.assertFalse(self.maker.active("a"))
+        self.assertTrue(self.fake.working_is("b"))
+
+    def test_cancelling_the_running_copy_lets_a_paused_one_carry_on(self):
+        self.ask("a", "b")
+        self.maker.focus("b")
+        self.until(lambda: self.fake.working_is("b"))
+        self.maker.focus(None)
+        self.maker.cancel("b")
+        self.until(lambda: self.fake.working_is("a"))
+        self.assertEqual(self.done, [])
+
+    def test_cancelling_the_waiting_copies_leaves_the_paused_ones_alone(self):
+        self.ask("a", "b")
+        self.until(lambda: self.fake.working_is("a"))
+        self.maker.focus("b")
+        self.until(lambda: self.fake.working_is("b"))
+        self.ask("c")
+        self.assertEqual(self.maker.cancel_waiting(), ["c"])
+        self.assertEqual((self.maker.state("a"), self.maker.state("b")), ("paused", "running"))
+
+    def test_shutting_down_ends_the_paused_copies_too(self):
+        self.ask("a", "b")
+        self.until(lambda: self.fake.working_is("a"))
+        self.maker.focus("b")
+        self.until(lambda: self.fake.working_is("b"))
+        self.maker.shutdown()
+        self.assertEqual(self.fake.count("cancel", "a"), 1)
+        self.assertEqual(self.fake.count("cancel", "b"), 1)
+        self.assertFalse(self.maker.request("c", self.tmp / "c.mp4", info(1920, 1080)))
+        self.assertEqual((self.done, self.dropped), ([], []))
+
+
+@unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
+class ProxyMakerPauseTests(unittest.TestCase):
+    """Pausing real copies: nothing is written while a copy is paused, it carries on from where it
+    was, and a paused copy can be cancelled without leaving ffmpeg or a file behind."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.tmp = Path(cls._tmp.name)
+        cls.source = cls.tmp / "big.mp4"
+        make_video(cls.source, 320, 180, 4)
+        cls.info = probe_media(FFMPEG, cls.source)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def setUp(self):
+        self.folder = self.tmp / f"preview-{self.id().split('.')[-1]}"
+        self.progress, self.done = [], []
+        self.procs = recording_processes(self)
+        for name, value in (("PROXY_LONG_SIDE", 160), ("proxy_command", paced)):
+            patcher = mock.patch.object(proxy, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.maker = ProxyMaker(
+            FFMPEG, self.folder, lambda key, fraction: self.progress.append((key, fraction)),
+            lambda key, path, error: self.done.append((key, path, error)))
+        self.addCleanup(self.maker.shutdown)
+
+    def until(self, condition, what="it never happened"):
+        self.assertTrue(pump(TIMEOUT, condition), what)
+
+    def written(self):
+        return sum(f.stat().st_size for f in self.folder.glob("*.part.mp4"))
+
+    def test_a_paused_copy_writes_nothing_and_carries_on_from_where_it_was(self):
+        self.maker.request("a", self.source, self.info)
+        self.until(lambda: self.progress and self.progress[-1][1] > 0.2, "no progress")
+        self.maker.park("a")
+        self.assertTrue(self.maker.paused("a"))
+        pump(0.5)
+        seen, size = len(self.progress), self.written()
+        self.assertGreater(size, 0)
+        pump(1.2)
+        self.assertEqual(self.written(), size, "a paused copy kept writing")
+        self.assertEqual(len(self.progress), seen, "a paused copy kept reporting")
+        self.maker.park("a", False)
+        self.until(lambda: self.done, "the copy never finished after being resumed")
+        key, path, error = self.done[0]
+        self.assertEqual((key, error), ("a", ""))
+        self.assertAlmostEqual(probe_media(FFMPEG, path).duration, self.info.duration, delta=0.3)
+        fractions = [fraction for _, fraction in self.progress]
+        self.assertEqual(fractions, sorted(fractions), "the copy started over")
+        self.assertEqual(len(self.procs), 1, "a second ffmpeg was started for the same copy")
+
+    def test_the_work_moves_to_the_copy_in_front_and_comes_back(self):
+        self.maker.request("a", self.source, self.info)
+        self.until(lambda: self.progress and self.progress[-1][1] > 0.2, "no progress")
+        self.maker.request("b", self.source, self.info)
+        self.maker.focus("b")
+        self.assertTrue(self.maker.paused("a"))
+        pump(0.5)
+        size = self.written()
+        self.until(lambda: [key for key, _, _ in self.done] == ["b"], "b was not made first")
+        self.until(lambda: len(self.done) == 2, "a never carried on")
+        self.assertEqual([key for key, _, _ in self.done], ["b", "a"])
+        self.assertTrue(all(error == "" for _, _, error in self.done))
+        self.assertGreater(size, 0)
+        fractions = [f for key, f in self.progress if key == "a"]
+        self.assertEqual(fractions, sorted(fractions), "a started over")
+
+    def test_a_paused_copy_can_be_cancelled_and_leaves_nothing_behind(self):
+        self.maker.request("a", self.source, self.info)
+        self.until(lambda: self.progress and self.progress[-1][1] > 0.1, "no progress")
+        self.maker.park("a")
+        pump(0.3)
+        self.maker.cancel("a")
+        self.until(lambda: all(p.poll() is not None for p in self.procs), "ffmpeg is still there")
+        self.until(lambda: not list(self.folder.glob("*")), "a file was left behind")
+        self.assertEqual(self.done, [], "a cancelled copy should report nothing")
+        self.assertFalse(self.maker.active("a"))
+
+    def test_shutting_down_with_a_paused_copy_leaves_no_ffmpeg_and_no_file(self):
+        self.maker.request("a", self.source, self.info)
+        self.until(lambda: self.progress and self.progress[-1][1] > 0.1, "no progress")
+        self.maker.request("b", self.source, self.info)
+        self.maker.focus("b")
+        self.assertTrue(self.maker.paused("a"))
+        self.until(lambda: any(key == "b" for key, _ in self.progress), "b never started")
+        self.maker.shutdown()
+        self.assertEqual(len(self.procs), 2)
+        self.assertTrue(all(p.poll() is not None for p in self.procs), "ffmpeg is still there")
+        rmtree_when_free(self.folder)
+        self.assertEqual(self.done, [])
+
+
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class PlayerSwapTests(unittest.TestCase):
@@ -486,6 +892,8 @@ class MainWindowPreviewTests(unittest.TestCase):
         cls.portrait = cls.tmp / "portrait.mp4"
         make_video(cls.landscape, 320, 180, 4)
         make_video(cls.portrait, 320, 180, 3, rotation=-90)
+        cls.small = cls.tmp / "small.mp4"
+        make_video(cls.small, 128, 72, 2)
 
     @classmethod
     def tearDownClass(cls):
@@ -809,11 +1217,12 @@ class MainWindowPreviewTests(unittest.TestCase):
         first, second = self.window.items
         self.assertTrue(pump(TIMEOUT, lambda: self.window.proxies.active(first)))
         self.window.media_list.setCurrentRow(1)
-        self.assertFalse(
-            self.window.proxies.active(first),
+        # (since phase 3 the copy of the file left behind is paused, not cancelled)
+        self.assertTrue(pump(TIMEOUT, lambda: self.window.proxies.state(second) == "running"))
+        self.assertEqual(
+            self.window.proxies.state(first), "paused",
             "the copy of the file left behind kept the queue busy")
-        self.assertIsNone(first.proxy_progress)
-        self.assertTrue(pump(TIMEOUT, lambda: self.window.proxies.active(second)))
+        self.assertIsNotNone(first.proxy_progress)
 
     def test_when_the_original_will_not_play_the_copy_is_used(self):
         self.load(self.landscape)
@@ -836,6 +1245,280 @@ class MainWindowPreviewTests(unittest.TestCase):
         self.window._on_player_error("decoder said no")
         self.assertEqual(self.window.player.source, item.path)
         self.assertTrue(item.proxy_failed)
+
+    # ----- copies kept paused, and "play as it is" (phase 3) ------------------------
+
+    def fake_copies(self):
+        """Replace ffmpeg with stand-ins that work until released and stand still when paused. The
+        finished copy is a real (small) video, so that the player can load it."""
+        fake = FakeRuns(self.landscape)
+        patcher = mock.patch.object(proxy, "run_ffmpeg", fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return fake
+
+    def select_row(self, row):
+        self.window.media_list.setCurrentRow(row)
+
+    def test_switching_to_another_file_pauses_the_copy_and_works_on_the_other(self):
+        fake = self.fake_copies()
+        self.load(self.landscape, self.portrait)
+        first, second = self.window.items
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+        self.assertTrue(pump(TIMEOUT, lambda: first.proxy_progress == 0.4))
+        self.select_row(1)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("portrait")))
+        self.assertEqual(self.window.proxies.state(first), "paused")
+        self.assertEqual(
+            first.proxy_progress, 0.4, "the progress of the file left behind was lost")
+        self.assertTrue(self.window.proxies.active(first))
+        self.assertIn("Preparing", self.window.preview_status.text())
+
+    def test_going_back_to_a_file_carries_its_copy_on_from_where_it_was(self):
+        fake = self.fake_copies()
+        self.load(self.landscape, self.portrait)
+        first, second = self.window.items
+        self.assertTrue(pump(TIMEOUT, lambda: first.proxy_progress == 0.4))
+        self.select_row(1)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("portrait")))
+        self.select_row(0)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+        self.assertEqual(self.window.proxies.state(second), "paused")
+        self.assertEqual(fake.count("start", "landscape"), 1, "the copy started over")
+        self.assertEqual(first.proxy_progress, 0.4)
+
+    def test_a_paused_copy_carries_on_in_the_background_when_the_other_is_done(self):
+        fake = self.fake_copies()
+        self.load(self.landscape, self.portrait)
+        first, second = self.window.items
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+        self.select_row(1)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("portrait")))
+        fake.release("portrait")
+        self.assertTrue(pump(TIMEOUT, lambda: second.proxy is not None))
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+        self.assertIs(self.window.current, second)
+        fake.release("landscape")
+        self.assertTrue(pump(TIMEOUT, lambda: first.proxy is not None), "the copy was never made")
+        self.select_row(0)
+        self.assertEqual(self.window.player.source, first.proxy)
+
+    def test_selecting_a_small_file_does_not_stop_the_copy_of_another(self):
+        fake = self.fake_copies()
+        self.load(self.landscape, self.portrait, self.small)
+        first, second, small = self.window.items
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+        self.select_row(2)
+        pump(0.2)
+        self.assertTrue(fake.working_is("landscape"), "a small file stopped the copy of another")
+        self.assertIsNone(self.window.proxies.state(second))
+        self.assertIsNone(self.window.proxies.state(small))
+
+    def test_playing_a_file_as_it_is_pauses_its_copy_and_ticking_it_again_carries_on(self):
+        fake = self.fake_copies()
+        self.load(self.landscape)
+        item = self.window.current
+        self.assertTrue(pump(TIMEOUT, lambda: item.proxy_progress == 0.4))
+        self.window.set_play_original(item, True)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is()))
+        self.assertEqual(self.window.proxies.state(item), "paused")
+        self.assertEqual(item.proxy_progress, 0.4, "pausing threw the progress away")
+        self.assertEqual(self.window.player.source, item.path)
+        self.assertIn("paused", self.window.preview_status.text())
+        self.assertIn("40%", self.window.preview_status.text())
+        self.assertTrue(self.window.as_is_action.isChecked())
+        self.window.set_play_original(item, False)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+        self.assertEqual(fake.count("start", "landscape"), 1, "the copy started over")
+        self.assertEqual(fake.count("resume", "landscape"), 1)
+        self.assertNotIn("paused", self.window.preview_status.text())
+        self.assertFalse(self.window.as_is_action.isChecked())
+        self.assertIsNone(self.window.player.source, "the original plays while its copy is made")
+        fake.release("landscape")
+        self.assertTrue(
+            pump(TIMEOUT, lambda: self.window.player.source == item.proxy and item.proxy))
+
+    def test_a_copy_that_finished_before_playing_as_it_is_is_used_again_when_ticked_off(self):
+        self.load(self.landscape)
+        item = self.window.current
+        self.assertTrue(
+            pump(TIMEOUT, lambda: self.window.player.source == item.proxy and item.proxy))
+        copy = item.proxy
+        self.window.set_play_original(item, True)
+        self.assertEqual(self.window.player.source, item.path)
+        self.assertEqual(item.proxy, copy, "the copy was thrown away")
+        self.assertTrue(copy.is_file())
+        self.window.set_play_original(item, False)
+        self.assertEqual(self.window.player.source, copy)
+
+    def test_the_as_is_choice_is_shown_again_when_the_file_is_selected(self):
+        self.fake_copies()
+        self.load(self.landscape, self.portrait)
+        first, second = self.window.items
+        action = self.window.as_is_action
+        self.assertTrue(action.isEnabled())
+        self.assertFalse(action.isChecked())
+        self.window.set_play_original(first, True)
+        self.assertTrue(action.isChecked())
+        self.select_row(1)
+        self.assertFalse(action.isChecked())
+        self.select_row(0)
+        self.assertTrue(action.isChecked())
+        action.setChecked(False)  # the View menu item does the same as the list's menu
+        self.assertFalse(first.play_original)
+        self.window.set_smooth_previews(False)
+        self.assertFalse(
+            action.isEnabled(), "there is no copy to choose against with the setting off")
+
+    def test_the_list_menu_has_the_choice_and_shows_whether_it_is_on(self):
+        self.fake_copies()
+        self.load(self.landscape, self.portrait)
+        first, second = self.window.items
+        self.window.set_play_original(second, True)
+        menus = []
+
+        class RecordingMenu(QMenu):
+            """A menu that is only recorded, not shown (showing one waits for a click)."""
+
+            def exec(self, *args):
+                menus.append(self)
+
+        def open_menu(row):
+            point = self.window.media_list.visualItemRect(
+                self.window.items[row].list_item).center()
+            with mock.patch("video_converter.ui.main_window.library.QMenu", RecordingMenu):
+                self.window._media_menu(point)
+            return [a for a in menus[-1].actions() if a.text() == "Play this file as it is"]
+
+        (off, ) = open_menu(0)
+        (on, ) = open_menu(1)
+        self.assertTrue(off.isCheckable() and not off.isChecked())
+        self.assertTrue(on.isChecked())
+        off.toggle()
+        self.assertTrue(first.play_original)
+        on.toggle()
+        self.assertFalse(second.play_original)
+
+    def test_a_file_set_to_play_as_it_is_gets_no_copy_when_it_is_selected(self):
+        fake = self.fake_copies()
+        self.load(self.landscape, self.portrait)
+        first, second = self.window.items
+        self.window.set_play_original(second, True)
+        self.select_row(1)
+        pump(0.3)
+        self.assertEqual(self.window.player.source, second.path)
+        self.assertIsNone(self.window.proxies.state(second))
+        self.assertIsNone(second.proxy_progress)
+        self.assertEqual(fake.count("start", "portrait"), 0)
+        self.assertEqual(self.window.preview_status.text(), "")
+
+    def test_a_big_file_played_as_it_is_keeps_the_other_paused_copies_paused(self):
+        fake = self.fake_copies()
+        self.load(self.landscape, self.portrait)
+        first, second = self.window.items
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+        self.select_row(1)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("portrait")))
+        self.window.set_play_original(second, True)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is()))
+        pump(0.4)
+        self.assertTrue(fake.working_is(), "a paused copy carried on next to a big original")
+        self.assertEqual(self.window.proxies.state(first), "paused")
+        self.assertEqual(self.window.proxies.state(second), "paused")
+        # Ticking it off again gives that copy the work first; the other carries on after it.
+        self.window.set_play_original(second, False)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("portrait")))
+        self.assertEqual(self.window.proxies.state(first), "paused")
+        fake.release("portrait")
+        self.assertTrue(pump(TIMEOUT, lambda: second.proxy is not None))
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+
+    def test_moving_off_the_big_original_lets_the_other_copies_carry_on(self):
+        fake = self.fake_copies()
+        self.load(self.landscape, self.portrait, self.small)
+        first, second, small = self.window.items
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+        self.select_row(1)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("portrait")))
+        self.window.set_play_original(second, True)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is()))
+        self.select_row(2)  # a small file: nothing heavy is playing now
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+        self.assertEqual(
+            self.window.proxies.state(second), "paused",
+            "a copy of a file set to play as it is carried on")
+
+    def test_a_small_file_played_as_it_is_does_not_hold_the_other_copies(self):
+        fake = self.fake_copies()
+        self.load(self.landscape, self.portrait, self.small)
+        first, second, small = self.window.items
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+        self.select_row(1)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("portrait")))
+        self.select_row(2)
+        self.window.set_play_original(small, True)
+        pump(0.3)
+        self.assertTrue(fake.working_is("portrait"), "a small original held the copy back")
+        fake.release("portrait")
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+
+    def test_a_paused_copy_nobody_comes_back_to_is_dropped(self):
+        fake = self.fake_copies()
+        with mock.patch.object(proxy, "PAUSED_KEEP_SECONDS", 0.3):
+            self.load(self.landscape, self.portrait)
+            first, second = self.window.items
+            self.assertTrue(pump(TIMEOUT, lambda: first.proxy_progress == 0.4))
+            self.select_row(1)
+            self.assertTrue(pump(TIMEOUT, lambda: first.proxy_progress is None))
+        self.assertFalse(self.window.proxies.active(first))
+        self.assertTrue(pump(TIMEOUT, lambda: fake.count("cancel", "landscape") == 1))
+        self.assertTrue(fake.working_is("portrait"), "the copy in front was disturbed")
+        self.select_row(0)  # it has to start again
+        self.assertTrue(pump(TIMEOUT, lambda: fake.count("start", "landscape") == 2))
+
+    def test_turning_the_setting_off_drops_the_paused_copies_too(self):
+        fake = self.fake_copies()
+        self.load(self.landscape, self.portrait)
+        first, second = self.window.items
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("landscape")))
+        self.select_row(1)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is("portrait")))
+        self.window.smooth_action.setChecked(False)
+        self.assertFalse(self.window.proxies.active(first))
+        self.assertFalse(self.window.proxies.active(second))
+        self.assertIsNone(first.proxy_progress)
+        self.assertTrue(pump(TIMEOUT, lambda: fake.working_is()))
+
+    def test_removing_a_file_with_a_paused_copy_stops_ffmpeg_and_leaves_no_file(self):
+        procs = recording_processes(self)
+        with mock.patch.object(proxy, "proxy_command", paced):
+            self.load(self.landscape)
+            item = self.window.current
+            self.assertTrue(pump(TIMEOUT, lambda: item.proxy_progress))
+            self.window.set_play_original(item, True)
+            self.assertEqual(self.window.proxies.state(item), "paused")
+            self.window.remove_selected()
+            self.assertTrue(
+                pump(TIMEOUT, lambda: procs and all(p.poll() is not None for p in procs)),
+                "ffmpeg is still there")
+            self.assertTrue(
+                pump(TIMEOUT, lambda: not list((self.window.tmpdir / "preview").glob("*"))),
+                "a file was left behind")
+        self.assertFalse(self.window.proxies.active(item))
+
+    def test_closing_with_a_paused_copy_leaves_no_ffmpeg_and_no_folder(self):
+        procs = recording_processes(self)
+        with mock.patch.object(proxy, "proxy_command", paced):
+            self.load(self.landscape)
+            item = self.window.current
+            self.assertTrue(pump(TIMEOUT, lambda: item.proxy_progress))
+            self.window.set_play_original(item, True)
+            self.assertEqual(self.window.proxies.state(item), "paused")
+            folder = self.window.tmpdir
+            self.window.close()
+            self.assertTrue(
+                all(p.poll() is not None for p in procs), "ffmpeg was left running after closing")
+            self.assertFalse(folder.exists())
 
 
 if __name__ == "__main__":
