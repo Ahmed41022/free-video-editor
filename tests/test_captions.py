@@ -3,12 +3,14 @@
 import contextlib
 import io
 import json
+import os
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import zlib
 from dataclasses import asdict
@@ -115,7 +117,7 @@ class FilterEscapingTests(unittest.TestCase):
     def test_a_path_with_every_odd_character_works_in_a_real_filter(self):
         folder = Path(tempfile.mkdtemp(prefix="odd ' [x], y;z=1 "))
         try:
-            with mock.patch.object(captions, "_scratch", folder):
+            with mock.patch.object(captions.scratch, "_scratch", folder):
                 item = TextItem(text="hi", size=0.3)
                 vf = text_filter(item, FRAME, None)
                 self.assertGreater(bright(render(vf)), 50)
@@ -131,7 +133,7 @@ class FilterEscapingTests(unittest.TestCase):
         try:
             copy = folder / "my: font's [file].ttf"
             shutil.copyfile(fonts.font_file("Arial"), copy)
-            vf = f"drawtext=fontfile={captions._path_value(copy)}:text=Hi:fontsize=60:fontcolor=white"
+            vf = f"drawtext=fontfile={captions.escaping._path_value(copy)}:text=Hi:fontsize=60:fontcolor=white"
             self.assertGreater(bright(render(vf)), 50)
         finally:
             shutil.rmtree(folder, ignore_errors=True)
@@ -176,7 +178,7 @@ class TextFilterTests(unittest.TestCase):
     def test_percent_commands_are_drawn_as_they_are_typed(self):
         literal = render(text_filter(TextItem(text="%{pts}", size=0.2), FRAME, None))
         expanded = render("drawtext=fontfile=%s:text='%%{pts}':fontsize=36:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2"
-                          % captions._path_value(Path(fonts.pick_font("Arial", False, "") or "")))
+                          % captions.escaping._path_value(Path(fonts.pick_font("Arial", False, "") or "")))
         self.assertNotEqual(literal, expanded)
 
     def test_empty_text_and_empty_time_draw_nothing(self):
@@ -1411,12 +1413,12 @@ class SubtitleFontChoiceTests(FakeFonts, unittest.TestCase):
         script = ("[V4+ Styles]\nFormat: Name, Fontname, Fontsize, Bold\nStyle: Default,Arial,20,0\nStyle: Fancy,Impact,20,-1\n\n"
                   "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
                   "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\\i1}" + LAM_ALEF + "{\\i0}\n")
-        fixed = captions._fix_ass_fonts(script)
+        fixed = captions.retime._fix_ass_fonts(script)
         self.assertIn("Style: Default,Segoe UI,20,0", fixed)
         self.assertIn("Style: Fancy,Segoe UI,20,-1", fixed)
         self.assertIn("{\\i1}" + LAM_ALEF, fixed)                  # the dialogue is untouched
         english = script.replace(LAM_ALEF, "Hello")
-        self.assertEqual(captions._fix_ass_fonts(english), english)
+        self.assertEqual(captions.retime._fix_ass_fonts(english), english)
 
     def test_font_names_cannot_inject_style_keys(self):
         self.assertEqual(fonts.safe_font_name("Arial,Outline=50:x='y'\\"), "ArialOutline50xy")
@@ -1674,7 +1676,7 @@ class ScratchRaceTests(unittest.TestCase):
     def setUp(self):
         self.folder = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.folder, True)
-        patcher = mock.patch.object(captions, "_scratch", self.folder)
+        patcher = mock.patch.object(captions.scratch, "_scratch", self.folder)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -1701,13 +1703,13 @@ class ScratchRaceTests(unittest.TestCase):
 
     def test_threads_saving_the_same_content_at_once_never_collide(self):
         data = b"1\n00:00:00,000 --> 00:00:01,000\nhello\n" * 200
-        path = captions._scratch_file(data, ".srt")
+        path = captions.scratch._scratch_file(data, ".srt")
 
         def remove():                          # once the threads are done, the file must be whole
             self.assertEqual(path.read_bytes(), data)
             path.unlink()
 
-        failures = self.hammer(lambda: captions._scratch_file(data, ".srt"), remove)
+        failures = self.hammer(lambda: captions.scratch._scratch_file(data, ".srt"), remove)
         self.assertEqual(failures, [])
         self.assertEqual([p.name for p in self.folder.iterdir() if p.name.endswith(".part")], [])
 
@@ -1718,7 +1720,7 @@ class ScratchRaceTests(unittest.TestCase):
             for i in range(40):
                 data = f"{n}-{i}".encode() * 100
                 try:
-                    assert captions._scratch_file(data, ".txt").read_bytes() == data
+                    assert captions.scratch._scratch_file(data, ".txt").read_bytes() == data
                 except Exception as exc:                 # noqa: BLE001
                     failures.append(repr(exc))
 
@@ -1731,26 +1733,26 @@ class ScratchRaceTests(unittest.TestCase):
 
     def test_a_refused_replace_is_fine_when_someone_else_already_put_the_same_file_there(self):
         data = b"same content"
-        real = captions.os.replace
+        real = os.replace
         calls = []
 
         def refuse(src, dst):
             calls.append(src)
-            captions.Path(dst).write_bytes(data)         # the other thread's file appears just before
+            Path(dst).write_bytes(data)         # the other thread's file appears just before
             raise PermissionError(13, "in use")
 
-        with mock.patch.object(captions.os, "replace", refuse):
-            path = captions._scratch_file(data, ".txt")
+        with mock.patch.object(os, "replace", refuse):
+            path = captions.scratch._scratch_file(data, ".txt")
         self.assertEqual(path.read_bytes(), data)
         self.assertTrue(calls)
         self.assertEqual([p.name for p in self.folder.iterdir() if p.name.endswith(".part")], [])
         self.assertTrue(real)
 
     def test_a_replace_that_keeps_failing_with_other_content_is_an_error(self):
-        with mock.patch.object(captions.os, "replace", side_effect=PermissionError(13, "in use")), \
-                mock.patch.object(captions.time, "sleep"):
+        with mock.patch.object(os, "replace", side_effect=PermissionError(13, "in use")), \
+                mock.patch.object(time, "sleep"):
             with self.assertRaises(PermissionError):
-                captions._scratch_file(b"abc", ".txt")
+                captions.scratch._scratch_file(b"abc", ".txt")
         self.assertEqual([p.name for p in self.folder.iterdir()], [])
 
     def test_threads_copying_the_same_logo_at_once_never_collide(self):
@@ -1785,7 +1787,7 @@ class LogoFileTests(unittest.TestCase):
 
     def run_graph(self, logo: Logo, scratch: Path, seconds: float = 3.0, at: float = 0.2):
         """The overlay graph run for real over a black video: (the picture at `at` seconds as RGB, ffmpeg's complaint)."""
-        with mock.patch.object(captions, "_scratch", scratch):
+        with mock.patch.object(captions.scratch, "_scratch", scratch):
             statements = overlay_graph("[0:v]", "[out]", [], logo, Subtitles(), FRAME, [(0.0, None)])
         out = self.tmp / f"{uuid_hex()}.mp4"
         code, error = run_ffmpeg("-f", "lavfi", "-i", f"color=c=black:s={W}x{H}:d={seconds}:r=10", "-filter_complex",
@@ -1839,7 +1841,7 @@ class LogoFileTests(unittest.TestCase):
         scratch = self.tmp / "gifs 100%d"
         scratch.mkdir(exist_ok=True)
         logo = Logo(file=str(gif), size=0.4, corner="center")
-        with mock.patch.object(captions, "_scratch", scratch):
+        with mock.patch.object(captions.scratch, "_scratch", scratch):
             graph = overlay_graph("[0:v]", "[out]", [], logo, Subtitles(), FRAME, [(0.0, None)])[0]
         self.assertNotIn("format_opts", graph)
         frame, error = self.run_graph(logo, scratch, seconds=1.0, at=0.2)
@@ -1921,7 +1923,7 @@ class SpanMapperTests(unittest.TestCase):
         folder = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, folder, True)
         path = folder / "big.srt"
-        path.write_text("".join(f"{i + 1}\n{captions._srt_time(i * 0.8)} --> {captions._srt_time(i * 0.8 + 0.6)}\nline {i}\n\n"
+        path.write_text("".join(f"{i + 1}\n{captions.cues._srt_time(i * 0.8)} --> {captions.cues._srt_time(i * 0.8 + 0.6)}\nline {i}\n\n"
                                 for i in range(1500)), encoding="utf-8")
         segments = [(i * 2.0, i * 2.0 + 1.5) for i in range(600)]
         import time as clock
