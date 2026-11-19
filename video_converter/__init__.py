@@ -3,7 +3,7 @@ videos, or turn them into MP3s, with ffmpeg."""
 
 import logging
 
-__version__ = "3.0.1"
+__version__ = "3.1.0"
 APP_NAME = "Free Video Editor"
 REPO_URL = "https://github.com/Ahmed41022/free-video-editor"
 
