@@ -13,7 +13,9 @@ from ..i18n import tr
 from .commands import graph_files
 from .errors import ConversionCancelled, ConversionError
 from .paths import check_not_input, input_files, remove_file
-from .processes import pause_process, resume_process, start_process, stop_process
+from .processes import (
+    pause_process, process_memory, resume_process, start_process, stop_process,
+)
 from .winproc import _NO_WINDOW, ProcessJob
 
 log = logging.getLogger(__name__)
@@ -41,6 +43,12 @@ class PausableEvent(threading.Event):
             self.paused = True
             if self._proc is not None:
                 pause_process(self._proc)
+
+    def memory(self) -> int:
+        """The memory in bytes the run's ffmpeg (and what it started) holds; 0 when there is none
+        or it can't be measured."""
+        with self._guard:
+            return process_memory(self._proc) if self._proc is not None else 0
 
     def resume(self) -> None:
         with self._guard:

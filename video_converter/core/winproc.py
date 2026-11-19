@@ -19,6 +19,7 @@ if sys.platform == "win32":
     _PID_LIST = 3  # JobObjectBasicProcessIdList
     _PROCESS_SET_QUOTA, _PROCESS_TERMINATE = 0x0100, 0x0001
     _PROCESS_SUSPEND_RESUME = 0x0800
+    _PROCESS_QUERY_LIMITED = 0x1000
     _PID_SLOTS = 64  # more processes than an ffmpeg and its launchers will ever be
 
     class _BasicLimits(ctypes.Structure):
@@ -60,7 +61,32 @@ if sys.platform == "win32":
             ("ProcessIdList", ctypes.c_size_t * _PID_SLOTS)
         ]
 
+    class _MemoryCounters(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
+            ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaNonPagedPoolUsage", ctypes.c_size_t), ("PagefileUsage", ctypes.c_size_t),
+            ("PeakPagefileUsage", ctypes.c_size_t)
+        ]
+
+    class _MemoryStatus(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", wintypes.DWORD), ("dwMemoryLoad", wintypes.DWORD),
+            ("ullTotalPhys", ctypes.c_uint64), ("ullAvailPhys", ctypes.c_uint64),
+            ("ullTotalPageFile", ctypes.c_uint64), ("ullAvailPageFile", ctypes.c_uint64),
+            ("ullTotalVirtual", ctypes.c_uint64), ("ullAvailExtendedVirtual", ctypes.c_uint64),
+            ("ullAvailVirtual", ctypes.c_uint64)
+        ]
+
     _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _k32.K32GetProcessMemoryInfo.argtypes = [
+        wintypes.HANDLE, ctypes.POINTER(_MemoryCounters), wintypes.DWORD
+    ]
+    _k32.K32GetProcessMemoryInfo.restype = wintypes.BOOL
+    _k32.GlobalMemoryStatusEx.argtypes = [ctypes.POINTER(_MemoryStatus)]
+    _k32.GlobalMemoryStatusEx.restype = wintypes.BOOL
     _ntdll = ctypes.WinDLL("ntdll")
     _ntdll.NtSuspendProcess.argtypes = [wintypes.HANDLE]
     _ntdll.NtSuspendProcess.restype = ctypes.c_long
@@ -84,6 +110,36 @@ if sys.platform == "win32":
     _k32.QueryInformationJobObject.restype = wintypes.BOOL
     _k32.CloseHandle.argtypes = [wintypes.HANDLE]
     _k32.CloseHandle.restype = wintypes.BOOL
+
+
+def working_set(pids: list[int]) -> int:
+    """The memory in use, in bytes (the working set), by the processes with these ids; raises
+    OSError when none of them could be measured. Windows only."""
+    total, measured = 0, False
+    for pid in pids:
+        handle = _k32.OpenProcess(_PROCESS_QUERY_LIMITED, False, pid)
+        if not handle:
+            continue
+        try:
+            counters = _MemoryCounters()
+            counters.cb = ctypes.sizeof(counters)
+            if _k32.K32GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+                total += counters.WorkingSetSize
+                measured = True
+        finally:
+            _k32.CloseHandle(handle)
+    if not measured:
+        raise OSError("couldn't measure the memory of the processes")
+    return total
+
+
+def physical_memory() -> int:
+    """The PC's physical memory, in bytes; raises OSError when Windows won't say."""
+    status = _MemoryStatus()
+    status.dwLength = ctypes.sizeof(status)
+    if not _k32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        raise OSError("couldn't read the size of the memory")
+    return status.ullTotalPhys
 
 
 def suspend_processes(pids: list[int]) -> list[int]:

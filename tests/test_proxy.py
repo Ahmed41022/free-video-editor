@@ -579,18 +579,97 @@ class ProxyMakerSchedulingTests(unittest.TestCase):
         pump(0.3)
         self.assertTrue(self.fake.working_is(), "the paused copy carried on during the hold")
 
-    def test_at_most_MAX_PAUSED_copies_are_kept_and_the_oldest_is_dropped(self):
-        with mock.patch.object(proxy, "MAX_PAUSED", 2):
-            self.ask("a")
-            self.until(lambda: self.fake.working_is("a"))
-            for key in ("b", "c", "d"):
-                self.ask(key)
-                self.maker.focus(key)
-                self.until(lambda key=key: self.fake.working_is(key))
+    def memory(self, total, each):
+        """Make every paused copy hold `each` bytes on a PC with `total` bytes of memory."""
+        for name, value in (("total_memory", mock.Mock(return_value=total)),
+                            ("paused_memory", mock.Mock(side_effect=lambda job: each))):
+            patcher = mock.patch.object(proxy, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_paused_copies_over_the_memory_share_drop_the_oldest(self):
+        self.memory(2000, 100)  # a tenth of 2000 is room for two copies of 100
+        self.ask("a")
+        self.until(lambda: self.fake.working_is("a"))
+        for key in ("b", "c", "d"):
+            self.ask(key)
+            self.maker.focus(key)
+            self.until(lambda key=key: self.fake.working_is(key))
         self.assertEqual(self.dropped, ["a"])
         self.assertFalse(self.maker.active("a"))
         self.until(lambda: self.fake.count("cancel", "a") == 1, "the dropped copy kept running")
         self.assertEqual([self.maker.state(key) for key in "bcd"], ["paused", "paused", "running"])
+
+    def test_copies_that_fit_in_the_memory_share_are_all_kept(self):
+        self.memory(10_000, 100)  # a tenth is 1000: room for ten
+        self.ask("a", "b", "c", "d", "e")
+        for key in "bcde":
+            self.maker.focus(key)
+            self.until(lambda key=key: self.fake.working_is(key))
+        self.assertEqual(self.dropped, [])
+        self.assertEqual([self.maker.state(key) for key in "abcd"], ["paused"] * 4)
+
+    def test_the_share_comes_from_the_module_constant(self):
+        self.memory(1000, 300)
+        with mock.patch.object(proxy, "PAUSED_MEMORY_SHARE", 0.5):  # 500: a copy of 300 fits
+            self.ask("a", "b")
+            self.until(lambda: self.fake.working_is("a"))
+            self.maker.focus("b")
+            self.until(lambda: self.fake.working_is("b"))
+            self.assertEqual(self.dropped, [])
+            self.assertEqual(self.maker.state("a"), "paused")
+            self.maker.focus("a")
+            self.until(lambda: self.fake.working_is("a"))
+        with mock.patch.object(proxy, "PAUSED_MEMORY_SHARE", 0.1):  # 100: it no longer does
+            self.maker.focus("b")
+            self.until(lambda: self.dropped == ["a"])
+
+    def test_a_copy_that_alone_holds_more_than_the_share_is_dropped_as_soon_as_it_is_paused(self):
+        self.memory(1000, 500)  # a tenth is 100
+        self.ask("a", "b")
+        self.until(lambda: self.fake.working_is("a"))
+        self.maker.focus("b")
+        self.until(lambda: self.dropped == ["a"], "the copy that is too big was kept")
+        self.assertFalse(self.maker.active("a"))
+        self.until(lambda: self.fake.count("cancel", "a") == 1)
+        self.until(lambda: self.fake.working_is("b"))
+
+    def test_the_copy_about_to_carry_on_does_not_count_against_the_share(self):
+        memory = {"a": 60, "b": 70}
+        for name, value in (("total_memory", mock.Mock(return_value=1000)),
+                            ("paused_memory", mock.Mock(side_effect=lambda job: memory[job.key]))):
+            patcher = mock.patch.object(proxy, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.ask("a", "b")  # the share is 100: either fits, both together do not
+        self.until(lambda: self.fake.working_is("a"))
+        self.maker.focus("b")  # a is paused: 60
+        self.until(lambda: self.fake.working_is("b"))
+        self.maker.focus("a")  # b is paused (70) while a, paused too, is about to carry on
+        self.until(lambda: self.fake.working_is("a"))
+        self.assertEqual(self.dropped, [])
+        self.assertEqual(self.maker.state("b"), "paused")
+
+    def test_the_oldest_goes_first_when_several_must_be_dropped(self):
+        self.memory(1000, 60)  # the share is 100: one fits
+        self.ask("a", "b", "c", "d")
+        self.until(lambda: self.fake.working_is("a"))
+        for key in "bcd":
+            self.maker.focus(key)
+            self.until(lambda key=key: self.fake.working_is(key))
+        self.assertEqual(self.dropped, ["a", "b"])
+        self.assertEqual(
+            [self.maker.state(key) for key in "abcd"], [None, None, "paused", "running"])
+
+    def test_nothing_is_dropped_when_the_memory_of_the_pc_is_unknown(self):
+        self.memory(0, 10**12)
+        self.ask("a", "b", "c")
+        self.until(lambda: self.fake.working_is("a"))
+        self.maker.focus("b")
+        self.until(lambda: self.fake.working_is("b"))
+        self.maker.focus("c")
+        self.until(lambda: self.fake.working_is("c"))
+        self.assertEqual(self.dropped, [])
 
     def test_copies_paused_in_the_same_clock_tick_are_still_told_apart(self):
         # On Windows the clock ticks every 15.6 ms, so two pauses can get the same time.
@@ -607,9 +686,8 @@ class ProxyMakerSchedulingTests(unittest.TestCase):
 
     def test_the_oldest_pause_is_the_one_dropped_even_when_the_clock_does_not_move(self):
         # b is paused before a, though a was asked for first (it comes first in the list).
-        with mock.patch.object(proxy, "MAX_PAUSED",
-                               1), mock.patch.object(proxy, "time",
-                                                     mock.Mock(monotonic=lambda: 5.0)):
+        self.memory(1000, 100)  # room for one
+        with mock.patch.object(proxy, "time", mock.Mock(monotonic=lambda: 5.0)):
             self.ask("a", "b", "c")
             self.until(lambda: self.fake.working_is("a"))
             self.maker.focus("b")
@@ -643,8 +721,9 @@ class ProxyMakerSchedulingTests(unittest.TestCase):
         self.assertNotIn("a", self.dropped)
         self.assertTrue(self.fake.working_is("a"))
 
-    def test_the_default_limits_are_a_few_copies_and_minutes(self):
-        self.assertEqual(proxy.MAX_PAUSED, 3)
+    def test_the_default_limits_are_a_tenth_of_the_memory_and_minutes(self):
+        self.assertEqual(proxy.PAUSED_MEMORY_SHARE, 0.10)
+        self.assertFalse(hasattr(proxy, "MAX_PAUSED"), "there is no fixed count any more")
         self.assertEqual(proxy.PAUSED_KEEP_SECONDS, 300.0)
 
     def test_a_dropped_copy_can_be_asked_for_again_and_starts_over(self):
