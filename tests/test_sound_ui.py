@@ -59,7 +59,7 @@ class SoundSectionTests(unittest.TestCase):
         self.inspector.set_settings(ClipSettings(edit=VideoEdit(**edit)), 10.0)
 
     def choose(self, path):
-        with mock.patch("video_converter.ui.inspector.QFileDialog.getOpenFileName", return_value=(path, "")) as dialog:
+        with mock.patch("video_converter.ui.inspector.editing.QFileDialog.getOpenFileName", return_value=(path, "")) as dialog:
             self.inspector.music_choose.click()
         return dialog
 
@@ -255,7 +255,7 @@ class MainWindowSoundTests(unittest.TestCase):
 
     def test_music_and_ducking_are_undoable(self):
         item, inspector = self.window.current, self.window.inspector
-        with mock.patch("video_converter.ui.inspector.QFileDialog.getOpenFileName",
+        with mock.patch("video_converter.ui.inspector.editing.QFileDialog.getOpenFileName",
                         return_value=(str(self.clip), "")):
             inspector.music_choose.click()
         self.assertEqual(item.settings.edit.music, str(self.clip))
