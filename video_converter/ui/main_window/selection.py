@@ -30,22 +30,14 @@ class SelectionMixin:
         self.remove_action.setEnabled(has_file)
         self.frame_action.setEnabled(False)  # until the file's details say it has a picture
         self._update_list_actions()
+        self._sync_as_is_action()
         if changed:
-            # Don't keep a queue of big copies for files the user has already moved on from. A file
-            # that can't play until its copy is ready must not wait behind another file's copy
-            # either.
-            if item is not None and self._awaiting_copy(item):
-                cancelled = [
-                    other for other in self.items
-                    if other is not item and self.proxies.active(other)
-                ]
-                for other in cancelled:
-                    self.proxies.cancel(other)
-                    other.proxy_progress = None
-            else:
-                for other in self.proxies.cancel_waiting(keep=item):
-                    other.proxy_progress = None
+            # Don't keep a queue of big copies for files the user has already moved on from. A copy
+            # that has started is only paused (see _apply_copy_priorities): it carries on later.
+            for other in self.proxies.cancel_waiting(keep=item):
+                other.proxy_progress = None
         if item is None:
+            self._apply_copy_priorities()
             self.player.load(None)
             self._update_preview_status()
             self.view.clear(tr("Drop videos here, or click Add files"))

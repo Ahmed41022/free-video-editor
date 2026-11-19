@@ -24,7 +24,8 @@ class PreviewsMixin:
     def _preview_copy(self, item: MediaItem) -> Optional[Path]:
         """The small copy to play instead of `item`'s file, if there is one and it should be
         used."""
-        if self.smooth_previews and item.proxy is not None and item.proxy.is_file():
+        if (self.smooth_previews and not item.play_original and item.proxy is not None
+                and item.proxy.is_file()):
             return item.proxy
         return None
 
@@ -33,8 +34,9 @@ class PreviewsMixin:
         copy isn't ready yet. Playing the original meanwhile is what made the app crash inside Qt's
         decoder, so it waits."""
         return bool(
-            self.smooth_previews and not item.loading and not item.error and not item.proxy_failed
-            and self._preview_copy(item) is None and needs_proxy(item.info))
+            self.smooth_previews and not item.play_original and not item.loading and not item.error
+            and not item.proxy_failed and self._preview_copy(item) is None
+            and needs_proxy(item.info))
 
     def _begin_playback(self, item: MediaItem) -> None:
         """Load into the player what `item` should play: the smooth copy if there is one, nothing
@@ -91,10 +93,13 @@ class PreviewsMixin:
         self.view.set_frame(image, True)  # ffmpeg turned it upright already
 
     def _prepare_preview_copy(self, item: MediaItem) -> None:
-        """Start making a smooth preview copy of `item` if it is a big video and has none yet."""
-        if (self.closed or not self.smooth_previews or item.loading or item.error
-                or item.proxy is not None or item.proxy_failed or item.proxy_progress is not None
-                or not needs_proxy(item.info)):
+        """Start making a smooth preview copy of `item` if it is a big video and has none yet. A
+        copy that was paused carries on (it has the work first again) unless the file is set to
+        play as it is."""
+        self._apply_copy_priorities()
+        if (self.closed or not self.smooth_previews or item.play_original or item.loading
+                or item.error or item.proxy is not None or item.proxy_failed
+                or item.proxy_progress is not None or not needs_proxy(item.info)):
             self._update_preview_status()
             return
         item.proxy_progress = 0.0
@@ -102,12 +107,29 @@ class PreviewsMixin:
             item.proxy_progress = None
         self._update_preview_status()
 
+    def _apply_copy_priorities(self) -> None:
+        """Tell the copy maker whose copy gets the work: the selected file's (a file left behind
+        keeps what it made and is only paused), and when the others may carry on. While the
+        selected file plays as it is and is big (its original is loaded, which is heavy to play),
+        the paused copies of other files stay paused, so that nothing is added to the load."""
+        item = self.current
+        front = item if (
+            item is not None and self.smooth_previews and not item.play_original) else None
+        heavy = bool(
+            self.smooth_previews and item is not None
+            and (item.play_original or item.proxy_failed) and needs_proxy(item.info))
+        self.proxies.focus(front, hold=heavy)
+
     def _update_preview_status(self) -> None:
         item = self.current
         progress = item.proxy_progress if item is not None else None
-        self.preview_status.setText(
-            tr("Preparing a smooth preview… {percent:.0%}", percent=progress
-               ) if progress is not None else "")
+        if progress is None:
+            text = ""
+        elif self.proxies.paused(item):
+            text = tr("Smooth preview paused… {percent:.0%}", percent=progress)
+        else:
+            text = tr("Preparing a smooth preview… {percent:.0%}", percent=progress)
+        self.preview_status.setText(text)
 
     def _on_proxy_progress(self, item: MediaItem, fraction: float) -> None:
         if item in self.items and item.proxy_progress is not None:
@@ -131,10 +153,58 @@ class PreviewsMixin:
                     tr("Couldn't prepare a smooth preview, so the original plays instead."), 6000)
         else:
             item.proxy = path
-            if item is self.current and self.smooth_previews:
+            if item is self.current and self.smooth_previews and not item.play_original:
                 self._switch_player(path, upright=True)
                 self.statusBar().showMessage(tr("The smooth preview is ready."), 4000)
+        self._apply_copy_priorities()
         self._update_preview_status()
+
+    def _on_proxy_dropped(self, item: MediaItem) -> None:
+        """A paused copy was given up (too many were kept, or it waited too long): it will start
+        again from the beginning if it is wanted."""
+        if item in self.items and not self.proxies.active(item):
+            item.proxy_progress = None
+            self._update_preview_status()
+
+    def set_play_original(self, item: MediaItem, on: bool) -> None:
+        """Play `item` as it is, instead of its smooth copy, or go back to the copy. The copy that
+        is being made is paused where it is, not thrown away: choosing the copy again carries on
+        from there (and it has the work first), unless it was dropped meanwhile."""
+        if on == item.play_original or item not in self.items:
+            return
+        item.play_original = on
+        self.proxies.park(item, on)
+        if item is self.current:
+            self._sync_as_is_action()
+            if on:
+                if not item.loading:
+                    self._switch_player(item.path, upright=False)
+                if item.proxy_progress is not None:
+                    self.statusBar().showMessage(
+                        tr("Playing the original. The smooth preview is paused where it was."),
+                        6000)
+            else:
+                copy = self._preview_copy(item)
+                if copy is not None:
+                    self._switch_player(copy, upright=True)
+                elif self._awaiting_copy(item):
+                    self._begin_playback(item)
+            self._prepare_preview_copy(item)
+        else:
+            self._apply_copy_priorities()
+        self._update_preview_status()
+
+    def _sync_as_is_action(self) -> None:
+        """Show the selected file's "play as it is" choice in the View menu."""
+        item = self.current
+        self.as_is_action.setEnabled(item is not None and self.smooth_previews)
+        self.as_is_action.blockSignals(True)
+        self.as_is_action.setChecked(item is not None and item.play_original)
+        self.as_is_action.blockSignals(False)
+
+    def _on_as_is_toggled(self, on: bool) -> None:
+        if self.current is not None:
+            self.set_play_original(self.current, on)
 
     def set_smooth_previews(self, on: bool) -> None:
         """The View menu's switch: play small copies of big videos, or always the originals."""
@@ -142,6 +212,7 @@ class PreviewsMixin:
             return
         self.smooth_previews = on
         self.store.setValue("smoothPreviews", on)
+        self._sync_as_is_action()
         item = self.current
         if not on:
             self.proxies.cancel_all()
@@ -187,8 +258,9 @@ class PreviewsMixin:
             self.statusBar().showMessage(
                 tr("The smooth preview wouldn't play, so the original plays instead."), 6000)
             return
-        if (item is not None and self.smooth_previews and item.proxy is not None
-                and item.proxy.is_file() and self.player.source == item.path):
+        if (item is not None and self.smooth_previews and not item.play_original
+                and item.proxy is not None and item.proxy.is_file()
+                and self.player.source == item.path):
             # The original won't play (or the decoder gave up on it) but there is a smooth copy:
             # play that.
             self.player.swap_source(item.proxy, upright=True)

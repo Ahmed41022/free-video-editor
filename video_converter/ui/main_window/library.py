@@ -169,6 +169,16 @@ class LibraryMixin:
             self.join_clips)
         join.setEnabled(len(self.items) > 1)
         menu.addAction(tr("Remove from list"), self.remove_selected)
+        clicked = next(
+            (item for item in self.items if item.list_item is self.media_list.itemAt(point)), None)
+        if clicked is not None:
+            menu.addSeparator()
+            as_is = menu.addAction(tr("Play this file as it is"))
+            as_is.setCheckable(True)
+            as_is.setChecked(clicked.play_original)
+            as_is.setEnabled(self.smooth_previews)
+            as_is.setToolTip(self.as_is_action.toolTip())
+            as_is.toggled.connect(lambda on, item=clicked: self.set_play_original(item, on))
         menu.exec(self.media_list.mapToGlobal(point))
 
     def _item_text(self, item: MediaItem) -> str:
