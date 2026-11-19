@@ -22,6 +22,7 @@ class HomeMixin:
     def _init_home(self) -> None:
         self.at_home = False
         self.home: Optional[HomePage] = None
+        self.show_projects = True  # the projects are shown on the home page (a setting)
         self._pending_feature = ""  # a feature chosen before any file was open
 
     def _build_stack(self) -> QStackedWidget:
@@ -41,6 +42,7 @@ class HomeMixin:
             page.featureChosen.connect(self.start_with_feature)
             page.startRequested.connect(self.start_editing)
             page.backToEditorRequested.connect(self.show_editor)
+            page.showProjectsRequested.connect(self.set_show_projects)
             self.stack.addWidget(page)
         return self.home
 
@@ -64,7 +66,18 @@ class HomeMixin:
         page = self._ensure_home()
         page.set_work(self.project.name if self.project else "" if self.items else None)
         page.set_recoveries(self.projects.recoveries(self.session))
-        page.set_projects(self.projects.list())
+        page.set_projects_shown(self.show_projects)
+        page.set_projects(self.projects.list() if self.show_projects else [])
+
+    def set_show_projects(self, on: bool) -> None:
+        """Show or hide the projects on the home page (the Project menu and the page's own link).
+        Only the page changes: no project is touched."""
+        self.show_projects = bool(on)
+        self.store.setValue("showProjects", self.show_projects)
+        if self.show_projects_action.isChecked() != self.show_projects:
+            self.show_projects_action.setChecked(self.show_projects)
+        if self.home is not None:
+            self.refresh_home()
 
     def show_editor(self) -> None:
         """Go to the editor (from the home page)."""

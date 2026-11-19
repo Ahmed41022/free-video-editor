@@ -107,6 +107,8 @@ class PreferencesMixin:
         except ValueError:
             self.user_presets = {}
         self.inspector.set_presets(self.user_presets)
+        self.show_projects = self._saved_bool("showProjects", True)
+        self.show_projects_action.setChecked(self.show_projects)
         self.smooth_previews = self._saved_bool("smoothPreviews", True)
         self.smooth_action.setChecked(self.smooth_previews)
         self.check_updates = self._saved_bool(updates.ENABLED_KEY, True)

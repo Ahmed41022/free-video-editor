@@ -235,6 +235,7 @@ class HomePage(QScrollArea):
     featureChosen = Signal(str)
     startRequested = Signal()  # start in general: add files and edit
     backToEditorRequested = Signal()
+    showProjectsRequested = Signal(bool)  # the Hide / Show them links
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -276,11 +277,29 @@ class HomePage(QScrollArea):
         heading.setObjectName("heading")
         row.addWidget(heading)
         row.addStretch(1)
+        self.hide_button = QPushButton(tr("Hide"))
+        self.hide_button.setToolTip(
+            tr("Hide your projects on this page. Nothing is deleted; you can show them again."))
+        self.hide_button.clicked.connect(lambda: self.showProjectsRequested.emit(False))
+        row.addWidget(self.hide_button)
         self.new_button = QPushButton(tr("New project"))
         self.new_button.setObjectName("primary")
         self.new_button.clicked.connect(self.newProjectRequested)
         row.addWidget(self.new_button)
-        outer.addLayout(row)
+        self.projects_header = QWidget()
+        self.projects_header.setLayout(row)
+        row.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self.projects_header)
+        self.hidden_note = QWidget()
+        note = QHBoxLayout(self.hidden_note)
+        note.setContentsMargins(0, 0, 0, 0)
+        note.addWidget(Text(tr("Your projects are hidden.")))
+        self.show_button = QPushButton(tr("Show them"))
+        self.show_button.clicked.connect(lambda: self.showProjectsRequested.emit(True))
+        note.addWidget(self.show_button)
+        note.addStretch(1)
+        self.hidden_note.hide()
+        outer.addWidget(self.hidden_note)
         self.empty_label = Text(
             tr(
                 "No projects yet. A project keeps your editing, so you can close the app and "
@@ -307,6 +326,7 @@ class HomePage(QScrollArea):
         outer.addWidget(self.feature_grid)
         outer.addStretch(1)
 
+        self.projects_shown = True
         self.project_cards: list[ProjectCard] = []
         self._projects: list[ProjectInfo] = []
         self._features = list(FEATURES)
@@ -343,14 +363,26 @@ class HomePage(QScrollArea):
             self.recovery_layout.addWidget(row)
         self.recovery_box.setVisible(bool(recoveries))
 
+    def set_projects_shown(self, shown: bool) -> None:
+        """Show the projects section, or (hidden) a note with a way to bring it back. Nothing on
+        disk changes."""
+        self.projects_shown = shown
+        self.projects_header.setVisible(shown)
+        self.project_grid.setVisible(shown)
+        self.hidden_note.setVisible(not shown)
+        if not shown:
+            self.empty_label.hide()
+
     def set_projects(self, projects: list[ProjectInfo]) -> None:
         """Show the projects. The cards are made a few at a time, so a long list doesn't hold up
         the window."""
         self._timer.stop()
         self.project_grid.clear()
         self.project_cards = []
+        if not self.projects_shown:
+            projects = []  # no card, and so no picture, is made while they are hidden
         self._projects = list(projects)
-        self.empty_label.setVisible(not projects)
+        self.empty_label.setVisible(self.projects_shown and not projects)
         self._timer.start()
 
     def _make_batch(self) -> None:
