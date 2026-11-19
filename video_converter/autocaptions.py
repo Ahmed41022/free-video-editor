@@ -7,7 +7,8 @@ time, so the subtitle retiming that already exists (cuts, speed, reverse) keeps 
 whatever the edit does later.
 
 Nothing here touches the network except `speech_models.download_model`, the one-time download of
-the model. """
+the model.
+"""
 
 from __future__ import annotations
 

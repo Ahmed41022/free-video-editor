@@ -16,7 +16,8 @@ the exit code is 1 for any failure, error or worker that died.
 
 A test that runs longer than --timeout seconds (900 by default) gets every thread's stack written
 to the error output and its worker ended, which fails the run: a hung test cannot stall it for
-ever. Only the standard library is used. """
+ever. Only the standard library is used.
+"""
 import argparse
 import faulthandler
 import json

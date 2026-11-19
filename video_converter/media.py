@@ -73,7 +73,8 @@ def extract_thumbnails(
     Every thumbnail is its own fast seek (an `-ss` input), so this stays quick on long videos,
     and a few of them share each ffmpeg run. A seek that finds no frame just leaves its file out,
     and a run that takes longer than `timeout` seconds (by default, a time that grows with the
-    video) is stopped and the rest of the thumbnails are left out. """
+    video) is stopped and the rest of the thumbnails are left out.
+    """
     timeout = thumbnail_timeout(duration) if timeout is None else timeout
     out_dir.mkdir(parents=True, exist_ok=True)
     jobs = [

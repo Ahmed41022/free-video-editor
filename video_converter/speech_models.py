@@ -10,7 +10,8 @@ from).
 Every file of every model is pinned here by size and SHA-256 at a fixed revision of its repository.
 A download is written to a temporary folder, checked file by file, and only then moved into place,
 and a model is checked again before it is loaded, so a damaged, half-finished or swapped file is
-never used. """
+never used.
+"""
 
 from __future__ import annotations
 

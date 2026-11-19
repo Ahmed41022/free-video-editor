@@ -1,5 +1,6 @@
 """The file formats an export can make (MP4, H.265, WebM, MOV, GIF), and fitting a video into a
-file size. Only arithmetic and options live here; the ffmpeg commands are built in video.py."""
+file size. Only arithmetic and options live here; the ffmpeg commands are built in the `video`
+package."""
 
 from __future__ import annotations
 

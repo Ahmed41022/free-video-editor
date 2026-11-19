@@ -15,7 +15,8 @@ tests/test_i18n.py). A new string needs only an entry in `locales/<language>.jso
 
 The language is chosen once at start-up (a change asks for a restart), so text may be translated at
 the moment it is produced. The command line never calls `set_language`, so its output stays
-English. """
+English.
+"""
 
 from __future__ import annotations
 

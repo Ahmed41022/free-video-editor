@@ -1,4 +1,4 @@
-"""Entry point.
+"""The command line; `python -m video_converter` starts it when it is given files.
 
     python -m video_converter                          # open the desktop app
     python -m video_converter video.mp4 [...]          # convert to MP3 from the command line

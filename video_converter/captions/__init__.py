@@ -1,13 +1,14 @@
 """Text, a logo and subtitles drawn into the picture.
 
 Everything here builds ffmpeg filter graphs (and the small temporary files they read); running them
-is up to `video.py`. The overlays are the last step of the picture, after the reframing, the
-adjustments and the fades, so a look doesn't tint them and a fade to black doesn't hide them.
+is up to the `video` package. The overlays are the last step of the picture, after the reframing,
+the adjustments and the fades, so a look doesn't tint them and a fade to black doesn't hide them.
 
 Times: a text item's start and end are measured on the exported video's own timeline (after cuts
 and speed), like the picture fades. Subtitle files were made for the original video, so their times
 are source times; `retimed_subtitles` rewrites them onto the export's timeline, dropping what was
-cut out. """
+cut out.
+"""
 
 from __future__ import annotations
 

@@ -8,7 +8,8 @@ to a font that does, so the text never turns into boxes.
 The measuring reads just the few tables of a TrueType/OpenType file it needs (character map,
 advance widths, line height), so it is the same on every machine and needs no graphics toolkit. It
 is only used to wrap long lines and to size the boxes drawn over the preview; ffmpeg does the real
-drawing. """
+drawing.
+"""
 
 from __future__ import annotations
 

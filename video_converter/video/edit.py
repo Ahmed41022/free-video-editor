@@ -129,7 +129,8 @@ class VideoEdit:
     music: str = ""  # background music file; "" = none
     music_volume: float = DEFAULT_MUSIC_VOLUME  # dB, next to the video's own sound
     music_duck: bool = False  # lower the music while the video's sound plays
-    texts: list[TextItem] = field(default_factory=list)  # text on the picture, see captions.py
+    # text on the picture, see the captions package
+    texts: list[TextItem] = field(default_factory=list)
     logo: Logo = field(default_factory=Logo)  # a logo or watermark over the whole video
     subtitles: Subtitles = field(
         default_factory=Subtitles)  # a subtitle file burned into the picture

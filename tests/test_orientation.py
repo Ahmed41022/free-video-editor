@@ -77,9 +77,9 @@ class RotationParsingTests(unittest.TestCase):
         self.assertEqual(parse_media_info(text).display_rotation, 0)
 
     def test_rotation_of_a_later_stream_is_not_applied_to_the_first_video(self):
-        # Suspected bug: core.py parse_media_info searches for "rotation of ..." in all the text
-        # after the first video stream, so rotation metadata belonging to a LATER stream (here a
-        # second video track such as embedded cover art) is attributed to the first one. Input:
+        # Suspected bug: core/probe.py parse_media_info searches for "rotation of ..." in all the
+        # text after the first video stream, so rotation metadata belonging to a LATER stream (here
+        # a second video track such as embedded cover art) is attributed to the first one. Input:
         # first video stream has no rotation, second video stream says "rotation of -90.00
         # degrees". Expected display_rotation == 0 and 1920x1080; actual 90 and 1080x1920.
         text = """

@@ -1,7 +1,7 @@
 """Sound tools: volume, even loudness, noise reduction and background music.
 
-Everything here builds ffmpeg filter graphs; running them is up to `video.py` and `core.py`. The
-loudness is evened out in two passes (measure, then apply), which is how loudnorm is accurate.
+Everything here builds ffmpeg filter graphs; running them is up to the `video` and `core` packages.
+The loudness is evened out in two passes (measure, then apply), which is how loudnorm is accurate.
 """
 
 from __future__ import annotations
