@@ -257,6 +257,12 @@ class ProjectStore:
     def names(self, exclude: Optional[str] = None) -> list[str]:
         return [info.name for info in self.list() if info.id != exclude]
 
+    def existing_name(self, name: str, exclude: Optional[str] = None) -> Optional[str]:
+        """The name another project has that counts as `name` (capitals don't count), as that
+        project saved it, or None if the name is free."""
+        wanted = _same_name(name)
+        return next((other for other in self.names(exclude) if _same_name(other) == wanted), None)
+
     def name_taken(self, name: str, exclude: Optional[str] = None) -> bool:
         wanted = _same_name(name)
         return any(_same_name(other) == wanted for other in self.names(exclude))

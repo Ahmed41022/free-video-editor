@@ -13,7 +13,7 @@ os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
     from PySide6.QtCore import QEvent, QSettings, Qt
-    from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton
+    from PySide6.QtWidgets import QApplication, QInputDialog, QLabel, QMessageBox, QPushButton
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
@@ -497,6 +497,79 @@ class HideProjectsTests(HomeCase):
         with mock.patch.object(QMessageBox, "question", side_effect=question):
             window.delete_project(ident)
         self.assertIn("لا تُحذف مقاطع الفيديو", seen[1])
+
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class OpenProjectStaysOpenTests(HomeCase):
+    """Hiding the projects, cancelling a new project and the like never close the open one."""
+
+    def open_project_on_home(self, files=None):
+        window = self.new_window(files=files)
+        with mock.patch.object(QInputDialog, "getText", return_value=("Click test", True)):
+            self.assertTrue(window.save_as_project())
+        window.show_home()
+        return window
+
+    def assert_still_open(self, window, what):
+        self.assertIsNotNone(window.project, what)
+        self.assertEqual(window.project.name, "Click test", what)
+        self.assertGreater(len(window.items), 0, what)
+        self.assertFalse(window.home.back_button.isHidden(), what)
+        self.assertEqual(window.home.back_button.text(), "Back to Click test", what)
+
+    def test_hiding_and_showing_the_projects_keeps_the_open_project(self):
+        window = self.open_project_on_home(files=[self.video, self.second])
+        self.assert_still_open(window, "before")
+        window.home.hide_button.click()  # the link on the page
+        self.assert_still_open(window, "after Hide")
+        window.home.show_button.click()
+        self.assert_still_open(window, "after Show them")
+        window.show_projects_action.trigger()  # the Project menu
+        self.assert_still_open(window, "after the menu hid them")
+        window.show_projects_action.trigger()
+        self.assert_still_open(window, "after the menu showed them")
+        window.show_editor()  # and back in the editor everything is as it was
+        self.assertEqual(len(window.items), 2)
+        self.assertTrue(window.rename_action.isVisible())
+        self.assertTrue(window.back_action.isVisible())
+        self.assertIn("Click test", window.windowTitle())
+
+    def test_cancelling_a_new_project_keeps_the_open_project(self):
+        window = self.open_project_on_home()
+        with mock.patch.object(QInputDialog, "getText", return_value=("", False)):
+            window.new_project()
+        self.assert_still_open(window, "after Cancel")
+        window.home.hide_button.click()  # a refresh of the page shows the truth
+        self.assert_still_open(window, "after Cancel and Hide")
+
+    def test_a_project_that_cannot_be_opened_leaves_the_open_one_alone(self):
+        window = self.open_project_on_home()
+        (window.projects.folder / "broken.json").write_text(
+            '{"format": 99, "id": "broken", "name": "Broken"}', encoding="utf-8")
+        with mock.patch.object(QMessageBox, "warning") as warning:
+            window.open_project("broken")
+        warning.assert_called_once()
+        self.assert_still_open(window, "after a failed open")
+
+    def test_the_project_menu_is_right_while_it_is_closed(self):
+        window = self.open_project_on_home()
+        # (nobody opened the menu since Home was pressed: what is read from it must be right)
+        for action in (window.save_as_action, window.rename_action, window.back_action):
+            self.assertFalse(action.isVisible(), action.text())
+        window.show_editor()
+        self.assertTrue(window.rename_action.isVisible())
+        self.assertTrue(window.back_action.isVisible())
+
+    def test_the_duplicate_name_message_names_the_existing_project_as_saved(self):
+        window = self.new_window(load=False, home=True)
+        window.projects.create("Click test")
+        answers = iter([("click test", True), ("Other", True)])
+        with mock.patch.object(QInputDialog, "getText", side_effect=answers), \
+                mock.patch.object(QMessageBox, "warning") as warning:
+            window.new_project()
+        text = warning.call_args_list[0].args[2]
+        self.assertIn("Click test", text)
+        self.assertNotIn("click test", text)
 
 
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")
