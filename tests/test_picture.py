@@ -209,13 +209,13 @@ class StabilizeExportTests(unittest.TestCase):
 
     def recorded_run(self, action):
         """Run `action()` while recording every ffmpeg run: (command, working folder, output)."""
-        calls, real = [], video.run_ffmpeg
+        calls, real = [], video.export.run_ffmpeg
 
         def record(cmd, output, duration, on_progress=None, cancel_event=None, cwd=None):
             calls.append((cmd, cwd, output))
             return real(cmd, output, duration, on_progress, cancel_event, cwd)
 
-        with mock.patch.object(video, "run_ffmpeg", record):
+        with mock.patch.object(video.export, "run_ffmpeg", record):
             result = action()
         return result, calls
 
@@ -246,7 +246,7 @@ class StabilizeExportTests(unittest.TestCase):
             return output
 
         job = VideoJob(self.source, self.tmp / "unused.mp4", VideoEdit(aspect=None, stabilize="light"))
-        with mock.patch.object(video, "run_ffmpeg", fake):
+        with mock.patch.object(video.export, "run_ffmpeg", fake):
             convert_video(FFMPEG, job, on_progress=progress.append)
         self.assertEqual(len(progress), 4)
         for got, expected in zip(progress, (0.1, 0.2, 0.6, 1.0)):

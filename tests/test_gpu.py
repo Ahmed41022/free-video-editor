@@ -231,21 +231,21 @@ class FallbackTests(unittest.TestCase):
 
     def test_a_working_encoder_is_not_retried(self):
         notes = []
-        with mock.patch("video_converter.video.run_ffmpeg", side_effect=lambda cmd, *a, **k: Path(cmd[-1])) as run:
+        with mock.patch("video_converter.video.export.run_ffmpeg", side_effect=lambda cmd, *a, **k: Path(cmd[-1])) as run:
             convert_video(FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()), encoder="h264_nvenc",
                           on_note=notes.append)
         self.assertEqual(run.call_count, 1)
         self.assertEqual(notes, [])
 
     def test_the_cpu_is_never_retried(self):
-        with mock.patch("video_converter.video.run_ffmpeg", side_effect=ConversionError("boom")) as run:
+        with mock.patch("video_converter.video.export.run_ffmpeg", side_effect=ConversionError("boom")) as run:
             with self.assertRaises(ConversionError):
                 convert_video(FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()), encoder=None)
         self.assertEqual(run.call_count, 1)
 
     def test_when_the_cpu_fails_too_the_error_is_the_cpus(self):
         errors = [ConversionError("card said no"), ConversionError("cpu said no")]
-        with mock.patch("video_converter.video.run_ffmpeg", side_effect=errors) as run:
+        with mock.patch("video_converter.video.export.run_ffmpeg", side_effect=errors) as run:
             with self.assertRaisesRegex(ConversionError, "cpu said no"):
                 convert_video(FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()), encoder="h264_nvenc")
         self.assertEqual(run.call_count, 2)
@@ -254,7 +254,7 @@ class FallbackTests(unittest.TestCase):
         self.assertEqual(after(second, "-c:v"), "libx264")
 
     def test_the_retry_is_the_same_job(self):
-        with mock.patch("video_converter.video.run_ffmpeg",
+        with mock.patch("video_converter.video.export.run_ffmpeg",
                         side_effect=[ConversionError("x"), Path("out.mp4")]) as run:
             convert_video(FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit(crf=18, speed=2.0)),
                           encoder="h264_nvenc")
@@ -278,7 +278,7 @@ class FallbackTests(unittest.TestCase):
             cancel.set()
             raise ConversionError("card failed")
 
-        with mock.patch("video_converter.video.run_ffmpeg", side_effect=fail_and_cancel) as run:
+        with mock.patch("video_converter.video.export.run_ffmpeg", side_effect=fail_and_cancel) as run:
             with self.assertRaises(ConversionCancelled):
                 convert_video(FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()),
                               cancel_event=cancel, encoder="h264_nvenc")
@@ -299,7 +299,7 @@ class FallbackTests(unittest.TestCase):
                 return real_run(cmd, output, duration, progress, cancel_event, cwd)
             return real_run(cmd, output, duration, on_progress, cancel_event, cwd)
 
-        with mock.patch("video_converter.video.run_ffmpeg", side_effect=run):
+        with mock.patch("video_converter.video.export.run_ffmpeg", side_effect=run):
             with mock.patch.dict(gpu.ENCODERS, BOGUS):
                 with self.assertRaises(ConversionCancelled):
                     convert_video(FFMPEG, VideoJob(self.source, out, VideoEdit()), cancel_event=cancel,

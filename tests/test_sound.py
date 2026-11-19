@@ -777,7 +777,7 @@ class TwoPassTests(unittest.TestCase):
 
     def recorded(self, action, *, spawned=None):
         """Run `action()` while recording every ffmpeg run, in order: (command, working folder, output)."""
-        calls, real_core, real_video = [], core.run_ffmpeg, video.run_ffmpeg
+        calls, real_core, real_video = [], core.run_ffmpeg, video.export.run_ffmpeg
 
         def recorder(real):
             def record(cmd, output, duration, on_progress=None, cancel_event=None, cwd=None, report=None):
@@ -795,7 +795,7 @@ class TwoPassTests(unittest.TestCase):
             return process
 
         with mock.patch.object(core.audio, "run_ffmpeg", recorder(real_core)), \
-                mock.patch.object(video, "run_ffmpeg", recorder(real_video)), \
+                mock.patch.object(video.export, "run_ffmpeg", recorder(real_video)), \
                 mock.patch.object(subprocess, "Popen", spy):
             result = action()
         return result, calls
@@ -850,7 +850,7 @@ class TwoPassTests(unittest.TestCase):
             on_progress(1.0)
             return output
 
-        with mock.patch.object(core.audio, "run_ffmpeg", fake), mock.patch.object(video, "run_ffmpeg", fake):
+        with mock.patch.object(core.audio, "run_ffmpeg", fake), mock.patch.object(video.export, "run_ffmpeg", fake):
             if mp3:
                 convert(FFMPEG, ConversionJob(self.clip, self.tmp / "unused.mp3", sound=edit.sound), progress.append)
             else:

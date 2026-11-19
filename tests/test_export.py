@@ -632,9 +632,9 @@ class FittingLoopTests(unittest.TestCase):
                 out.write_bytes(b"x" * sizes.pop(0))
             return out
 
-        with mock.patch.object(video, "run_ffmpeg", fake):
+        with mock.patch.object(video.export, "run_ffmpeg", fake):
             self.fit = fit
-            return video._finish(lambda transforms, enc, loudness: [f"encode:{enc}"], {}, None, encoder, self.output,
+            return video.export._finish(lambda transforms, enc, loudness: [f"encode:{enc}"], {}, None, encoder, self.output,
                                  8.0, None, None, self.tmp, (notes.append if notes is not None else None), fit,
                                  (lambda transforms: ["prepass"]) if prepass else None)
 
@@ -875,13 +875,13 @@ class RealExportTests(unittest.TestCase):
                                 megabytes, lowest=0.92)
 
     def test_the_passes_run_in_one_temporary_folder_that_is_removed(self):
-        calls, real = [], video.run_ffmpeg
+        calls, real = [], video.export.run_ffmpeg
 
         def record(cmd, out, duration, on_progress=None, cancel_event=None, cwd=None):
             calls.append((cmd, cwd))
             return real(cmd, out, duration, on_progress, cancel_event, cwd)
 
-        with mock.patch.object(video, "run_ffmpeg", record):
+        with mock.patch.object(video.export, "run_ffmpeg", record):
             out = self.export("passes.mp4", source=self.hard, target_mb=1.0)
         self.assertGreaterEqual(len(calls), 2)
         (first, first_cwd), (second, second_cwd) = calls[0], calls[1]
@@ -910,13 +910,13 @@ class RealExportTests(unittest.TestCase):
         # Half the video at twice the speed is a second and a half: the picture gets more than four times the bitrate.
         bitrates = {}
         for name, edit in (("whole", {}), ("quick", {"keep": [(0.0, 3.0)], "speed": 2.0})):
-            calls, real = [], video.run_ffmpeg
+            calls, real = [], video.export.run_ffmpeg
 
             def record(cmd, out, duration, on_progress=None, cancel_event=None, cwd=None):
                 calls.append(cmd)
                 return real(cmd, out, duration, on_progress, cancel_event, cwd)
 
-            with mock.patch.object(video, "run_ffmpeg", record):
+            with mock.patch.object(video.export, "run_ffmpeg", record):
                 out = self.export(f"fit-{name}.mp4", source=self.hard, target_mb=1.0, **edit)
             bitrates[name] = int(after(calls[0], "-b:v").rstrip("k"))
             self.assertFits(out, 1.0, lowest=0.8)
@@ -935,7 +935,7 @@ class RealExportTests(unittest.TestCase):
     def test_a_size_that_nothing_can_fit_fails_before_encoding_anything(self):
         target = self.tmp / "impossible.mp4"
         calls = []
-        with mock.patch.object(video, "run_ffmpeg", lambda *a, **k: calls.append(a)):
+        with mock.patch.object(video.export, "run_ffmpeg", lambda *a, **k: calls.append(a)):
             with self.assertRaises(ConversionError) as caught:
                 convert_video(FFMPEG, VideoJob(self.hard, target, VideoEdit(aspect=None, target_mb=0.05)))
         self.assertIn("too long to fit in 0.05 MB", str(caught.exception))
@@ -967,7 +967,7 @@ class RealExportTests(unittest.TestCase):
         for name, condition, runs in (("cancel-first", lambda f: f > 0, 1),
                                       ("cancel-second", lambda f: f > video.PREPASS_SHARE, 2)):
             with self.subTest(name=name):
-                cancel, calls, real = threading.Event(), [], video.run_ffmpeg
+                cancel, calls, real = threading.Event(), [], video.export.run_ffmpeg
 
                 def record(cmd, out, duration, on_progress=None, cancel_event=None, cwd=None):
                     calls.append(cwd)
@@ -978,7 +978,7 @@ class RealExportTests(unittest.TestCase):
                         cancel.set()
 
                 target = self.tmp / f"{name}.mp4"
-                with mock.patch.object(video, "run_ffmpeg", record), self.assertRaises(ConversionCancelled):
+                with mock.patch.object(video.export, "run_ffmpeg", record), self.assertRaises(ConversionCancelled):
                     convert_video(FFMPEG, VideoJob(self.hard, target, VideoEdit(aspect=None, target_mb=1.0)),
                                   on_progress=progress, cancel_event=cancel)
                 self.assertEqual(len(calls), runs)

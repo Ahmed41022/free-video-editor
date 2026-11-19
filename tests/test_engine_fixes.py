@@ -572,8 +572,8 @@ class FitProgressTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "o.part.mp4"
             fit = output.SizeFit(1_000_000, 1000, 128, 10.0)
-            with mock.patch.object(video, "run_ffmpeg", fake):
-                result = video._finish(lambda t, e, loudness: ["ffmpeg"], {}, None, None, target, 10.0, reported.append,
+            with mock.patch.object(video.export, "run_ffmpeg", fake):
+                result = video.export._finish(lambda t, e, loudness: ["ffmpeg"], {}, None, None, target, 10.0, reported.append,
                                        None, Path(tmp), None, fit, None)
             self.assertEqual(result, target)
             self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()), ["o.part.mp4"])
