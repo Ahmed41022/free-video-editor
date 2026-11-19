@@ -45,12 +45,18 @@ class LayoutMixin:
             toolbar.addAction(act)
             return act
 
+        self.home_action = action(
+            tr("Home"), "home", self.show_home, tip=tr("Back to your projects and the features"))
+        self.save_action = action(
+            tr("Save"), "save", self.save_project, "Ctrl+S",
+            tip=tr("Save the project (or make one of these files)"))
+        self.save_separator = toolbar.addSeparator()
         self.add_action = action(tr("Add files"), "add", self.choose_files, "Ctrl+O")
         self.folder_action = action(tr("Add folder"), "folder", self.choose_folder)
         self.remove_action = action(
             trc("toolbar", "Remove"), "trash", self.remove_selected,
             tip=tr("Remove the selected file"))
-        toolbar.addSeparator()
+        self.remove_separator = toolbar.addSeparator()
         self.undo_action = self.undo_stack.createUndoAction(self, tr("Undo"))
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
         self.undo_action.setData("undo")
@@ -59,12 +65,12 @@ class LayoutMixin:
         self.redo_action.setData("redo")
         toolbar.addAction(self.undo_action)
         toolbar.addAction(self.redo_action)
-        toolbar.addSeparator()
+        self.undo_separator = toolbar.addSeparator()
         self.frame_action = action(
             tr("Save frame"), "camera", self.save_frame_image, "Ctrl+Shift+S",
             tip=tr("Save the frame at the playhead as an image, with your edits"))
         self.frame_action.setEnabled(False)
-        toolbar.addSeparator()
+        self.theme_separator = toolbar.addSeparator()
         self.theme_action = action(
             tr("Theme"), "moon", self.toggle_theme, tip=tr("Switch between dark and light"))
 
@@ -77,7 +83,7 @@ class LayoutMixin:
                 "Export the files as one video, in list order: the selected files, or all of "
                 "them. Drag files in the list to reorder them. (Ctrl+J)"))
         self.join_button.clicked.connect(self.join_clips)
-        toolbar.addWidget(self.join_button)
+        self.join_action = toolbar.addWidget(self.join_button)
         self.export_all_button = QPushButton(tr("Export all"))
         self.export_all_button.setToolTip(tr("Export every file in the list (Ctrl+Shift+E)"))
         self.export_all_button.clicked.connect(self.export_all)
@@ -85,14 +91,22 @@ class LayoutMixin:
         self.export_button.setObjectName("primary")
         self.export_button.setToolTip(tr("Export the selected file (Ctrl+E)"))
         self.export_button.clicked.connect(self.export_current)
-        toolbar.addWidget(self.export_all_button)
-        toolbar.addWidget(self.export_button)
+        self.export_all_action = toolbar.addWidget(self.export_all_button)
+        self.export_action = toolbar.addWidget(self.export_button)
+        self.editor_shortcuts: list[QAction] = []
         for shortcut, slot in (("Ctrl+E", self.export_current), ("Ctrl+Shift+E", self.export_all),
                                ("Ctrl+J", self.join_clips)):
             act = QAction(self)
             act.setShortcut(QKeySequence(shortcut))
             act.triggered.connect(slot)
             self.addAction(act)
+            self.editor_shortcuts.append(act)
+        # What only makes sense with files open: not shown on the home page.
+        self.editor_only_actions = [
+            self.save_action, self.save_separator, self.remove_action, self.remove_separator,
+            self.undo_action, self.redo_action, self.undo_separator, self.frame_action,
+            self.join_action, self.export_all_action, self.export_action
+        ]
 
         # media list
         self.media_list = MediaList()
@@ -172,9 +186,11 @@ class LayoutMixin:
         self.main_split.setStretchFactor(0, 1)
         self.main_split.setSizes([700, 150])
         self.top_split = top
-        self.setCentralWidget(self.main_split)
+        self.setCentralWidget(self._build_stack())
         self.preview_status = QLabel()  # "Preparing a smooth preview…", while there is one
         self.statusBar().addPermanentWidget(self.preview_status)
+        self.save_label = QLabel()  # "Saving…", then "Saved"
+        self.statusBar().addPermanentWidget(self.save_label)
         self._build_update_banner()
         self._build_menus()
         self.statusBar().showMessage(
@@ -182,6 +198,12 @@ class LayoutMixin:
         self.refresh_icons()
 
     def _build_menus(self) -> None:
+        project = self.menuBar().addMenu(tr("&Project"))
+        self.new_project_action = project.addAction(tr("New project…"), self.new_project)
+        self.save_as_action = project.addAction(tr("Save as a project…"), self.save_as_project)
+        self.rename_action = project.addAction(tr("Rename this project…"), self.rename_project)
+        self.back_action = project.addAction(tr("Back to projects"), self.show_home)
+        project.aboutToShow.connect(self._sync_project_menu)
         view = self.menuBar().addMenu(tr("&View"))
         self.smooth_action = view.addAction(tr("Smooth previews for large videos"))
         self.smooth_action.setCheckable(True)
@@ -216,6 +238,13 @@ class LayoutMixin:
         self.updates_action.toggled.connect(self.set_check_updates)
         help_menu.addSeparator()
         help_menu.addAction(tr("About {app}", app=APP_NAME), self.show_about)
+
+    def _sync_project_menu(self) -> None:
+        """Only what applies: the editor's entries are left out on the home page."""
+        editing = not self.at_home
+        self.save_as_action.setVisible(editing and self.project is None and bool(self.items))
+        self.rename_action.setVisible(editing and self.project is not None)
+        self.back_action.setVisible(editing)
 
     def _build_language_menu(self, view: QMenu) -> None:
         """View > Language: English, Arabic, or whatever Windows uses. The choice takes effect on

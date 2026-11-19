@@ -98,9 +98,25 @@ def captions_self_test(report: Optional[str] = None) -> int:
     return code
 
 
+def split_arguments(args: list[str]) -> tuple[dict[str, str], list[str]]:
+    """The options a restarted copy is given (the project or the work to open again) and the
+    file names that are left."""
+    options: dict[str, str] = {}
+    files: list[str] = []
+    names = {language.PROJECT_OPTION: "project", language.WORK_OPTION: "work"}
+    it = iter(args)
+    for arg in it:
+        if arg in names:
+            options[names[arg]] = next(it, "")
+        else:
+            files.append(arg)
+    return options, files
+
+
 def main(paths: Optional[list[str]] = None) -> int:
     if paths and paths[0] == CAPTIONS_SELF_TEST:
         return captions_self_test(paths[1] if len(paths) > 1 else None)
+    options, paths = split_arguments(list(paths or []))
     if sys.platform == "win32":
         try:
             import ctypes
@@ -153,9 +169,9 @@ def main(paths: Optional[list[str]] = None) -> int:
     window.watch_for_other_copies(instance)
     tempclean.sweep_in_background(
         keep=[window.tmpdir])  # folders earlier runs left behind, once they are a day old
+    reporter.crashed.connect(lambda _summary: window.save_work_now(feedback=False))
     window.show()
-    if paths:
-        window.add_paths([Path(p) for p in paths])
+    window.start_up(options, [Path(p) for p in paths])
     window.start_update_check()
     try:
         return app.exec()

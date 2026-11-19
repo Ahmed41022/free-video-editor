@@ -173,6 +173,7 @@ class PreviewsMixin:
         if on == item.play_original or item not in self.items:
             return
         item.play_original = on
+        self._mark_dirty()
         self.proxies.park(item, on)
         if item is self.current:
             self._sync_as_is_action()

@@ -73,12 +73,7 @@ class LibraryMixin:
             if item.resolved in known:
                 continue
             known.add(item.resolved)
-            item.list_item = QListWidgetItem(icons.icon("film", size=48), "")
-            self._show_item_text(item)
-            item.list_item.setData(Qt.ItemDataRole.UserRole, id(item))
-            self.items.append(item)
-            self.media_list.addItem(item.list_item)
-            self.loader.submit(self._load_item, item)
+            self._add_item(item)
             added += 1
         note = ""
         if skipped:
@@ -86,6 +81,8 @@ class LibraryMixin:
             more = " " + tr("and {n} more", n=len(skipped) - 3) if len(skipped) > 3 else ""
             note = tr("Skipped, not video or audio: {names}{more}", names=names, more=more)
         if added:
+            self.show_editor()  # files added on the home page are worked on in the editor
+            self._mark_dirty()
             self._update_list_actions()
             self.statusBar().showMessage(
                 " ".join(filter(None, [ntr(added, "Added {n} file.", "Added {n} files."), note])),
@@ -98,10 +95,21 @@ class LibraryMixin:
             self.statusBar().showMessage(tr("No new video or audio files there."), 4000)
         return added
 
+    def _add_item(self, item: MediaItem) -> None:
+        """Put `item` at the end of the list and start reading the file (the one way a file is
+        added, whether it was chosen or comes back with a project)."""
+        item.list_item = QListWidgetItem(icons.icon("film", size=48), "")
+        self._show_item_text(item)
+        item.list_item.setData(Qt.ItemDataRole.UserRole, id(item))
+        self.items.append(item)
+        self.media_list.addItem(item.list_item)
+        self.loader.submit(self._load_item, item)
+
     def _update_list_actions(self) -> None:
         """Enable the buttons that work on the whole list."""
         self.export_all_button.setEnabled(bool(self.items))
         self.join_button.setEnabled(len(self.items) > 1)
+        self._gate_for_home()
 
     def _item_at(self, row: int) -> Optional[MediaItem]:
         """The file shown in list row `row` (the list can be reordered by dragging)."""
@@ -116,6 +124,7 @@ class LibraryMixin:
         moved = [self._item_at(row) for row in range(self.media_list.count())]
         if all(moved) and len(moved) == len(self.items):
             self.items = moved
+            self._mark_dirty()
 
     def remove_selected(self) -> None:
         """Take the selected files (or the current one) out of the list. It is an undoable step, so
@@ -214,6 +223,17 @@ class LibraryMixin:
         if self.closed or item not in self.items:
             return
         info, thumbs, wave = MediaInfo(duration=None), [], []
+        if item.restored and not item.path.exists():
+            # A file of a project that was moved or deleted: it stays in the list (and in the
+            # project), marked, so it isn't lost when the project is saved again.
+            item.missing = True
+            item.error = tr("File not found: it was moved or deleted")
+            try:
+                if not self.closed and item in self.items:
+                    self.signals.loaded.emit(item, info, thumbs, wave)
+            finally:
+                self._remove_tmpdir_if_closed()
+            return
         try:
             info = probe_file(self.ffmpeg, item.path, self.procs)
             if info.has_video and info.duration:
@@ -272,6 +292,8 @@ class LibraryMixin:
         if not info.has_video and info.has_audio:
             item.settings.output = OUTPUT_AUDIO
         item.thumbs = [QPixmap(str(p)) for p in thumbs]
+        item.thumb_paths = list(thumbs)
+        self._thumbnails_ready(item)
         item.waveform = wave
         if item.list_item is not None:
             if item.thumbs:

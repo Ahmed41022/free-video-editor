@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ... import APP_NAME, __version__
 from ...captions import Logo
 from ...core import format_time
 from ...i18n import isolate, tr
@@ -22,6 +21,8 @@ class SelectionMixin:
     def select(self, item: Optional[MediaItem], reload: bool = True) -> None:
         changed = item is not self.current
         self.current = item
+        if changed:
+            self._mark_dirty()  # the selected file is part of what a project keeps
         has_file = item is not None
         for widget in (self.back_button, self.play_button, self.forward_button, self.in_button,
                        self.out_button, self.split_button, self.cut_button, self.compare_button):
@@ -45,9 +46,10 @@ class SelectionMixin:
             self.inspector.set_settings(None, None)
             self.inspector.set_reverse_warning("")
             self.inspector.set_frame_rate_hint("")
-            self.setWindowTitle(f"{APP_NAME} {__version__}")
+            self._update_title()
+            self._gate_for_home()
             return
-        self.setWindowTitle(f"{item.path.name} · {APP_NAME} {__version__}")
+        self._update_title()
         if changed or reload:
             self.view.clear(tr("Loading…"))
             self.compare_button.setChecked(False)
@@ -63,6 +65,9 @@ class SelectionMixin:
             self.view.clear(item.error or tr("Audio only: there's no picture to preview."))
         self._show_settings(item)
         self._prepare_preview_copy(item)
+        self._gate_for_home()
+        if self._pending_feature:
+            self._apply_pending_feature()
 
     def _show_export_state(self, item: Optional[MediaItem]) -> None:
         """Export is off for no file and for a file that couldn't be read, and its tooltip says

@@ -38,6 +38,13 @@ and so is the app: see **Arabic interface** below.
 
 ## Features
 
+**Home page and projects**
+- The app opens on a home page (the **Home** button and **Project → Back to projects** lead back to it). At the top are your projects as cards with a picture from the video, the name and the day it was last saved (day/month/year); below them, *Start with a feature* cards that open the editor on that feature (**Save as MP3** really sets the output to MP3, **Fit a file size** really picks a size limit, and so on) with the other settings folded
+- A project keeps the files, every file's settings and the selected file, so you can close the app and carry on later. It is saved by itself (at most every 30 seconds, and when you leave) and with **Ctrl+S**; the status bar says *Saving…* and then *Saved*. Project names are unique (capitals don't count). Files that were moved or deleted stay in the project, marked, and are kept when it is saved again
+- Work that isn't in a project is copied to a recovery file as you go, so a crash doesn't lose it: the home page offers *Recover the work from <date>*. Quitting with files open outside a project asks *Save as a project / Discard / Cancel*
+- Changing the language restarts the app in the same project (or with the same unsaved work)
+- Projects are small JSON files in `%LOCALAPPDATA%\Free Video Editor\projects` (the XDG data folder on Linux); nothing about the videos is copied
+
 **Editor**
 - Video player with a timeline: thumbnails, audio waveform, and drag handles to trim
 - Cut sections out of the middle: split at the playhead, remove the parts you don't want, and drag the edges
@@ -129,6 +136,7 @@ and so is the app: see **Arabic interface** below.
 
 ## How to use
 
+0. Start from the home page: open a project, or pick a feature, or just add files (opening the app with files, or sending files to it, goes straight to the editor)
 1. Click **Add files** or **Add folder**, or drop videos onto the window (or onto the exe)
 2. Pick a file, then choose a preset or set the shape, crop, picture, trim, cuts, speed, fades, text and sound on the right
 3. Click **Export** (or **Export all**); exports run in the queue at the bottom while you keep working
@@ -177,6 +185,7 @@ advertised, so a "10 MB" file is under the limit however the other end counts it
 | B | Before / after view |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+O | Add files |
+| Ctrl+S | Save the project (or make one of the open files) |
 | Ctrl+E / Ctrl+Shift+E | Export the selected file / export all |
 | Ctrl+Shift+S | Save the frame at the playhead as a PNG or JPG |
 | Ctrl+J | Join the files into one |
@@ -379,6 +388,8 @@ public name is re-exported from the package's `__init__.py`, so `from video_conv
 | `cli/` | the command line (`python -m video_converter file.mp4 ...`); `__main__.py` only starts it or the app |
 | `ui/main_window/` | the editor window: `MainWindow` is put together from one mixin per area (layout, library, selection, editing, captions, previews, playback, exporting, updates, ...) |
 | `ui/inspector/` | the settings panel on the right |
+| `ui/home.py`, `ui/features.py` | the home page (project cards, feature cards) and the list of features it offers |
+| `projects.py` | projects and the recovery copy: one JSON file per project, atomic writes, unique names, dates |
 
 Other modules (`project`, `timing`, `jobs`, `gpu`, `i18n`, ...) are single files. The style is PEP 8 with
 99 columns, checked by flake8 and formatted by yapf (both set up in `setup.cfg` and pinned in
