@@ -592,6 +592,36 @@ class ProxyMakerSchedulingTests(unittest.TestCase):
         self.until(lambda: self.fake.count("cancel", "a") == 1, "the dropped copy kept running")
         self.assertEqual([self.maker.state(key) for key in "bcd"], ["paused", "paused", "running"])
 
+    def test_copies_paused_in_the_same_clock_tick_are_still_told_apart(self):
+        # On Windows the clock ticks every 15.6 ms, so two pauses can get the same time.
+        with mock.patch.object(proxy, "time", mock.Mock(monotonic=lambda: 5.0)):
+            self.ask("a", "b")
+            self.until(lambda: self.fake.working_is("a"))
+            self.maker.focus("b")
+            self.until(lambda: self.fake.working_is("b"))
+            self.maker.focus("somebody else", hold=True)
+            self.until(lambda: self.fake.working_is())
+            self.maker.focus(None, hold=False)
+            self.until(lambda: self.fake.working_is("b"), "the copy paused first carried on")
+            self.assertEqual(self.maker.state("a"), "paused")
+
+    def test_the_oldest_pause_is_the_one_dropped_even_when_the_clock_does_not_move(self):
+        # b is paused before a, though a was asked for first (it comes first in the list).
+        with mock.patch.object(proxy, "MAX_PAUSED",
+                               1), mock.patch.object(proxy, "time",
+                                                     mock.Mock(monotonic=lambda: 5.0)):
+            self.ask("a", "b", "c")
+            self.until(lambda: self.fake.working_is("a"))
+            self.maker.focus("b")
+            self.until(lambda: self.fake.working_is("b"))
+            self.maker.focus("a")
+            self.until(lambda: self.fake.working_is("a"))
+            self.assertEqual(self.dropped, [])
+            self.maker.focus("c")
+            self.until(lambda: self.fake.working_is("c"))
+        self.assertEqual(self.dropped, ["b"])
+        self.assertEqual(self.maker.state("a"), "paused")
+
     def test_a_copy_paused_for_too_long_is_dropped(self):
         with mock.patch.object(proxy, "PAUSED_KEEP_SECONDS", 0.3):
             self.ask("a", "b")
