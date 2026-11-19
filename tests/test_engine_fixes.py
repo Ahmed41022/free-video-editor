@@ -410,11 +410,11 @@ class LongGraphTests(unittest.TestCase):
     def test_a_command_that_cannot_start_is_a_conversion_error(self):
         too_long = OSError(22, "The filename or extension is too long")
         too_long.winerror = 206
-        with mock.patch.object(core.subprocess, "Popen", side_effect=too_long):
+        with mock.patch.object(subprocess, "Popen", side_effect=too_long):
             with self.assertRaises(ConversionError) as caught:
                 run_ffmpeg([FFMPEG, "-i", "x"], self.tmp / "o.mp4", None)
         self.assertIn("too complicated", str(caught.exception))
-        with mock.patch.object(core.subprocess, "Popen", side_effect=FileNotFoundError("no ffmpeg")):
+        with mock.patch.object(subprocess, "Popen", side_effect=FileNotFoundError("no ffmpeg")):
             with self.assertRaises(ConversionError) as caught:
                 run_ffmpeg(["nope", "-i", "x"], self.tmp / "o.mp4", None)
         self.assertIn("Couldn't start ffmpeg", str(caught.exception))
@@ -511,7 +511,7 @@ class OutputFileTests(unittest.TestCase):
             target.write_bytes(b"done")
             return target
 
-        with mock.patch.object(core, "run_ffmpeg", fake):
+        with mock.patch.object(core.audio, "run_ffmpeg", fake):
             self.assertEqual(convert(FFMPEG, ConversionJob(self.mp3, final)), final)
         self.assertEqual(seen["target"], "result.part.mp3")
         self.assertEqual(seen["names"], ["result.mp3", "result.part.mp3"])        # the name is held while it runs
@@ -525,7 +525,7 @@ class OutputFileTests(unittest.TestCase):
                 target.write_bytes(b"half")
                 raise error
 
-            with self.subTest(error=type(error).__name__), mock.patch.object(core, "run_ffmpeg", fake):
+            with self.subTest(error=type(error).__name__), mock.patch.object(core.audio, "run_ffmpeg", fake):
                 with self.assertRaises(type(error)):
                     convert(FFMPEG, ConversionJob(self.mp3, final))
                 self.assertEqual(sorted(p.name for p in self.tmp.iterdir() if p.name.startswith("result")), [])

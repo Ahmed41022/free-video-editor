@@ -8,7 +8,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
-from .core import _NO_WINDOW
+from .core.winproc import _NO_WINDOW
 from .i18n import N_, tr
 
 log = logging.getLogger(__name__)

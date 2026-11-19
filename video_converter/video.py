@@ -16,30 +16,12 @@ from typing import Callable, Optional
 
 from .captions import Logo, Subtitles, TextItem, overlay_graph
 from .core import (
-    _NO_WINDOW,
-    DEFAULT_QUALITY,
-    LOUDNESS_SHARE,
-    LOUDNESS_SHARE_AUDIO,
-    QUALITY_PRESETS,
-    SEEK_SLACK,
-    ConversionCancelled,
-    ConversionError,
-    MediaInfo,
-    check_music,
-    check_trim,
-    graph_files,
-    measure_loudness,
-    music_length_error,
-    never_back,
-    no_segments_error,
-    probe_media,
-    remove_file,
-    run_ffmpeg,
-    scaled,
-    staged_output,
-    trim_args,
-    work_folder,
+    DEFAULT_QUALITY, LOUDNESS_SHARE, LOUDNESS_SHARE_AUDIO, QUALITY_PRESETS, SEEK_SLACK,
+    ConversionCancelled, ConversionError, MediaInfo, check_music, check_trim, graph_files,
+    measure_loudness, music_length_error, never_back, no_segments_error, probe_media, remove_file,
+    run_ffmpeg, scaled, staged_output, trim_args, work_folder,
 )
+from .core.winproc import _NO_WINDOW
 from .gpu import CPU_FALLBACK_NOTE, encoder_args, encoder_codec
 from .i18n import N_, tr
 from .output import (

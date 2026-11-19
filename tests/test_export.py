@@ -15,8 +15,9 @@ from unittest import mock
 from video_converter import __main__ as cli
 from video_converter import gpu, output, video
 from video_converter.core import (
-    ConversionCancelled, ConversionError, MediaInfo, _ffmpeg_info_text, find_ffmpeg, probe_media,
+    ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media,
 )
+from video_converter.core.probe import _ffmpeg_info_text
 from video_converter.jobs import Job, JobState, run_job
 from video_converter.output import MB, OUTPUT_FORMATS, SizeFit
 from video_converter.project import OUTPUT_AUDIO, PRESETS, ClipSettings, apply_preset, describe, output_file_for

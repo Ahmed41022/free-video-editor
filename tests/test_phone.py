@@ -13,7 +13,8 @@ from unittest import mock
 
 from video_converter import __main__ as cli
 from video_converter import gpu
-from video_converter.core import MediaInfo, _ffmpeg_info_text, find_ffmpeg, parse_media_info, probe_media
+from video_converter.core import MediaInfo, find_ffmpeg, parse_media_info, probe_media
+from video_converter.core.probe import _ffmpeg_info_text
 from video_converter.project import (
     OUTPUT_VIDEO, PRESETS, ClipSettings, apply_preset, describe, output_file_for,
 )

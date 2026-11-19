@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
-from .core import _NO_WINDOW, ConversionCancelled, ConversionError, start_process, stop_process
+from .core import ConversionCancelled, ConversionError, start_process, stop_process
+from .core.winproc import _NO_WINDOW
 from .i18n import ntr, tr
 from .timing import MIN_PART, SNAP_EDGE, Range, cut_range, kept_segments, segments_length
 

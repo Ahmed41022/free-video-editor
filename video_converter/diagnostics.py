@@ -17,7 +17,7 @@ from typing import Callable, Optional
 from urllib.parse import quote
 
 from . import APP_NAME, REPO_URL, __version__
-from .core import _NO_WINDOW
+from .core.winproc import _NO_WINDOW
 from .i18n import tr
 
 LOG_NAME = "app.log"

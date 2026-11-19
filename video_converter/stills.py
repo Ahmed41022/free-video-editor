@@ -5,7 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from .core import _NO_WINDOW, ConversionError, MediaInfo, work_folder
+from .core import ConversionError, MediaInfo, work_folder
+from .core.winproc import _NO_WINDOW
 from .i18n import tr
 from .video import VideoEdit, plan_geometry, render_frame
 

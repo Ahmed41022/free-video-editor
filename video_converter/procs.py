@@ -13,7 +13,8 @@ import threading
 from concurrent.futures import Future
 from typing import Any, Callable, Optional
 
-from .core import _NO_WINDOW, ConversionCancelled, start_process, stop_process
+from .core import ConversionCancelled, start_process, stop_process
+from .core.winproc import _NO_WINDOW
 
 log = logging.getLogger(__name__)
 

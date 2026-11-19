@@ -794,7 +794,7 @@ class TwoPassTests(unittest.TestCase):
                 spawned.append(process)
             return process
 
-        with mock.patch.object(core, "run_ffmpeg", recorder(real_core)), \
+        with mock.patch.object(core.audio, "run_ffmpeg", recorder(real_core)), \
                 mock.patch.object(video, "run_ffmpeg", recorder(real_video)), \
                 mock.patch.object(subprocess, "Popen", spy):
             result = action()
@@ -850,7 +850,7 @@ class TwoPassTests(unittest.TestCase):
             on_progress(1.0)
             return output
 
-        with mock.patch.object(core, "run_ffmpeg", fake), mock.patch.object(video, "run_ffmpeg", fake):
+        with mock.patch.object(core.audio, "run_ffmpeg", fake), mock.patch.object(video, "run_ffmpeg", fake):
             if mp3:
                 convert(FFMPEG, ConversionJob(self.clip, self.tmp / "unused.mp3", sound=edit.sound), progress.append)
             else:
