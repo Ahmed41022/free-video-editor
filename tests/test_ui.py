@@ -1017,7 +1017,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertIsNone(self.window.output_dir)
         self.assertEqual(self.window.user_presets, {})
         self.assertIn(self.window.theme_mode, ("dark", "light"))
-        with mock.patch("video_converter.ui.main_window.QFileDialog.getOpenFileNames",
+        with mock.patch("video_converter.ui.main_window.library.QFileDialog.getOpenFileNames",
                         return_value=([], "")) as dialog:
             self.window.choose_files()
         self.assertEqual(dialog.call_args.args[2], "")           # the bad "last folder" was ignored
@@ -1076,7 +1076,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(head.startswith("Videos and audio ("))
         for ext in (".mp4", ".mkv", ".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus"):
             self.assertIn(f"*{ext}", head)
-        with mock.patch("video_converter.ui.main_window.QFileDialog.getOpenFileNames",
+        with mock.patch("video_converter.ui.main_window.library.QFileDialog.getOpenFileNames",
                         return_value=([], "")) as dialog:
             self.window.choose_files()
         self.assertEqual(dialog.call_args.args[3], FILE_FILTER)

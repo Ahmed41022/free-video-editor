@@ -329,7 +329,7 @@ class WindowCase(unittest.TestCase):
 
 class LoadingTests(WindowCase):
     def test_a_probe_that_times_out_ends_loading_with_a_readable_error(self):
-        with mock.patch("video_converter.ui.main_window.probe_file", side_effect=media.ReadTimeout()):
+        with mock.patch("video_converter.ui.main_window.library.probe_file", side_effect=media.ReadTimeout()):
             self.window.add_paths([self.first])
             item = self.window.items[0]
             self.assertTrue(self.loaded(item), "the file is stuck on Loading…")
@@ -338,14 +338,14 @@ class LoadingTests(WindowCase):
         self.assertNotIn("Loading", item.list_item.text())
 
     def test_any_other_failure_also_ends_loading(self):
-        with mock.patch("video_converter.ui.main_window.probe_file", side_effect=RuntimeError("boom")):
+        with mock.patch("video_converter.ui.main_window.library.probe_file", side_effect=RuntimeError("boom")):
             self.window.add_paths([self.first])
             item = self.window.items[0]
             self.assertTrue(self.loaded(item), "the file is stuck on Loading…")
         self.assertIn("boom", item.error)
 
     def test_a_waveform_that_takes_too_long_leaves_the_file_usable(self):
-        with mock.patch("video_converter.ui.main_window.extract_waveform",
+        with mock.patch("video_converter.ui.main_window.library.extract_waveform",
                         side_effect=subprocess.TimeoutExpired("ffmpeg", 300)):
             self.window.add_paths([self.first])
             item = self.window.items[0]
@@ -364,7 +364,7 @@ class LoadingTests(WindowCase):
         self.assertTrue(pump(TIMEOUT, lambda: abs(self.window.player.media.position() - 1000) < 60))
 
     def test_thumbnails_that_fail_leave_the_file_usable(self):
-        with mock.patch("video_converter.ui.main_window.extract_thumbnails", side_effect=OSError("disk")):
+        with mock.patch("video_converter.ui.main_window.library.extract_thumbnails", side_effect=OSError("disk")):
             self.window.add_paths([self.first])
             item = self.window.items[0]
             self.assertTrue(self.loaded(item))
@@ -493,7 +493,7 @@ class ClosingTests(WindowCase):
             started.set()
             return run_tracked(SLEEP_FOR_A_MINUTE, 120, registry)
 
-        with mock.patch("video_converter.ui.main_window.probe_file", side_effect=slow_probe):
+        with mock.patch("video_converter.ui.main_window.library.probe_file", side_effect=slow_probe):
             self.window.add_paths([self.first])
             self.assertTrue(started.wait(TIMEOUT))
             self.assertTrue(pump(TIMEOUT, lambda: procs), "the program never started")
@@ -513,7 +513,7 @@ class ClosingTests(WindowCase):
             return MediaInfo(duration=None)
 
         a, b, c, d = self.junk("a.mp4", "b.mp4", "c.mp4", "d.mp4")
-        with mock.patch("video_converter.ui.main_window.probe_file", side_effect=probe):
+        with mock.patch("video_converter.ui.main_window.library.probe_file", side_effect=probe):
             self.window.add_paths([a, b, c, d])
             self.assertTrue(pump(TIMEOUT, lambda: len(read) == 2), "the two loaders never started")
             for name in ("d.mp4", "c.mp4"):
@@ -533,7 +533,7 @@ class ClosingTests(WindowCase):
             (out_dir / "thumb_000.jpg").write_bytes(b"x")
             return []
 
-        with mock.patch("video_converter.ui.main_window.extract_thumbnails", side_effect=thumbnails):
+        with mock.patch("video_converter.ui.main_window.library.extract_thumbnails", side_effect=thumbnails):
             self.window.add_paths([self.first])
             self.assertTrue(pump(TIMEOUT, lambda: folders))
             self.window.remove_selected()
@@ -564,7 +564,7 @@ class BeforeAfterTests(WindowCase):
         self.window.add_paths([self.first])
         item = self.window.items[0]
         self.assertTrue(self.loaded(item))
-        with mock.patch("video_converter.ui.main_window.render_frame", side_effect=slow_render):
+        with mock.patch("video_converter.ui.main_window.playback.render_frame", side_effect=slow_render):
             self.window.compare_button.setChecked(True)
             for _ in range(6):
                 self.window._render_after()
@@ -579,7 +579,7 @@ class BeforeAfterTests(WindowCase):
     def test_a_render_that_fails_does_not_block_the_next_one(self):
         self.window.add_paths([self.first])
         self.assertTrue(self.loaded(self.window.items[0]))
-        with mock.patch("video_converter.ui.main_window.render_frame", side_effect=ValueError("odd")):
+        with mock.patch("video_converter.ui.main_window.playback.render_frame", side_effect=ValueError("odd")):
             self.window.compare_button.setChecked(True)
             self.window._render_after()
             self.assertTrue(pump(TIMEOUT, lambda: not self.window._after_busy and self.window._after_token == 1))
@@ -845,7 +845,7 @@ class WindowInstanceTests(WindowCase):
     def test_a_restart_that_cannot_start_leaves_this_window_the_running_copy(self):
         from video_converter.ui import language
         with mock.patch.object(language, "restart", return_value=False):
-            with mock.patch("video_converter.ui.main_window.QMessageBox.warning"):
+            with mock.patch("video_converter.ui.main_window.preferences.QMessageBox.warning"):
                 self.window.restart_app()
         self.assertFalse(self.window.closed)
         self.assertTrue(self.instance.listening)
@@ -898,7 +898,7 @@ class LimitsTests(WindowCase):
         with mock.patch.object(gpu, "detect_encoders", return_value=()) as detect, \
                 mock.patch.object(gpu, "gpu_name", return_value=None), \
                 mock.patch.dict(os.environ, {"VIDEO_EDITOR_NO_GPU_SEARCH": "0"}), \
-                mock.patch("video_converter.ui.main_window.GPU_SEARCH_DELAY_MS", 100):
+                mock.patch("video_converter.ui.main_window.library.GPU_SEARCH_DELAY_MS", 100):
             pump(0.4)
             self.assertFalse(self.window._gpu_started, "the search started with the window")
             detect.assert_not_called()

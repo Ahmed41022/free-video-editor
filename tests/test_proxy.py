@@ -558,7 +558,7 @@ class MainWindowPreviewTests(unittest.TestCase):
         job = self.window._make_job(item)
         self.assertEqual(job.source, item.path)
         self.assertEqual((job.info.width, job.info.height), (320, 180))
-        with mock.patch("video_converter.ui.main_window.render_frame") as render:
+        with mock.patch("video_converter.ui.main_window.playback.render_frame") as render:
             self.window.compare_button.setChecked(True)
             self.window._render_after()
             self.assertTrue(pump(TIMEOUT, lambda: render.called))

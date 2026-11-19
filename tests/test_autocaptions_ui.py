@@ -553,7 +553,7 @@ class MainWindowTests(unittest.TestCase):
         subprocess.run(cmd + ["-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True)
 
     def setUp(self):
-        from video_converter.ui import main_window
+        from video_converter.ui.main_window import captions as main_window
         from video_converter.ui.main_window import MainWindow
         self.folder = Path(tempfile.mkdtemp(dir=self.tmp))
         self.video = self.folder / "clip.mp4"

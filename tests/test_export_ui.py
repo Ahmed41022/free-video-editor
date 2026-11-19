@@ -429,7 +429,7 @@ class WindowTests(unittest.TestCase):
     # ----- save frame
 
     def dialog(self, path):
-        return mock.patch("video_converter.ui.main_window.QFileDialog.getSaveFileName", return_value=(str(path), ""))
+        return mock.patch("video_converter.ui.main_window.exporting.QFileDialog.getSaveFileName", return_value=(str(path), ""))
 
     def test_the_action_has_its_shortcut_and_name(self):
         self.assertEqual(self.window.frame_action.shortcut().toString(), "Ctrl+Shift+S")
@@ -478,7 +478,7 @@ class WindowTests(unittest.TestCase):
         def fake(ffmpeg, source, target, at, edit, info):
             saved.append((source, target, at, edit, info))
             return target
-        with self.dialog(self.tmp / "args.jpg"), mock.patch("video_converter.ui.main_window.save_frame", fake):
+        with self.dialog(self.tmp / "args.jpg"), mock.patch("video_converter.ui.main_window.exporting.save_frame", fake):
             self.window.save_frame_image()
             self.assertTrue(pump(TIMEOUT, lambda: bool(saved)))
         source, target, at, edit, info = saved[0]
@@ -502,7 +502,7 @@ class WindowTests(unittest.TestCase):
 
     def test_cancelling_the_dialog_saves_nothing(self):
         self.load(self.clip)
-        with self.dialog(""), mock.patch("video_converter.ui.main_window.save_frame") as saver:
+        with self.dialog(""), mock.patch("video_converter.ui.main_window.exporting.save_frame") as saver:
             self.window.save_frame_image()
             pump(0.2)
         saver.assert_not_called()
@@ -512,7 +512,7 @@ class WindowTests(unittest.TestCase):
         self.load(self.clip)
         saved = []
         with self.dialog(self.tmp / "oddly.bmp"), mock.patch(
-                "video_converter.ui.main_window.save_frame", lambda *a: saved.append(a[2]) or a[2]):
+                "video_converter.ui.main_window.exporting.save_frame", lambda *a: saved.append(a[2]) or a[2]):
             self.window.save_frame_image()
             self.assertTrue(pump(TIMEOUT, lambda: bool(saved)))
         self.assertEqual(saved[0], self.tmp / "oddly.bmp.png")
@@ -520,14 +520,14 @@ class WindowTests(unittest.TestCase):
     def test_the_folder_is_remembered(self):
         self.load(self.clip)
         with self.dialog(self.tmp / "remembered" / "f.png"), mock.patch(
-                "video_converter.ui.main_window.save_frame", lambda *a: a[2]):
+                "video_converter.ui.main_window.exporting.save_frame", lambda *a: a[2]):
             self.window.save_frame_image()
         self.assertEqual(self.window.store.value("lastFrameDir"), str(self.tmp / "remembered"))
 
     def test_a_failure_is_said_in_the_status_bar(self):
         self.load(self.clip)
         with self.dialog(self.tmp / "fail.png"), mock.patch(
-                "video_converter.ui.main_window.save_frame", side_effect=ConversionError("Couldn't read a frame")):
+                "video_converter.ui.main_window.exporting.save_frame", side_effect=ConversionError("Couldn't read a frame")):
             self.window.save_frame_image()
             self.assertTrue(pump(TIMEOUT, lambda: "Couldn't save" in self.window.statusBar().currentMessage()))
         self.assertEqual(self.window.statusBar().currentMessage(), "Couldn't save the frame: Couldn't read a frame")
@@ -598,7 +598,7 @@ class WindowTests(unittest.TestCase):
         for error in (urllib.error.URLError("offline"), TimeoutError("slow"), ValueError("not json")):
             self.window.store.setValue(updates.LAST_CHECK_KEY, 0.0)
             before = self.window.statusBar().currentMessage()
-            with mock.patch("video_converter.ui.main_window.QMessageBox.exec", side_effect=AssertionError("a box")):
+            with mock.patch("PySide6.QtWidgets.QMessageBox.exec", side_effect=AssertionError("a box")):
                 self.assertEqual(self.check(error=error), 1)
             self.assertFalse(self.window.update_banner.isVisible())
             self.assertEqual(self.window.statusBar().currentMessage(), before)
@@ -623,7 +623,7 @@ class WindowTests(unittest.TestCase):
 
     def test_download_opens_the_release_page_and_hides_the_banner(self):
         self.check()
-        with mock.patch("video_converter.ui.main_window.QDesktopServices.openUrl") as opener:
+        with mock.patch("video_converter.ui.main_window.updates.QDesktopServices.openUrl") as opener:
             self.window.update_download.click()
         opener.assert_called_once_with(QUrl(self.RELEASE.url))
         self.assertFalse(self.window.update_banner.isVisible())

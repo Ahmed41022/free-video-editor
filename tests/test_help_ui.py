@@ -227,7 +227,7 @@ class WindowTests(unittest.TestCase):
                 import logging
                 logging.getLogger("video_converter").info("Export 3 started: holiday.mp4")
                 with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes), \
-                        mock.patch("video_converter.ui.main_window.QDesktopServices.openUrl") as opened:
+                        mock.patch("video_converter.ui.main_window.help.QDesktopServices.openUrl") as opened:
                     window.report_problem()
                 opened.assert_called_once()
                 url = opened.call_args.args[0].toString()
@@ -245,7 +245,7 @@ class WindowTests(unittest.TestCase):
     def test_saying_no_sends_the_user_nowhere(self):
         window = self.new_window()
         with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as asked, \
-                mock.patch("video_converter.ui.main_window.QDesktopServices.openUrl") as opened:
+                mock.patch("video_converter.ui.main_window.help.QDesktopServices.openUrl") as opened:
             window.report_problem()
         asked.assert_called_once()
         self.assertIn("Nothing is sent until you press Submit", asked.call_args.args[2])
@@ -256,7 +256,7 @@ class WindowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             try:
                 diagnostics.setup_logging(Path(folder) / "logs")
-                with mock.patch("video_converter.ui.main_window.QDesktopServices.openUrl") as opened:
+                with mock.patch("video_converter.ui.main_window.help.QDesktopServices.openUrl") as opened:
                     window.open_log_folder()
             finally:
                 diagnostics.shutdown_logging()

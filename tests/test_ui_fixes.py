@@ -748,7 +748,7 @@ class SmallFixesTests(WindowTestCase):
             def addAction(self, *args): return mock.MagicMock()
             def exec(self, pos=None): shown.append(pos)
 
-        with mock.patch("video_converter.ui.main_window.QMenu", FakeMenu):
+        with mock.patch("video_converter.ui.main_window.exporting.QMenu", FakeMenu):
             button.click()                    # the same as pressing Space on the focused button
         self.assertEqual(len(shown), 1)
         self.assertEqual(shown[0], button.mapToGlobal(QPoint(0, button.height())))
