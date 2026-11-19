@@ -14,6 +14,31 @@ from .choices import FIT_DATA, SHAPES, SHAPE_HINTS
 class ShowingMixin:
     """What the panel shows: the file's settings, notes and warnings."""
 
+    def focus_section(self, section=None) -> None:
+        """Open `section` at the top of the panel and fold every other one (no section: fold them
+        all). Used when a feature is chosen on the home page."""
+        order = self.all_sections if section is None else [
+            section, *(s for s in self.all_sections if s is not section)
+        ]
+        self._arrange(order)
+        for other in self.all_sections:
+            other.header.setChecked(other is section)
+        if section is not None:
+            self.ensureWidgetVisible(section, 0, 0)
+
+    def reset_sections(self) -> None:
+        """The panel as it starts: the usual order, with every section open but Text and logo."""
+        self._arrange(self.all_sections)
+        for section in self.all_sections:
+            section.header.setChecked(section is not self.captions_section)
+
+    def _arrange(self, order) -> None:
+        for section in order:
+            self.panel_layout.removeWidget(section)
+        for position, section in enumerate(order):
+            self.panel_layout.insertWidget(
+                1 + position, section)  # after the "select a video" note
+
     def set_output_folder(self, text: str) -> None:
         self.folder_label.setText(text)
 

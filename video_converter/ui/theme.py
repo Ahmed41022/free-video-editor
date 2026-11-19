@@ -131,6 +131,13 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
         QToolButton#sectionHeader:hover, QToolButton#sectionHeader:checked {{
             background: transparent; border: none; }}
         QPushButton#chip {{ padding: 4px 6px; }}
+        QPushButton#card {{ background: {c['panel']}; border: 1px solid {c['border']};
+                            border-radius: 10px; padding: 0; text-align: left; }}
+        QPushButton#card:hover, QPushButton#card:focus {{ border-color: {c['accent']};
+                                                         background: {c['raised']}; }}
+        QLabel#cardTitle {{ font-weight: 600; background: transparent; }}
+        QLabel#cardPicture {{ background: {c['video_bg']}; border-radius: 6px; }}
+        QLabel#homeTitle {{ font-size: 20pt; font-weight: 700; }}
         QCheckBox {{ spacing: 6px; }}
     """
     # Measured in the test suite (Windows): setting these on the application for every new window
