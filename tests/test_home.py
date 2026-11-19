@@ -324,6 +324,19 @@ class HomePageTests(HomeCase):
         window.show_home()
         self.assertNotIn("clip.mp4", window.windowTitle())
 
+    def test_the_rows_of_cards_follow_the_width_and_never_hold_the_page_wider(self):
+        window = self.new_window(load=False)
+        window.resize(1600, 800)
+        window.show_home()
+        window.home.finish()
+        pump(0.2)
+        wide = window.home.feature_grid._columns
+        window.resize(1100, 800)  # (the editor's own minimum width is about this)
+        self.assertTrue(pump(5, lambda: window.home.feature_grid._columns < wide))
+        self.assertEqual(window.home.horizontalScrollBar().maximum(), 0)
+        self.assertLessEqual(window.home.widget().width(), window.home.viewport().width())
+        self.assertLess(window.home.widget().minimumSizeHint().width(), 700)
+
     def test_the_home_page_is_made_only_when_it_is_first_shown(self):
         window = self.new_window(load=False)
         self.assertIsNone(window.home)
@@ -345,6 +358,70 @@ class HomeLanguageTests(HomeCase):
             language.apply_to_app(app)
 
         self.addCleanup(restore)
+
+    @staticmethod
+    def differs(color, background):
+        return abs(color.red() - background.red()) + abs(color.green() - background.green()) + abs(
+            color.blue() - background.blue()) > 60
+
+    def ink_lines(self, label):
+        """The lines of text a label really paints: for each, the first and last column with ink.
+        (Found in the picture of the label, so it is what the person sees.)"""
+        image = label.grab().toImage()
+        step = label.fontMetrics().lineSpacing()
+        block = label.heightForWidth(label.width()) if label.wordWrap() else step
+        top = max(0, (label.height() - block) // 2)  # the text is centred in its label
+        background = image.pixelColor(0, 0)  # the corner has no text in it
+        lines = []
+        for index in range(max(1, round(block / step))):
+            columns = [
+                x
+                for y in range(top + index * step, min(top + (index + 1) * step, image.height()))
+                for x in range(image.width()) if self.differs(image.pixelColor(x, y), background)
+            ]
+            if columns:
+                lines.append((min(columns), max(columns)))
+        return lines
+
+    def check_flush_right(self, label):
+        """Every line the label paints starts at its right edge (a right-to-left paragraph: also
+        one that begins with a Latin word like MP4), none is pushed a space's width out of line
+        (which cut the last letters off at the left edge), and the label is tall enough for its
+        lines."""
+        text = getattr(label, "plain", label.text())[:50]
+        lines = self.ink_lines(label)
+        self.assertTrue(lines, text)
+        edges = [last for _first, last in lines]
+        self.assertLessEqual(max(edges) - min(edges), 2, f"ragged right edge {edges}: {text!r}")
+        self.assertGreaterEqual(min(edges), label.width() - 8, f"not at the right: {text!r}")
+        if label.wordWrap():
+            self.assertGreaterEqual(
+                label.height(), label.heightForWidth(label.width()), f"text cut off: {text!r}")
+
+    def test_arabic_text_on_the_home_page_is_right_to_left_flush_right_and_not_clipped(self):
+        self.use("ar")
+        window = self.new_window(load=False, home=True)
+        window.resize(1320, 840)
+        pump(0.3)
+        checked = 0
+        for label in window.home.findChildren(QLabel):
+            if label.text() and label.isVisibleTo(window.home):
+                self.check_flush_right(label)
+                checked += 1
+        self.assertGreater(checked, 40)  # the cards, headings, hints and the recovery row
+
+    def test_a_wrapped_card_text_stays_inside_the_card_at_a_narrow_width(self):
+        self.use("ar")
+        window = self.new_window(load=False, home=True)
+        window.resize(800, 700)
+        pump(0.3)
+        for key in ("trim", "speed", "format", "mp3", "vertical"):
+            card = window.home.feature_cards[key]
+            label = next(w for w in card.findChildren(QLabel) if w.wordWrap())
+            self.check_flush_right(label)
+            corner = label.mapTo(card, label.rect().bottomRight())
+            self.assertLessEqual(corner.x(), card.width())
+            self.assertLessEqual(corner.y(), card.height())
 
     def test_the_home_page_is_right_to_left_and_all_arabic(self):
         from tests.test_i18n import english_words

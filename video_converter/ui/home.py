@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from typing import Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
@@ -12,12 +13,13 @@ from PySide6.QtWidgets import (
 )
 
 from .. import APP_NAME
-from ..i18n import isolate, ntr, tr
+from ..i18n import is_rtl, isolate, ntr, tr
 from ..projects import ProjectInfo, Recovery, format_date, format_date_time
 from . import icons
 from .features import FEATURES
 
 CARD_WIDTH = 196
+FEATURE_HEIGHT = 132  # room for a title and three lines of description, in either language
 THUMB_SIZE = QSize(172, 97)  # a card's picture is never bigger, so 50 cards stay small in memory
 BATCH = 6  # project cards made per turn of the event loop, so the page stays responsive
 
@@ -56,20 +58,52 @@ class CardGrid(QWidget):
             card, index // columns, index % columns,
             Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeading)
 
+    def minimumSizeHint(self) -> QSize:
+        # One card wide: the number of cards to a row follows the width, so the page (and with it
+        # the window) is never held wider than it is by the row it had before.
+        return QSize(self.card_width, super().minimumSizeHint().height())
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         columns = self._per_row()
         if columns != self._columns and self.cards:
             for card in self.cards:
                 self._grid.removeWidget(card)
+            for column in range(max(self._columns, columns) + 1):
+                self._grid.setColumnStretch(column, 0)
             self._columns = columns
+            self._grid.setColumnStretch(columns, 1)  # the cards stay together at the start
             for index, card in enumerate(self.cards):
                 self._place(card, index)
+            self._grid.invalidate()
+            self.updateGeometry()
         self._columns = columns
 
 
-def _label(text: str, name: str = "", wrap: bool = False) -> QLabel:
-    label = QLabel(text)
+class Text(QLabel):
+    """A label for the home page. In a right-to-left language its paragraph is right to left
+    whatever its first letter is (Qt takes the direction of a plain label's text from its first
+    strong character, so one that starts with "MP4" ran left to right), and it is laid out by
+    Qt's rich-text engine: the plain-text one pushes every wrapped line a space's width out of
+    place, which cut the last letters off at the edge. `plain` is the text as given."""
+
+    def __init__(self, text: str = "", parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.plain = ""
+        self.set_plain(text)
+
+    def set_plain(self, text: str) -> None:
+        self.plain = text
+        if is_rtl():
+            self.setTextFormat(Qt.TextFormat.RichText)
+            self.setText(f'<div dir="rtl">{html.escape(text)}</div>')
+        else:
+            self.setTextFormat(Qt.TextFormat.PlainText)
+            self.setText(text)
+
+
+def _label(text: str, name: str = "", wrap: bool = False) -> Text:
+    label = Text(text)
     if name:
         label.setObjectName(name)
     label.setWordWrap(wrap)
@@ -84,7 +118,7 @@ class FeatureCard(QPushButton):
         super().__init__(parent)
         self.feature = feature
         self.setObjectName("card")
-        self.setFixedSize(CARD_WIDTH, 112)
+        self.setFixedSize(CARD_WIDTH, FEATURE_HEIGHT)
         self.setToolTip(tr(feature.text))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
@@ -98,7 +132,7 @@ class FeatureCard(QPushButton):
         self.setAccessibleName(tr(feature.title))
 
     def sizeHint(self) -> QSize:
-        return QSize(CARD_WIDTH, 112)
+        return QSize(CARD_WIDTH, FEATURE_HEIGHT)
 
 
 class ProjectCard(QPushButton):
@@ -122,7 +156,7 @@ class ProjectCard(QPushButton):
         layout.addWidget(self.picture, 0, Qt.AlignmentFlag.AlignHCenter)
         self.title = _label("", "cardTitle")
         self.title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.title.setText(
+        self.title.set_plain(
             self.title.fontMetrics().elidedText(
                 info.name, Qt.TextElideMode.ElideRight, CARD_WIDTH - 24))
         layout.addWidget(self.title)
@@ -177,10 +211,10 @@ class RecoveryRow(QFrame):
         row = QHBoxLayout(self)
         row.setContentsMargins(12, 8, 12, 8)
         text = tr("Recover the work from {date}", date=isolate(format_date_time(recovery.saved)))
-        self.label = QLabel(text)
+        self.label = Text(text)
         self.label.setObjectName("cardTitle")
         row.addWidget(self.label, 1)
-        row.addWidget(QLabel(ntr(recovery.file_count, "{n} file", "{n} files")), 0)
+        row.addWidget(Text(ntr(recovery.file_count, "{n} file", "{n} files")), 0)
         self.recover_button = QPushButton(tr("Recover"))
         self.recover_button.setObjectName("primary")
         self.recover_button.clicked.connect(lambda: self.recoverRequested.emit(recovery))
@@ -215,10 +249,10 @@ class HomePage(QScrollArea):
 
         head = QHBoxLayout()
         titles = QVBoxLayout()
-        title = QLabel(APP_NAME)
+        title = Text(APP_NAME)
         title.setObjectName("homeTitle")
         titles.addWidget(title)
-        subtitle = QLabel(tr("Pick up where you left off, or start with the feature you need."))
+        subtitle = Text(tr("Pick up where you left off, or start with the feature you need."))
         subtitle.setObjectName("muted")
         subtitle.setWordWrap(True)
         titles.addWidget(subtitle)
@@ -238,7 +272,7 @@ class HomePage(QScrollArea):
         outer.addWidget(self.recovery_box)
 
         row = QHBoxLayout()
-        heading = QLabel(tr("Projects"))
+        heading = Text(tr("Projects"))
         heading.setObjectName("heading")
         row.addWidget(heading)
         row.addStretch(1)
@@ -247,7 +281,7 @@ class HomePage(QScrollArea):
         self.new_button.clicked.connect(self.newProjectRequested)
         row.addWidget(self.new_button)
         outer.addLayout(row)
-        self.empty_label = QLabel(
+        self.empty_label = Text(
             tr(
                 "No projects yet. A project keeps your editing, so you can close the app and "
                 "carry on later."))
@@ -258,7 +292,7 @@ class HomePage(QScrollArea):
         outer.addWidget(self.project_grid)
 
         row = QHBoxLayout()
-        heading = QLabel(tr("Start with a feature"))
+        heading = Text(tr("Start with a feature"))
         heading.setObjectName("heading")
         row.addWidget(heading)
         row.addStretch(1)
