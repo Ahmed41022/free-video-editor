@@ -27,10 +27,11 @@ class MediaItem:
     list_item: Optional[QListWidgetItem] = None
     loading: bool = True
     error: str = ""
-    proxy: Optional[Path] = None             # the smooth preview copy, once it is ready
-    proxy_progress: Optional[float] = None   # how far along the copy is, while it is being made
+    proxy: Optional[Path] = None  # the smooth preview copy, once it is ready
+    proxy_progress: Optional[float] = None  # how far along the copy is, while it is being made
     proxy_failed: bool = False
-    serial: int = field(default_factory=lambda: next(_item_numbers))     # never reused, unlike id(): names its folder
+    serial: int = field(
+        default_factory=lambda: next(_item_numbers))  # never reused, unlike id(): names its folder
     _resolved: Optional[Path] = field(default=None, repr=False)
 
     @property

@@ -14,10 +14,12 @@ from ...timing import output_duration, removed_parts
 from ...video import ADJUSTMENTS
 from .widgets import _db_text, _short_name
 
+
 class EditingMixin:
     """What the panel does with the user's changes."""
 
-    def _edit(self, change: Callable[[ClipSettings], None], label: str, final: bool = True) -> None:
+    def _edit(
+            self, change: Callable[[ClipSettings], None], label: str, final: bool = True) -> None:
         if self._updating or self.settings is None:
             return
         new = self.settings.copy()
@@ -49,7 +51,7 @@ class EditingMixin:
 
     def _show_sound(self, settings: ClipSettings) -> None:
         edit = settings.edit
-        muted = settings.output == OUTPUT_VIDEO and edit.mute      # Mute wins over everything below
+        muted = settings.output == OUTPUT_VIDEO and edit.mute  # Mute wins over everything below
         if not self.volume_slider.isSliderDown():
             self.volume_slider.setValue(round(edit.volume))
         self.volume_label.setText(_db_text(round(edit.volume)))
@@ -83,7 +85,8 @@ class EditingMixin:
         current = self.settings.edit.music if self.settings else ""
         patterns = " ".join(f"*{extension}" for extension in AUDIO_EXTENSIONS)
         path, _ = QFileDialog.getOpenFileName(
-            self, tr("Choose background music"), str(Path(current).parent) if current else "",
+            self, tr("Choose background music"),
+            str(Path(current).parent) if current else "",
             tr("Sound files ({patterns})", patterns=patterns) + ";;" + tr("All files (*)"))
         if path:
             self._edit(lambda s: setattr(s.edit, "music", str(Path(path))), tr("Choose music"))
@@ -94,20 +97,25 @@ class EditingMixin:
         self.end_edit.setText(format_time(edit.end) if edit.end is not None else "")
         if self.duration:
             length = output_duration(edit.segments(self.duration), edit.speed) or 0.0
-            self.trim_info.setText(tr("Result {length} of {total}", length=format_time(length),
-                                      total=format_time(self.duration)))
+            self.trim_info.setText(
+                tr(
+                    "Result {length} of {total}", length=format_time(length),
+                    total=format_time(self.duration)))
         else:
             self.trim_info.setText("")
         gaps = removed_parts(edit.keep, self.duration)
         if gaps:
             # Each range is isolated, so "0:10.0–0:12.0" keeps its order inside an Arabic sentence.
-            shown = join_parts([f"{format_time(a)}–{format_time(b)}" for a, b in gaps[:4]], tr(", "))
+            shown = join_parts(
+                [f"{format_time(a)}–{format_time(b)}" for a, b in gaps[:4]], tr(", "))
             more = " " + tr("and {n} more", n=len(gaps) - 4) if len(gaps) > 4 else ""
             self.cut_info.setText(tr("Cut out: {parts}{more}", parts=shown, more=more))
         elif edit.keep:
-            self.cut_info.setText(tr("Split. Put the playhead on a part and click Remove part to cut it out."))
+            self.cut_info.setText(
+                tr("Split. Put the playhead on a part and click Remove part to cut it out."))
         else:
-            self.cut_info.setText(tr("Split at the playhead, then remove the parts you don't want."))
+            self.cut_info.setText(
+                tr("Split at the playhead, then remove the parts you don't want."))
         self.restore_button.setEnabled(bool(edit.keep))
 
     def _trim_typed(self, which: str) -> None:
@@ -128,7 +136,8 @@ class EditingMixin:
         start = value if which == "start" else self.settings.edit.start
         end = value if which == "end" else self.settings.edit.end
         if self.duration and value is not None and value > self.duration:
-            self.trim_error.setText(tr("The video is only {length} long.", length=format_time(self.duration)))
+            self.trim_error.setText(
+                tr("The video is only {length} long.", length=format_time(self.duration)))
             self.trim_error.show()
             return
         if start is not None and end is not None and end <= start:
@@ -152,7 +161,8 @@ class EditingMixin:
             if not self._has_picture:
                 new.output = OUTPUT_AUDIO
         self.settings = new
-        self.settingsEdited.emit(new.copy(), tr("Preset: {name}", name=tr(name) if kind == "builtin" else name), True)
+        self.settingsEdited.emit(
+            new.copy(), tr("Preset: {name}", name=tr(name) if kind == "builtin" else name), True)
         self._updating = True
         self.preset_box.setCurrentIndex(0)
         self._updating = False

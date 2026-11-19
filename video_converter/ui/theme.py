@@ -7,22 +7,41 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
 DARK = {
-    "window": "#1e1f22", "panel": "#25262a", "base": "#18191c", "raised": "#2d2e33",
-    "border": "#3a3b41", "text": "#e9e9ec", "muted": "#9c9da4", "accent": "#4f8cff",
-    "accent_text": "#ffffff", "danger": "#ff6b6b", "success": "#4cc38a",
-    "video_bg": "#0f1012", "track": "#2a2b30", "selection": "#34507f",
+    "window": "#1e1f22",
+    "panel": "#25262a",
+    "base": "#18191c",
+    "raised": "#2d2e33",
+    "border": "#3a3b41",
+    "text": "#e9e9ec",
+    "muted": "#9c9da4",
+    "accent": "#4f8cff",
+    "accent_text": "#ffffff",
+    "danger": "#ff6b6b",
+    "success": "#4cc38a",
+    "video_bg": "#0f1012",
+    "track": "#2a2b30",
+    "selection": "#34507f",
 }
 LIGHT = {
-    "window": "#f2f2f5", "panel": "#fbfbfc", "base": "#ffffff", "raised": "#ffffff",
-    "border": "#d5d5dc", "text": "#1c1c1f", "muted": "#696a72", "accent": "#2f6fed",
-    "accent_text": "#ffffff", "danger": "#d43c3c", "success": "#1f9d5c",
-    "video_bg": "#16171a", "track": "#e6e6ec", "selection": "#cddcfb",
+    "window": "#f2f2f5",
+    "panel": "#fbfbfc",
+    "base": "#ffffff",
+    "raised": "#ffffff",
+    "border": "#d5d5dc",
+    "text": "#1c1c1f",
+    "muted": "#696a72",
+    "accent": "#2f6fed",
+    "accent_text": "#ffffff",
+    "danger": "#d43c3c",
+    "success": "#1f9d5c",
+    "video_bg": "#16171a",
+    "track": "#e6e6ec",
+    "selection": "#cddcfb",
 }
 
 _current = dict(DARK)
 
-
-_applied: dict[int, str] = {}       # the application (by id) the theme was last set on, and which one
+_applied: dict[int, str] = {}  # the application (by id) the theme was last set on, and which one
 
 
 def colors() -> dict[str, str]:
@@ -49,9 +68,10 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
     role = QPalette.ColorRole
     for r, key in ((role.Window, "window"), (role.Base, "base"), (role.AlternateBase, "panel"),
                    (role.Button, "raised"), (role.Text, "text"), (role.WindowText, "text"),
-                   (role.ButtonText, "text"), (role.ToolTipBase, "raised"), (role.ToolTipText, "text"),
-                   (role.Highlight, "accent"), (role.HighlightedText, "accent_text"),
-                   (role.PlaceholderText, "muted"), (role.Link, "accent")):
+                   (role.ButtonText, "text"), (role.ToolTipBase, "raised"),
+                   (role.ToolTipText, "text"), (role.Highlight, "accent"),
+                   (role.HighlightedText, "accent_text"), (role.PlaceholderText,
+                                                           "muted"), (role.Link, "accent")):
         palette.setColor(r, QColor(c[key]))
     disabled = QPalette.ColorGroup.Disabled
     for r in (role.Text, role.WindowText, role.ButtonText):
@@ -113,7 +133,8 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
     # Qt's own code). So with the same theme already in place (a second window, or the same choice made again)
     # nothing is set. What counts as "in place" is read back from the application, so a change made by anything
     # else is put right as before.
-    if _applied.get(id(app)) == resolved and app.styleSheet() == sheet and app.palette() == palette:
+    if _applied.get(
+            id(app)) == resolved and app.styleSheet() == sheet and app.palette() == palette:
         return resolved
     app.setStyle("Fusion")
     app.setPalette(palette)

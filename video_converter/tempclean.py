@@ -19,8 +19,8 @@ from typing import Iterable, Optional
 log = logging.getLogger(__name__)
 
 PREFIXES = ("videoconverter-", "fve-")
-MAX_AGE = 24 * 3600         # seconds a folder must have been left alone before it counts as abandoned
-OWNER_FILE = "owner.pid"    # the editor's folder says which process uses it, so a long session's folder is kept
+MAX_AGE = 24 * 3600  # seconds a folder must have been left alone before it counts as abandoned
+OWNER_FILE = "owner.pid"  # the editor's folder says which process uses it, so a long session's folder is kept
 
 
 def mark_owner(folder: Path) -> None:
@@ -42,14 +42,15 @@ def process_alive(pid: int) -> bool:
 
             kernel32 = ctypes.windll.kernel32
             kernel32.OpenProcess.restype = wintypes.HANDLE
-            handle = kernel32.OpenProcess(0x1000, False, pid)      # PROCESS_QUERY_LIMITED_INFORMATION
+            handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
             if not handle:
-                return kernel32.GetLastError() == 5                # access denied: it exists, it is just not ours
+                return kernel32.GetLastError(
+                ) == 5  # access denied: it exists, it is just not ours
             try:
                 code = wintypes.DWORD()
                 if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
                     return True
-                return code.value == 259                           # STILL_ACTIVE
+                return code.value == 259  # STILL_ACTIVE
             finally:
                 kernel32.CloseHandle(handle)
         except (OSError, AttributeError):
@@ -85,8 +86,9 @@ def _last_touched(folder: Path) -> float:
     return newest
 
 
-def sweep_stale(root: Optional[Path] = None, max_age: float = MAX_AGE, now: Optional[float] = None,
-                keep: Iterable[Path] = ()) -> list[Path]:
+def sweep_stale(
+    root: Optional[Path] = None, max_age: float = MAX_AGE, now: Optional[float] = None,
+    keep: Iterable[Path] = ()) -> list[Path]:
     """Delete the editor's leftover folders in `root` (the temp folder) that are older than `max_age` seconds and
     that no running copy uses. Best effort: whatever can't be deleted is left. Returns the folders removed."""
     root = Path(root) if root is not None else Path(tempfile.gettempdir())
@@ -115,6 +117,7 @@ def sweep_stale(root: Optional[Path] = None, max_age: float = MAX_AGE, now: Opti
 
 def sweep_in_background(keep: Iterable[Path] = ()) -> threading.Thread:
     """`sweep_stale` on a thread of its own, so start-up doesn't wait for it."""
-    thread = threading.Thread(target=lambda: sweep_stale(keep=list(keep)), name="temp-sweep", daemon=True)
+    thread = threading.Thread(
+        target=lambda: sweep_stale(keep=list(keep)), name="temp-sweep", daemon=True)
     thread.start()
     return thread

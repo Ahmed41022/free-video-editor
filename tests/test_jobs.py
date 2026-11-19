@@ -25,14 +25,14 @@ class Recorder:
 
     def __init__(self, fail=(), crash=(), os_fail=(), block=()):
         self.lock = threading.Lock()
-        self.order = []                 # job ids, in the order they started running
-        self.updates = []               # (job id, state, progress) at each on_update call
+        self.order = []  # job ids, in the order they started running
+        self.updates = []  # (job id, state, progress) at each on_update call
         self.active = 0
         self.max_active = 0
-        self.calls = {}                 # job id -> times the runner was called
+        self.calls = {}  # job id -> times the runner was called
         self.fail, self.crash, self.os_fail = set(fail), set(crash), set(os_fail)
-        self.block = {job_id: threading.Event() for job_id in block}      # released by the test
-        self.started = {}               # job id -> Event set when its runner begins
+        self.block = {job_id: threading.Event() for job_id in block}  # released by the test
+        self.started = {}  # job id -> Event set when its runner begins
 
     def started_event(self, job_id):
         with self.lock:
@@ -74,6 +74,7 @@ class Recorder:
 
 
 class QueueTestCase(unittest.TestCase):
+
     def make_queue(self, **recorder_kwargs):
         self.rec = Recorder(**recorder_kwargs)
         self.queue = JobQueue("fake-ffmpeg", on_update=self.rec.on_update, runner=self.rec.runner)
@@ -93,12 +94,14 @@ class QueueTestCase(unittest.TestCase):
 
 
 class JobBasicsTests(unittest.TestCase):
+
     def test_new_jobs_start_queued_with_unique_ids(self):
         jobs = [make_job() for _ in range(5)]
         self.assertTrue(all(j.state is JobState.QUEUED for j in jobs))
         self.assertEqual(len({j.id for j in jobs}), 5)
         self.assertEqual([j.id for j in jobs], sorted(j.id for j in jobs))
-        self.assertTrue(all(j.progress == 0.0 and j.output is None and j.error == "" for j in jobs))
+        self.assertTrue(
+            all(j.progress == 0.0 and j.output is None and j.error == "" for j in jobs))
 
     def test_finished_states(self):
         self.assertFalse(JobState.QUEUED.finished)
@@ -121,7 +124,9 @@ class JobBasicsTests(unittest.TestCase):
 
     def test_a_joined_jobs_title_and_summary(self):
         settings = ClipSettings(edit=VideoEdit(aspect=(1, 1)))
-        clips = [Clip(Path(f"folder/{name}.mp4"), settings) for name in ("first", "second", "third")]
+        clips = [
+            Clip(Path(f"folder/{name}.mp4"), settings) for name in ("first", "second", "third")
+        ]
         job = Job(clips[0].source, settings, clips=clips)
         self.assertEqual(job.title, "first.mp4 + 2 more")
         self.assertEqual(job.summary, describe_join(settings, 3))
@@ -180,7 +185,7 @@ class JobBasicsTests(unittest.TestCase):
         job.state, job.started_at, job.progress = JobState.RUNNING, 100.0, 1.0
         self.assertEqual(job.remaining_seconds(now=130.0), 0.0)
         job.progress = 0.5
-        self.assertEqual(job.remaining_seconds(now=90.0), 0.0)     # clock earlier than the start
+        self.assertEqual(job.remaining_seconds(now=90.0), 0.0)  # clock earlier than the start
 
     def test_remaining_seconds_defaults_to_the_real_clock(self):
         job = make_job()
@@ -190,6 +195,7 @@ class JobBasicsTests(unittest.TestCase):
 
 
 class RunningJobsTests(QueueTestCase):
+
     def test_runs_jobs_one_at_a_time_in_insertion_order(self):
         queue = self.make_queue()
         jobs = [queue.add(make_job(f"clip{i}.mp4")) for i in range(8)]
@@ -241,7 +247,9 @@ class RunningJobsTests(QueueTestCase):
         job = queue.add(make_job())
         self.wait_all()
         with self.rec.lock:
-            progress_seen = [p for i, s, p in self.rec.updates if i == job.id and s is JobState.RUNNING]
+            progress_seen = [
+                p for i, s, p in self.rec.updates if i == job.id and s is JobState.RUNNING
+            ]
         self.assertIn(0.5, progress_seen)
 
     def test_conversion_error_fails_the_job_with_its_message(self):
@@ -285,11 +293,13 @@ class RunningJobsTests(QueueTestCase):
         for job in jobs:
             queue.add(job)
         self.wait_all()
-        self.assertEqual([j.state for j in jobs],
-                         [JobState.FAILED, JobState.DONE, JobState.FAILED, JobState.FAILED, JobState.DONE])
+        self.assertEqual(
+            [j.state for j in jobs],
+            [JobState.FAILED, JobState.DONE, JobState.FAILED, JobState.FAILED, JobState.DONE])
         self.assertEqual(self.rec.order, [j.id for j in jobs])
 
     def test_runner_raising_cancelled_marks_cancelled(self):
+
         def runner(ffmpeg, job, progress):
             raise ConversionCancelled()
 
@@ -322,7 +332,7 @@ class RunningJobsTests(QueueTestCase):
         self.wait_started(ok)
         queue.add(bad)
         queue.add(cancelled)
-        queue.cancel(cancelled.id)                 # queued -> cancelled while `ok` is running
+        queue.cancel(cancelled.id)  # queued -> cancelled while `ok` is running
         self.rec.block[ok.id].set()
         self.wait_all()
         self.assertEqual(self.rec.states_of(bad.id)[-1], JobState.FAILED)
@@ -339,6 +349,7 @@ class RunningJobsTests(QueueTestCase):
 
 
 class CancelTests(QueueTestCase):
+
     def test_cancelling_a_queued_job_never_runs_it(self):
         queue = self.make_queue()
         first = make_job("first.mp4")
@@ -417,7 +428,7 @@ class CancelTests(QueueTestCase):
         queue.cancel(second.id)
         queue.cancel(second.id)
         queue.cancel(-1)
-        queue.cancel(10 ** 9)
+        queue.cancel(10**9)
         self.assertEqual(self.rec.states_of(second.id).count(JobState.CANCELLED), 1)
         self.rec.block[first.id].set()
         self.wait_all()
@@ -448,6 +459,7 @@ class CancelTests(QueueTestCase):
 
 
 class WaitAndBusyTests(QueueTestCase):
+
     def test_empty_queue_is_idle(self):
         queue = self.make_queue()
         self.assertFalse(queue.busy)
@@ -498,8 +510,10 @@ class WaitAndBusyTests(QueueTestCase):
         queue.add(job)
         self.wait_started(job)
         results = []
-        waiters = [threading.Thread(target=lambda: results.append(queue.wait(TIMEOUT)), daemon=True)
-                   for _ in range(4)]
+        waiters = [
+            threading.Thread(target=lambda: results.append(queue.wait(TIMEOUT)), daemon=True)
+            for _ in range(4)
+        ]
         for w in waiters:
             w.start()
         gate.set()
@@ -510,7 +524,8 @@ class WaitAndBusyTests(QueueTestCase):
 
     def test_clear_finished_removes_only_finished_jobs(self):
         queue = self.make_queue()
-        done, failed, cancelled = make_job("done.mp4"), make_job("failed.mp4"), make_job("cancelled.mp4")
+        done, failed, cancelled = make_job("done.mp4"), make_job("failed.mp4"), make_job(
+            "cancelled.mp4")
         self.rec.fail.add(failed.id)
         for job in (done, failed):
             queue.add(job)
@@ -546,6 +561,7 @@ class WaitAndBusyTests(QueueTestCase):
 
 
 class RestartTests(QueueTestCase):
+
     def test_jobs_added_after_the_queue_went_idle_still_run(self):
         queue = self.make_queue()
         first = queue.add(make_job())
@@ -625,7 +641,7 @@ class RestartTests(QueueTestCase):
                 if n % 5 == 4:
                     queue.wait(TIMEOUT)
 
-        workers = [threading.Thread(target=adder, args=(i,), daemon=True) for i in range(threads)]
+        workers = [threading.Thread(target=adder, args=(i, ), daemon=True) for i in range(threads)]
         for w in workers:
             w.start()
         for w in workers:
@@ -641,10 +657,12 @@ class RestartTests(QueueTestCase):
         # Each thread's own jobs ran in the order that thread added them.
         position = {job_id: n for n, job_id in enumerate(self.rec.order)}
         for batch in added:
-            self.assertEqual([position[j.id] for j in batch], sorted(position[j.id] for j in batch))
+            self.assertEqual(
+                [position[j.id] for j in batch], sorted(position[j.id] for j in batch))
 
 
 class ShutdownTests(QueueTestCase):
+
     def test_shutdown_cancels_running_and_pending_work(self):
         queue = self.make_queue()
         running = make_job("running.mp4")
@@ -698,7 +716,7 @@ class ShutdownTests(QueueTestCase):
         self.addCleanup(release.set)
         job = queue.add(make_job())
         self.assertTrue(started.wait(TIMEOUT))
-        queue.shutdown(timeout=0.1)          # returns after the join timeout
+        queue.shutdown(timeout=0.1)  # returns after the join timeout
         release.set()
         queue._worker.join(TIMEOUT)
         self.assertFalse(queue._worker.is_alive())
@@ -714,6 +732,7 @@ class ShutdownTests(QueueTestCase):
 
 
 class UpdateCallbackRobustnessTests(unittest.TestCase):
+
     def test_a_raising_on_update_does_not_wedge_the_queue(self):
         # Suspected bug: jobs.py JobQueue._work calls `self.on_update(job)` outside its try block
         # (both right after the job is marked RUNNING and after the final state is set). If the
@@ -724,12 +743,13 @@ class UpdateCallbackRobustnessTests(unittest.TestCase):
 
         def on_update(job):
             calls.append(job.state)
-            if job.state is JobState.RUNNING and len(calls) < 50 and job.source.name == "explode.mp4":
+            if job.state is JobState.RUNNING and len(
+                    calls) < 50 and job.source.name == "explode.mp4":
                 raise ValueError("UI callback failed")
 
         queue = JobQueue("f", on_update=on_update, runner=lambda f, j, p: Path("x"))
         old_hook = threading.excepthook
-        threading.excepthook = lambda args: None        # keep the expected traceback out of the test output
+        threading.excepthook = lambda args: None  # keep the expected traceback out of the test output
         try:
             queue.add(make_job("explode.mp4"))
             later = queue.add(make_job("later.mp4"))
@@ -743,17 +763,20 @@ class UpdateCallbackRobustnessTests(unittest.TestCase):
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class EndToEndTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.tmp = Path(cls._tmp.name)
         cls.source = cls.tmp / "clip.mp4"
         subprocess.run(
-            [FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
-             "-f", "lavfi", "-i", "testsrc2=duration=2:size=320x180:rate=10",
-             "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
-             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(cls.source)],
-            check=True,
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                "testsrc2=duration=2:size=320x180:rate=10", "-f", "lavfi", "-i",
+                "sine=frequency=440:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a",
+                "aac", "-shortest",
+                str(cls.source)
+            ], check=True,
         )
 
     @classmethod
@@ -762,7 +785,8 @@ class EndToEndTests(unittest.TestCase):
 
     def setUp(self):
         self.updates = []
-        self.queue = JobQueue(FFMPEG, on_update=lambda job: self.updates.append((job.id, job.state)))
+        self.queue = JobQueue(
+            FFMPEG, on_update=lambda job: self.updates.append((job.id, job.state)))
         self.addCleanup(self.queue.shutdown)
 
     def test_mp3_and_phone_mp4_exports(self):
@@ -794,9 +818,12 @@ class EndToEndTests(unittest.TestCase):
         out = self.tmp / "joined"
         other = self.tmp / "other.mp4"
         subprocess.run(
-            [FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
-             "-f", "lavfi", "-i", "testsrc2=duration=1:size=160x120:rate=10", "-c:v", "libx264",
-             "-pix_fmt", "yuv420p", str(other)], check=True)
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                "testsrc2=duration=1:size=160x120:rate=10", "-c:v", "libx264", "-pix_fmt",
+                "yuv420p",
+                str(other)
+            ], check=True)
         settings = ClipSettings(edit=VideoEdit(aspect=None))
         clips = [Clip(self.source, settings.copy()), Clip(other, settings.copy())]
         job = self.queue.add(Job(self.source, settings.copy(), output_dir=out, clips=clips))
@@ -806,8 +833,8 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual([p.name for p in out.iterdir()], ["clip (joined).mp4"])
         info = probe_media(FFMPEG, job.output)
         self.assertAlmostEqual(info.duration, 3.0, delta=0.3)
-        self.assertEqual((info.width, info.height), (320, 180))        # the first clip's size
-        self.assertTrue(info.has_audio)                                # the second clip is silent
+        self.assertEqual((info.width, info.height), (320, 180))  # the first clip's size
+        self.assertTrue(info.has_audio)  # the second clip is silent
 
     def test_joined_mp3_job(self):
         out = self.tmp / "joined-mp3"
@@ -822,17 +849,25 @@ class EndToEndTests(unittest.TestCase):
     def test_two_joined_jobs_of_the_same_files_do_not_collide(self):
         out = self.tmp / "joined-twice"
         settings = ClipSettings(output=OUTPUT_AUDIO)
-        jobs = [self.queue.add(Job(self.source, settings.copy(), output_dir=out,
-                                   clips=[Clip(self.source, settings.copy()), Clip(self.source, settings.copy())]))
-                for _ in range(2)]
+        jobs = [
+            self.queue.add(
+                Job(
+                    self.source, settings.copy(), output_dir=out,
+                    clips=[Clip(self.source, settings.copy()),
+                           Clip(self.source, settings.copy())])) for _ in range(2)
+        ]
         self.assertTrue(self.queue.wait(120))
         self.assertEqual([j.state for j in jobs], [JobState.DONE, JobState.DONE])
-        self.assertEqual([j.output for j in jobs], [out / "clip (joined).mp3", out / "clip (joined) (1).mp3"])
+        self.assertEqual(
+            [j.output for j in jobs], [out / "clip (joined).mp3", out / "clip (joined) (1).mp3"])
 
     def test_a_joined_job_with_a_broken_clip_fails_cleanly(self):
         out = self.tmp / "joined-broken"
         settings = ClipSettings(edit=VideoEdit(aspect=None))
-        clips = [Clip(self.source, settings.copy()), Clip(self.tmp / "missing.mp4", settings.copy())]
+        clips = [
+            Clip(self.source, settings.copy()),
+            Clip(self.tmp / "missing.mp4", settings.copy())
+        ]
         job = self.queue.add(Job(self.source, settings.copy(), output_dir=out, clips=clips))
         self.assertTrue(self.queue.wait(120))
         self.assertIs(job.state, JobState.FAILED)
@@ -841,8 +876,9 @@ class EndToEndTests(unittest.TestCase):
 
     def test_mp3_job_passes_cuts_and_speed_through(self):
         out = self.tmp / "mp3-edit"
-        edit = VideoEdit(keep=[(0.0, 1.0), (1.5, 2.0)], speed=0.5)     # 1.5 s kept, at half speed
-        job = self.queue.add(Job(self.source, ClipSettings(output=OUTPUT_AUDIO, edit=edit), output_dir=out))
+        edit = VideoEdit(keep=[(0.0, 1.0), (1.5, 2.0)], speed=0.5)  # 1.5 s kept, at half speed
+        job = self.queue.add(
+            Job(self.source, ClipSettings(output=OUTPUT_AUDIO, edit=edit), output_dir=out))
         self.assertTrue(self.queue.wait(120))
         self.assertIs(job.state, JobState.DONE, job.error)
         self.assertAlmostEqual(probe_media(FFMPEG, job.output).duration, 3.0, delta=0.25)
@@ -856,8 +892,11 @@ class EndToEndTests(unittest.TestCase):
         self.assertTrue(self.queue.wait(120))
 
         def first_and_middle_peaks(path):
-            data = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-i", str(path), "-vn", "-ac", "1",
-                                   "-ar", "8000", "-f", "s16le", "-"], capture_output=True, check=True).stdout
+            data = subprocess.run(
+                [
+                    FFMPEG, "-hide_banner", "-loglevel", "error", "-i",
+                    str(path), "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "-"
+                ], capture_output=True, check=True).stdout
             samples = array("h")
             samples.frombytes(data)
             return max(abs(s) for s in samples[:800]), max(abs(s) for s in samples[6000:10000])
@@ -889,8 +928,10 @@ class EndToEndTests(unittest.TestCase):
 
     def test_queued_exports_of_the_same_file_do_not_collide(self):
         out = self.tmp / "same-name"
-        jobs = [self.queue.add(Job(self.source, ClipSettings(output=OUTPUT_AUDIO), output_dir=out))
-                for _ in range(2)]
+        jobs = [
+            self.queue.add(Job(self.source, ClipSettings(output=OUTPUT_AUDIO), output_dir=out))
+            for _ in range(2)
+        ]
         self.assertTrue(self.queue.wait(120))
         self.assertEqual([j.state for j in jobs], [JobState.DONE, JobState.DONE])
         self.assertEqual([j.output for j in jobs], [out / "clip.mp3", out / "clip (1).mp3"])
@@ -908,9 +949,12 @@ class EndToEndTests(unittest.TestCase):
     def test_audio_export_of_a_video_without_sound_fails_cleanly(self):
         silent = self.tmp / "no-audio.mp4"
         subprocess.run(
-            [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
-             "-i", "testsrc2=duration=1:size=160x120:rate=10", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(silent)],
-            check=True,
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                "testsrc2=duration=1:size=160x120:rate=10", "-c:v", "libx264", "-pix_fmt",
+                "yuv420p",
+                str(silent)
+            ], check=True,
         )
         out = self.tmp / "no-audio-out"
         job = self.queue.add(Job(silent, ClipSettings(output=OUTPUT_AUDIO), output_dir=out))
@@ -929,7 +973,8 @@ class ReverseMemoryJobTests(unittest.TestCase):
 
     def test_a_job_that_is_not_reversed_needs_nothing(self):
         self.assertEqual(Job(Path("a.mp4"), ClipSettings(), info=self.HD).reverse_memory, 0)
-        self.assertEqual(Job(Path("a.mp4"), self.reversed_settings()).reverse_memory, 0)     # info not read yet
+        self.assertEqual(
+            Job(Path("a.mp4"), self.reversed_settings()).reverse_memory, 0)  # info not read yet
 
     def test_a_reversed_job_holds_all_its_frames(self):
         job = Job(Path("a.mp4"), self.reversed_settings(), info=self.HD)
@@ -938,21 +983,28 @@ class ReverseMemoryJobTests(unittest.TestCase):
     def test_an_mp3_export_holds_only_the_sound(self):
         settings = self.reversed_settings()
         settings.output = OUTPUT_AUDIO
-        self.assertEqual(Job(Path("a.mp4"), settings, info=self.HD).reverse_memory, 100 * 48000 * 2 * 4)
+        self.assertEqual(
+            Job(Path("a.mp4"), settings, info=self.HD).reverse_memory, 100 * 48000 * 2 * 4)
 
     def test_a_join_needs_what_its_biggest_clip_needs(self):
         # Each clip is reversed on its own, so a short clip reversed next to a long one adds nothing.
-        clips = [Clip(Path("a.mp4"), self.reversed_settings(), self.SHORT),
-                 Clip(Path("b.mp4"), self.reversed_settings(), self.HD),
-                 Clip(Path("c.mp4"), ClipSettings(), self.HD)]
+        clips = [
+            Clip(Path("a.mp4"), self.reversed_settings(), self.SHORT),
+            Clip(Path("b.mp4"), self.reversed_settings(), self.HD),
+            Clip(Path("c.mp4"), ClipSettings(), self.HD)
+        ]
         job = Job(Path("a.mp4"), clips[0].settings, info=self.SHORT, clips=clips)
         self.assertEqual(job.reverse_memory, 3000 * 1920 * 1080 * 3 + REVERSE_BASE_BYTES)
 
     def test_a_join_reverses_at_the_first_clips_frame_rate(self):
         slow = MediaInfo(duration=10.0, width=1920, height=1080, has_audio=True, fps=15.0)
-        clips = [Clip(Path("a.mp4"), ClipSettings(), slow), Clip(Path("b.mp4"), self.reversed_settings(), self.SHORT)]
+        clips = [
+            Clip(Path("a.mp4"), ClipSettings(), slow),
+            Clip(Path("b.mp4"), self.reversed_settings(), self.SHORT)
+        ]
         job = Job(Path("a.mp4"), clips[0].settings, info=slow, clips=clips)
-        self.assertEqual(job.reverse_memory, 150 * 1920 * 1080 * 3 + REVERSE_BASE_BYTES)       # b.mp4 becomes 15 fps
+        self.assertEqual(
+            job.reverse_memory, 150 * 1920 * 1080 * 3 + REVERSE_BASE_BYTES)  # b.mp4 becomes 15 fps
 
 
 if __name__ == "__main__":

@@ -56,20 +56,26 @@ class ProcessRegistry:
         for proc in procs:
             try:
                 stop_process(proc)
-            except Exception:      # a program that is already gone is fine
+            except Exception:  # a program that is already gone is fine
                 log.debug("Couldn't stop %s", proc, exc_info=True)
 
 
-def run_tracked(cmd: list[str], timeout: Optional[float], registry: Optional[ProcessRegistry] = None,
-                text: bool = False) -> subprocess.CompletedProcess:
+def run_tracked(
+        cmd: list[str], timeout: Optional[float], registry: Optional[ProcessRegistry] = None,
+        text: bool = False) -> subprocess.CompletedProcess:
     """Like `subprocess.run(cmd, capture_output=True)` with no window and no input, but the program is
     registered while it runs. Raises `subprocess.TimeoutExpired` (after ending the program and everything
     it started) when it takes longer than `timeout` seconds, and `ConversionCancelled` when the registry ended it."""
-    kwargs: dict[str, Any] = {"text": True, "encoding": "utf-8", "errors": "replace"} if text else {}
+    kwargs: dict[str, Any] = {
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace"
+    } if text else {}
     # start_process puts the program in a job (Windows), so ending it ends everything it started at once, and the
     # system ends it if this app dies.
-    proc = start_process(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
-                         creationflags=_NO_WINDOW, **kwargs)
+    proc = start_process(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+        creationflags=_NO_WINDOW, **kwargs)
     job = getattr(proc, "fve_job", None)
     try:
         if registry is not None and not registry.add(proc):
@@ -105,8 +111,10 @@ class DaemonPool:
         self._jobs: queue.SimpleQueue = queue.SimpleQueue()
         self._lock = threading.Lock()
         self._closed = False
-        self._threads = [threading.Thread(target=self._work, name=f"{name}-{n}", daemon=True)
-                         for n in range(workers)]
+        self._threads = [
+            threading.Thread(target=self._work, name=f"{name}-{n}", daemon=True)
+            for n in range(workers)
+        ]
         for thread in self._threads:
             thread.start()
 
@@ -128,7 +136,7 @@ class DaemonPool:
                 continue
             try:
                 future.set_result(fn(*args))
-            except BaseException as exc:      # a job's failure belongs to its future, not to the thread
+            except BaseException as exc:  # a job's failure belongs to its future, not to the thread
                 future.set_exception(exc)
 
     def shutdown(self, wait: bool = True, cancel_futures: bool = False) -> None:

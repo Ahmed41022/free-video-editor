@@ -7,6 +7,7 @@ from typing import Optional
 
 from ..i18n import tr
 
+
 def parse_time(text: str) -> Optional[float]:
     """Parse "90", "1:30", "01:02:03.5" into seconds. Empty text means no value."""
     text = text.strip()
@@ -20,7 +21,8 @@ def parse_time(text: str) -> Optional[float]:
         for part in parts:
             seconds = seconds * 60 + float(part)
     except ValueError:
-        raise ValueError(tr("Invalid time: {text} (use seconds, m:ss or h:mm:ss)", text=repr(text))) from None
+        raise ValueError(
+            tr("Invalid time: {text} (use seconds, m:ss or h:mm:ss)", text=repr(text))) from None
     # float() takes "nan" and "inf" (and "1e999"), which are not times and would break everything after them.
     if not math.isfinite(seconds) or seconds < 0:
         raise ValueError(tr("Invalid time: {text}", text=repr(text)))

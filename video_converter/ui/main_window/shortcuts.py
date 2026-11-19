@@ -23,8 +23,9 @@ class ShortcutsMixin:
         every button, check box, slider and list of the settings panel, keeps its own keys."""
         if focus is None or focus is self:
             return True
-        if isinstance(focus, (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)) or (
-                isinstance(focus, QComboBox) and focus.isEditable()):
+        if isinstance(focus,
+                      (QLineEdit, QTextEdit, QPlainTextEdit,
+                       QAbstractSpinBox)) or (isinstance(focus, QComboBox) and focus.isEditable()):
             return False
         if focus is self.media_list or focus is self.media_list.viewport() or focus is self.view \
                 or focus is self.timeline:
@@ -35,15 +36,16 @@ class ShortcutsMixin:
         return False
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        if event.type() != QEvent.Type.KeyPress or not self.isActiveWindow() or event.modifiers() & (
-                Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier):
+        if event.type() != QEvent.Type.KeyPress or not self.isActiveWindow() or event.modifiers(
+        ) & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier):
             return super().eventFilter(obj, event)
         focus = QApplication.focusWidget()
         if not self._owns_shortcuts(focus, event.key()) or self.current is None:
             return super().eventFilter(obj, event)
         key = event.key()
         if not (Qt.Key.Key_A <= key <= Qt.Key.Key_Z) and 0x41 <= event.nativeVirtualKey() <= 0x5A:
-            key = event.nativeVirtualKey()      # the letter's key on an Arabic or other non-Latin keyboard layout
+            key = event.nativeVirtualKey(
+            )  # the letter's key on an Arabic or other non-Latin keyboard layout
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         handlers = {
             Qt.Key.Key_Space: self.player.toggle,

@@ -19,8 +19,8 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class StagedOutput:
-    part: Path      # where ffmpeg writes: next to `final`, as "name.part.mp4"
-    final: Path     # the name the finished file gets
+    part: Path  # where ffmpeg writes: next to `final`, as "name.part.mp4"
+    final: Path  # the name the finished file gets
 
 
 def part_path(final: Path) -> Path:
@@ -36,7 +36,8 @@ def part_path(final: Path) -> Path:
         except FileExistsError:
             n += 1
         except OSError as exc:
-            raise ConversionError(tr("Can't save in {folder}: {error}", folder=final.parent, error=exc)) from exc
+            raise ConversionError(
+                tr("Can't save in {folder}: {error}", folder=final.parent, error=exc)) from exc
 
 
 def _replace(part: Path, final: Path) -> Path:
@@ -57,7 +58,8 @@ def _replace(part: Path, final: Path) -> Path:
 
 
 @contextmanager
-def staged_output(final: Path, inputs: Iterable[Path] = (), overwrite: bool = True) -> Iterator[StagedOutput]:
+def staged_output(final: Path, inputs: Iterable[Path] = (),
+                  overwrite: bool = True) -> Iterator[StagedOutput]:
     """Write an export under a temporary name and give it its real one only when it is complete.
 
     The name `final` is taken at once (an empty file made exclusively, so no other program picks it too);
@@ -71,7 +73,8 @@ def staged_output(final: Path, inputs: Iterable[Path] = (), overwrite: bool = Tr
     try:
         final.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise ConversionError(tr("Can't save in {folder}: {error}", folder=final.parent, error=exc)) from exc
+        raise ConversionError(
+            tr("Can't save in {folder}: {error}", folder=final.parent, error=exc)) from exc
     reserved = False
     while True:
         try:
@@ -81,9 +84,11 @@ def staged_output(final: Path, inputs: Iterable[Path] = (), overwrite: bool = Tr
         except FileExistsError:
             if overwrite:
                 break
-            final = unique_output_path(final, inputs)       # someone else took the name since it was chosen
+            final = unique_output_path(
+                final, inputs)  # someone else took the name since it was chosen
         except OSError as exc:
-            raise ConversionError(tr("Can't save in {folder}: {error}", folder=final.parent, error=exc)) from exc
+            raise ConversionError(
+                tr("Can't save in {folder}: {error}", folder=final.parent, error=exc)) from exc
     part = None
     try:
         part = part_path(final)

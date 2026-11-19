@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+
 @dataclass
 class Cue:
     start: float
@@ -22,7 +23,7 @@ _VTT_TAG = re.compile(r"<(?!/?(?:b|i|u|font)\b)[^>]*>", re.IGNORECASE)
 def _seconds(match: re.Match) -> float:
     hours, minutes, seconds, fraction = match.groups()
     return int(hours or 0) * 3600 + int(minutes) * 60 + int(seconds) + (
-        round(int(fraction) / 10 ** len(fraction), 6) if fraction else 0.0)
+        round(int(fraction) / 10**len(fraction), 6) if fraction else 0.0)
 
 
 def subtitle_kind(path: Path, text: str) -> str:
@@ -87,7 +88,8 @@ def format_srt(cues: list[Cue]) -> str:
     early in the file, so those are dropped."""
     blocks = []
     for number, cue in enumerate(cues, 1):
-        body = "\n".join(line.strip() for line in cue.text.replace("\r", "").split("\n") if line.strip())
+        body = "\n".join(
+            line.strip() for line in cue.text.replace("\r", "").split("\n") if line.strip())
         blocks.append(f"{number}\n{_srt_time(cue.start)} --> {_srt_time(cue.end)}\n{body}\n")
     return "\n".join(blocks)
 

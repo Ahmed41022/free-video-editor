@@ -34,13 +34,14 @@ def _publish(temp: Path, path: Path, already_there) -> None:
     with the right content, someone else got there first and that is as good. Windows refuses to replace a
     file that another thread has open for a moment, so the move is tried a few times."""
     error: Optional[OSError] = None
-    if already_there(path):                 # someone finished while this thread was still writing: leave theirs alone
+    if already_there(
+            path):  # someone finished while this thread was still writing: leave theirs alone
         return
     for attempt in range(8):
         try:
             os.replace(temp, path)
             return
-        except OSError as exc:              # PermissionError on Windows, usually
+        except OSError as exc:  # PermissionError on Windows, usually
             error = exc
             if already_there(path):
                 return
@@ -63,7 +64,8 @@ def _scratch_file(data: bytes, suffix: str) -> Path:
             return False
 
     if not path.is_file():
-        temp = path.with_name(f"{path.name}.{os.getpid()}-{threading.get_ident()}-{uuid.uuid4().hex[:8]}.part")
+        temp = path.with_name(
+            f"{path.name}.{os.getpid()}-{threading.get_ident()}-{uuid.uuid4().hex[:8]}.part")
         try:
             temp.write_bytes(data)
             _publish(temp, path, same)

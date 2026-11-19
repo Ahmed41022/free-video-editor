@@ -11,7 +11,7 @@ from ..i18n import tr
 from ..timing import clamp_speed
 from .edit import VideoEdit
 
-FAST_FRAME_RATE = 60.5      # above this (59.94 and 60 are fine) some phones give up
+FAST_FRAME_RATE = 60.5  # above this (59.94 and 60 are fine) some phones give up
 # A source this much slower than the chosen steady rate keeps its own rate, not the chosen one.
 SLOW_SOURCE = 0.9
 # Rates with a fraction (NTSC) that a plain 29.97 would only approximate.
@@ -79,7 +79,8 @@ def output_rate(edit: VideoEdit, info: MediaInfo) -> Optional[Fraction]:
 def _rate_text(rate: float | Fraction) -> str:
     """A frame rate as ffmpeg takes it: 30, 24000/1001, or (a plain number) 29.97."""
     if isinstance(rate, Fraction):
-        return str(rate.numerator) if rate.denominator == 1 else f"{rate.numerator}/{rate.denominator}"
+        return str(
+            rate.numerator) if rate.denominator == 1 else f"{rate.numerator}/{rate.denominator}"
     return f"{rate:.6g}"
 
 
@@ -87,7 +88,8 @@ def _rate_text(rate: float | Fraction) -> str:
 # play 1080p60 want 4.2; 4.1 is 1080p30. Smaller pictures also say 4.1, which every phone plays.
 _H264_LEVELS = (
     ("4.1", 8192, 245760), ("4.2", 8192, 522240), ("5.0", 22080, 589824), ("5.1", 36864, 983040),
-    ("5.2", 36864, 2073600), ("6.0", 139264, 4177920), ("6.1", 139264, 8355840), ("6.2", 139264, 16711680),
+    ("5.2", 36864, 2073600), ("6.0", 139264, 4177920), ("6.1", 139264,
+                                                        8355840), ("6.2", 139264, 16711680),
 )
 
 
@@ -102,10 +104,10 @@ def h264_level(width: int, height: int, fps: float) -> str:
 
 # H.265 levels (main tier): (name, biggest picture in luma samples, most luma samples a second).
 _H265_LEVELS = (
-    ("2.0", 122880, 3686400), ("2.1", 245760, 7372800), ("3.0", 552960, 16588800), ("3.1", 983040, 33177600),
-    ("4.0", 2228224, 66846720), ("4.1", 2228224, 133693440), ("5.0", 8912896, 267386880),
-    ("5.1", 8912896, 534773760), ("5.2", 8912896, 1069547520), ("6.0", 35651584, 1069547520),
-    ("6.1", 35651584, 2139095040), ("6.2", 35651584, 4278190080),
+    ("2.0", 122880, 3686400), ("2.1", 245760, 7372800), ("3.0", 552960, 16588800),
+    ("3.1", 983040, 33177600), ("4.0", 2228224, 66846720), ("4.1", 2228224, 133693440),
+    ("5.0", 8912896, 267386880), ("5.1", 8912896, 534773760), ("5.2", 8912896, 1069547520),
+    ("6.0", 35651584, 1069547520), ("6.1", 35651584, 2139095040), ("6.2", 35651584, 4278190080),
 )
 
 
@@ -118,10 +120,11 @@ def h265_level(width: int, height: int, fps: float) -> str:
     return _H265_LEVELS[-1][0]
 
 
-UNKNOWN_RATE_PEAK = 60.0      # the rate a level is worked out for when the picture doesn't say its own
+UNKNOWN_RATE_PEAK = 60.0  # the rate a level is worked out for when the picture doesn't say its own
 
 
-def encoder_level(codec: str, width: int, height: int, rate: Optional[Fraction], info: MediaInfo) -> Optional[str]:
+def encoder_level(codec: str, width: int, height: int, rate: Optional[Fraction],
+                  info: MediaInfo) -> Optional[str]:
     """The level an H.264 or H.265 file of this size and frame rate is written as. A picture whose rate
     changes is covered up to the highest rate it declares."""
     peak = float(rate) if rate else (info.max_fps or info.fps or UNKNOWN_RATE_PEAK)
@@ -136,9 +139,11 @@ def frame_rate_hint(info: MediaInfo) -> str:
     """What to tell the user about a source whose frame rate may not play on a phone, or "" when
     there is nothing to say. Shown while the frame rate is left at "Same as source"."""
     if info.variable_frame_rate and info.max_fps:
-        return tr("This video's frame rate changes (up to {fps:g} fps), which some phones can't play. "
-                  "Choose Steady 60 fps.", fps=info.max_fps)
+        return tr(
+            "This video's frame rate changes (up to {fps:g} fps), which some phones can't play. "
+            "Choose Steady 60 fps.", fps=info.max_fps)
     if info.fps and info.fps > FAST_FRAME_RATE:
-        return tr("This video runs at {fps:g} fps, which some phones can't play. Choose Steady 60 fps.",
-                  fps=info.fps)
+        return tr(
+            "This video runs at {fps:g} fps, which some phones can't play. Choose Steady 60 fps.",
+            fps=info.fps)
     return ""

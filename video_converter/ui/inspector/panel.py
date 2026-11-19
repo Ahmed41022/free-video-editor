@@ -28,19 +28,21 @@ from .editing import EditingMixin
 from .showing import ShowingMixin
 from .widgets import Section, WheelGuard, _db_text
 
+
 class Inspector(ShowingMixin, EditingMixin, QScrollArea):
     # new settings, undo label, whether the edit is complete (False while dragging a slider)
     settingsEdited = Signal(object, str, bool)
     applyToAllRequested = Signal()
     savePresetRequested = Signal()
-    playheadRequested = Signal(str)          # "start" or "end": use the current playhead time
-    cutRequested = Signal(str)               # "split" or "remove": at the current playhead
+    playheadRequested = Signal(str)  # "start" or "end": use the current playhead time
+    cutRequested = Signal(str)  # "split" or "remove": at the current playhead
     removeSilencesRequested = Signal()
     outputFolderRequested = Signal()
-    textSelected = Signal(int)               # the selected text's index (-1: none), to show it on the preview
-    textTimeRequested = Signal(str)          # "start" or "end": use the playhead as the selected text's time
-    autoCaptionsRequested = Signal()         # make captions from the speech
-    editCaptionsRequested = Signal()         # open the caption editor
+    textSelected = Signal(int)  # the selected text's index (-1: none), to show it on the preview
+    textTimeRequested = Signal(
+        str)  # "start" or "end": use the playhead as the selected text's time
+    autoCaptionsRequested = Signal()  # make captions from the speech
+    editCaptionsRequested = Signal()  # open the caption editor
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -51,9 +53,9 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.duration: Optional[float] = None
         self._updating = False
         self._dragging = False
-        self._gif = False        # the format is GIF, which has its own options
-        self._fits = False       # the quality is Fit in a file size
-        self._has_picture = True     # False for a sound-only file, which can only be saved as MP3
+        self._gif = False  # the format is GIF, which has its own options
+        self._fits = False  # the quality is Fit in a file size
+        self._has_picture = True  # False for a sound-only file, which can only be saved as MP3
         self._size_text, self._size_is_error = "", False
         self.user_presets: dict[str, dict] = {}
 
@@ -77,7 +79,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         save = QPushButton(tr("Save as preset…"))
         save.clicked.connect(self.savePresetRequested)
         apply_all = QPushButton(tr("Apply to all files"))
-        apply_all.setToolTip(tr("Copy these settings to every file in the list (each keeps its own crop and trim)"))
+        apply_all.setToolTip(
+            tr("Copy these settings to every file in the list (each keeps its own crop and trim)"))
         apply_all.clicked.connect(self.applyToAllRequested)
         buttons.addWidget(save)
         buttons.addWidget(apply_all)
@@ -87,20 +90,23 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.output_section = Section(tr("Output"))
         out_row = QHBoxLayout()
         self.output_group = QButtonGroup(self)
-        for i, (text, value) in enumerate(((N_("Video"), OUTPUT_VIDEO), (N_("Audio (MP3)"), OUTPUT_AUDIO))):
+        for i, (text, value) in enumerate(
+            ((N_("Video"), OUTPUT_VIDEO), (N_("Audio (MP3)"), OUTPUT_AUDIO))):
             button = QPushButton(tr(text))
             button.setCheckable(True)
             button.setProperty("value", value)
             self.output_group.addButton(button, i)
             out_row.addWidget(button)
         self.output_group.idClicked.connect(
-            lambda i: self._edit(lambda s: setattr(s, "output", self.output_group.button(i).property("value")),
-                                 tr("Change output")))
+            lambda i: self._edit(
+                lambda s: setattr(s, "output",
+                                  self.output_group.button(i).property("value")),
+                tr("Change output")))
         self.output_section.grid.addLayout(out_row, 0, 0, 1, 2)
 
         # Frame
         self.frame_section = Section(tr("Frame"))
-        shapes = QGridLayout()          # three to a row: five side by side would not fit the panel
+        shapes = QGridLayout()  # three to a row: five side by side would not fit the panel
         shapes.setSpacing(4)
         shapes.setContentsMargins(0, 0, 0, 0)
         self.shape_group = QButtonGroup(self)
@@ -113,7 +119,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
             self.shape_group.addButton(button, i)
             shapes.addWidget(button, i // 3, i % 3)
         self.shape_group.idClicked.connect(
-            lambda i: self._edit(lambda s: setattr(s.edit, "aspect", SHAPES[i][1]), tr("Change shape")))
+            lambda i: self._edit(
+                lambda s: setattr(s.edit, "aspect", SHAPES[i][1]), tr("Change shape")))
         self.frame_section.grid.addLayout(shapes, 0, 0, 1, 2)
         self.shape_hint = QLabel()
         self.shape_hint.setObjectName("muted")
@@ -123,7 +130,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         for key, label in FIT_MODES.items():
             self.fit_box.addItem(tr(label), key)
         self.fit_box.currentIndexChanged.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "fit", self.fit_box.currentData()), tr("Change fit")))
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "fit", self.fit_box.currentData()), tr("Change fit")))
         self.frame_section.row(tr("Fit"), self.fit_box, 2)
 
         zoom_row = QHBoxLayout()
@@ -132,10 +140,13 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.zoom_label = QLabel("1.0×")
         self.zoom_label.setMinimumWidth(36)
         self.zoom_slider.valueChanged.connect(
-            lambda v: self._edit(lambda s: setattr(s.edit, "zoom", v / 100), tr("Zoom"),
-                                 final=not self.zoom_slider.isSliderDown()))
+            lambda v: self._edit(
+                lambda s: setattr(s.edit, "zoom", v / 100), tr("Zoom"), final=not self.zoom_slider.
+                isSliderDown()))
         self.zoom_slider.sliderReleased.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "zoom", self.zoom_slider.value() / 100), tr("Zoom")))
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "zoom",
+                                  self.zoom_slider.value() / 100), tr("Zoom")))
         zoom_row.addWidget(self.zoom_slider)
         zoom_row.addWidget(self.zoom_label)
         zoom_widget = QWidget()
@@ -147,14 +158,17 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         rotate_row.setContentsMargins(0, 0, 0, 0)
         left = QPushButton("⟲ " + tr("Left"))
         right = QPushButton("⟳ " + tr("Right"))
-        left.clicked.connect(lambda: self._edit(lambda s: setattr(s.edit, "rotate", (s.edit.rotate - 90) % 360),
-                                                tr("Rotate")))
-        right.clicked.connect(lambda: self._edit(lambda s: setattr(s.edit, "rotate", (s.edit.rotate + 90) % 360),
-                                                 tr("Rotate")))
+        left.clicked.connect(
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "rotate", (s.edit.rotate - 90) % 360), tr("Rotate")))
+        right.clicked.connect(
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "rotate", (s.edit.rotate + 90) % 360), tr("Rotate")))
         for button in (left, right):
-            button.setMinimumWidth(44)         # a real minimum: the style's 75 px would not fit the panel
+            button.setMinimumWidth(44)  # a real minimum: the style's 75 px would not fit the panel
         self.mirror_box = QCheckBox(tr("Mirror"))
-        self.mirror_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "flip", on), tr("Mirror")))
+        self.mirror_box.toggled.connect(
+            lambda on: self._edit(lambda s: setattr(s.edit, "flip", on), tr("Mirror")))
         rotate_row.addWidget(left)
         rotate_row.addWidget(right)
         rotate_row.addWidget(self.mirror_box)
@@ -183,7 +197,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
                     final=not slider.isSliderDown()))
             slider.sliderReleased.connect(
                 lambda name=name, slider=slider: self._edit(
-                    lambda s: setattr(s.edit, name, slider.value() / 100), tr(ADJUST_LABELS[name])))
+                    lambda s: setattr(s.edit, name,
+                                      slider.value() / 100), tr(ADJUST_LABELS[name])))
             line = QHBoxLayout()
             line.setContentsMargins(0, 0, 0, 0)
             line.addWidget(slider)
@@ -206,8 +221,9 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
             self.look_group.addButton(button, i)
             looks.addWidget(button, i // 3, i % 3)
         self.look_group.idClicked.connect(
-            lambda i: self._edit(lambda s: setattr(s.edit, "look", self.look_group.button(i).property("look")),
-                                 tr("Look")))
+            lambda i: self._edit(
+                lambda s: setattr(s.edit, "look",
+                                  self.look_group.button(i).property("look")), tr("Look")))
         looks_holder = QWidget()
         looks_holder.setLayout(looks)
         looks.setContentsMargins(0, 0, 0, 0)
@@ -221,11 +237,14 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         for key, label in STABILIZE_LABELS.items():
             self.stabilize_box.addItem(tr(label), key)
         self.stabilize_box.currentIndexChanged.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "stabilize", self.stabilize_box.currentData()),
-                               tr("Stabilize")))
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "stabilize", self.stabilize_box.currentData()),
+                tr("Stabilize")))
         self.adjust_section.row(tr("Stabilize"), self.stabilize_box, row + 2)
-        stabilize_hint = QLabel(tr("Steadies shaky footage when exporting, which takes longer. "
-                                   "The preview doesn't show it."))
+        stabilize_hint = QLabel(
+            tr(
+                "Steadies shaky footage when exporting, which takes longer. "
+                "The preview doesn't show it."))
         stabilize_hint.setObjectName("muted")
         stabilize_hint.setWordWrap(True)
         self.adjust_section.grid.addWidget(stabilize_hint, row + 3, 1)
@@ -246,7 +265,9 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
             row.addWidget(here)
             holder = QWidget()
             holder.setLayout(row)
-            self.trim_section.row(tr("Start") if which == "start" else tr("End"), holder, 0 if which == "start" else 1)
+            self.trim_section.row(
+                tr("Start") if which == "start" else tr("End"), holder,
+                0 if which == "start" else 1)
         self.trim_info = QLabel()
         self.trim_info.setObjectName("muted")
         self.trim_section.grid.addWidget(self.trim_info, 2, 1)
@@ -265,7 +286,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.split_button.setToolTip(tr("Split the video at the playhead (S)"))
         self.split_button.clicked.connect(lambda: self.cutRequested.emit("split"))
         self.remove_part_button = QPushButton(tr("Remove part"))
-        self.remove_part_button.setToolTip(tr("Cut out the part under the playhead, between two splits (X)"))
+        self.remove_part_button.setToolTip(
+            tr("Cut out the part under the playhead, between two splits (X)"))
         self.remove_part_button.clicked.connect(lambda: self.cutRequested.emit("remove"))
         cut_row.addWidget(self.split_button)
         cut_row.addWidget(self.remove_part_button)
@@ -277,7 +299,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.cut_info.setWordWrap(True)
         self.trim_section.grid.addWidget(self.cut_info, 6, 1)
         self.restore_button = QPushButton(tr("Put back the cut parts"))
-        self.restore_button.clicked.connect(lambda: self._edit(self._clear_cuts, tr("Restore cuts")))
+        self.restore_button.clicked.connect(
+            lambda: self._edit(self._clear_cuts, tr("Restore cuts")))
         self.trim_section.grid.addWidget(self.restore_button, 7, 1)
         self.silence_button = QPushButton(tr("Remove silences…"))
         self.silence_button.clicked.connect(self.removeSilencesRequested.emit)
@@ -292,25 +315,28 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.speed_box.setDecimals(2)
         self.speed_box.setSuffix("×")
         self.speed_box.setKeyboardTracking(False)
-        self.speed_box.setToolTip(tr("0.25× is four times slower, 4× four times faster; the sound keeps its pitch"))
+        self.speed_box.setToolTip(
+            tr("0.25× is four times slower, 4× four times faster; the sound keeps its pitch"))
         self.speed_box.valueChanged.connect(
-            lambda value: self._edit(lambda s: setattr(s.edit, "speed", round(value, 2)), tr("Speed")))
+            lambda value: self._edit(
+                lambda s: setattr(s.edit, "speed", round(value, 2)), tr("Speed")))
         speed_row = QHBoxLayout()
         speed_row.setContentsMargins(0, 0, 0, 0)
         speed_row.addWidget(self.speed_box, 1)
         for value in (0.5, 1.0, 2.0):
             chip = QPushButton(f"{value:g}×")
             chip.setObjectName("chip")
-            chip.setMinimumWidth(36)           # a real minimum: the style's 75 px would not fit the panel
+            chip.setMinimumWidth(36)  # a real minimum: the style's 75 px would not fit the panel
             chip.clicked.connect(lambda _=False, value=value: self.speed_box.setValue(value))
             speed_row.addWidget(chip)
         speed_holder = QWidget()
         speed_holder.setLayout(speed_row)
         self.speed_section.row(tr("Speed"), speed_holder, 0)
         self.reverse_box = QCheckBox(tr("Play backwards"))
-        self.reverse_box.setToolTip(tr("Reversing holds the whole clip in memory, so it suits short clips best"))
-        self.reverse_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "reverse", on),
-                                                               tr("Reverse")))
+        self.reverse_box.setToolTip(
+            tr("Reversing holds the whole clip in memory, so it suits short clips best"))
+        self.reverse_box.toggled.connect(
+            lambda on: self._edit(lambda s: setattr(s.edit, "reverse", on), tr("Reverse")))
         self.speed_section.grid.addWidget(self.reverse_box, 1, 1)
         self.reverse_warning = QLabel()
         self.reverse_warning.setObjectName("error")
@@ -322,7 +348,9 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.fade_section = Section(tr("Fades"))
         self.fade_boxes: dict[str, QDoubleSpinBox] = {}
         self.fade_rows: dict[str, tuple[QLabel, QWidget]] = {}
-        rows = ((N_("Picture"), "fade_in", "fade_out"), (N_("Sound"), "audio_fade_in", "audio_fade_out"))
+        rows = (
+            (N_("Picture"), "fade_in", "fade_out"),
+            (N_("Sound"), "audio_fade_in", "audio_fade_out"))
         for row_index, (label, fade_in, fade_out) in enumerate(rows):
             line = QHBoxLayout()
             line.setContentsMargins(0, 0, 0, 0)
@@ -335,11 +363,12 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
                 box.setMinimumWidth(64)
                 box.setSpecialValueText(tr("Off"))
                 box.setKeyboardTracking(False)
-                box.setToolTip(tr("Seconds to fade in from black or silence") if word == "in"
-                               else tr("Seconds to fade out to black or silence"))
+                box.setToolTip(
+                    tr("Seconds to fade in from black or silence") if word ==
+                    "in" else tr("Seconds to fade out to black or silence"))
                 box.valueChanged.connect(
-                    lambda value, name=name: self._edit(lambda s: setattr(s.edit, name, round(value, 1)),
-                                                        tr("Fade")))
+                    lambda value, name=name: self._edit(
+                        lambda s: setattr(s.edit, name, round(value, 1)), tr("Fade")))
                 caption = QLabel(tr("In") if word == "in" else tr("Out"))
                 caption.setObjectName("muted")
                 line.addWidget(caption)
@@ -348,7 +377,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
             holder = QWidget()
             holder.setLayout(line)
             self.fade_section.row(tr(label), holder, row_index)
-            self.fade_rows[label] = (self.fade_section.grid.itemAtPosition(row_index, 0).widget(), holder)
+            self.fade_rows[label] = (
+                self.fade_section.grid.itemAtPosition(row_index, 0).widget(), holder)
 
         # Text, logo and subtitles
         self.captions_section = Section(tr("Text and logo"), expanded=False)
@@ -363,14 +393,16 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         # Sound
         self.audio_section = Section(tr("Sound"))
         self.mute_box = QCheckBox(tr("Remove the sound"))
-        self.mute_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "mute", on),
-                                                            tr("Remove sound")))
+        self.mute_box.toggled.connect(
+            lambda on: self._edit(lambda s: setattr(s.edit, "mute", on), tr("Remove sound")))
         self.audio_section.grid.addWidget(self.mute_box, 0, 0, 1, 2)
         self.mp3_box = QComboBox()
         for label in QUALITY_PRESETS:
             self.mp3_box.addItem(tr(label), label)
         self.mp3_box.currentIndexChanged.connect(
-            lambda: self._edit(lambda s: setattr(s, "audio_quality", self.mp3_box.currentData()), tr("MP3 quality")))
+            lambda: self._edit(
+                lambda s: setattr(s, "audio_quality", self.mp3_box.currentData()), tr(
+                    "MP3 quality")))
         self.mp3_label = QLabel(tr("MP3 quality"))
         self.mp3_label.setObjectName("muted")
         self.audio_section.grid.addWidget(self.mp3_label, 1, 0)
@@ -378,36 +410,45 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
 
         self.volume_slider = QSlider(Qt.Orientation.Horizontal)
         self.volume_slider.setRange(round(VOLUME_MIN), round(VOLUME_MAX))
-        self.volume_slider.setToolTip(tr("Make the sound louder or quieter. +6 dB doubles its strength, "
-                                         "−6 dB halves it."))
+        self.volume_slider.setToolTip(
+            tr(
+                "Make the sound louder or quieter. +6 dB doubles its strength, "
+                "−6 dB halves it."))
         self.volume_label = QLabel("0 dB")
         self.volume_label.setMinimumWidth(48)
         self.volume_slider.valueChanged.connect(
-            lambda v: self._edit(lambda s: setattr(s.edit, "volume", float(v)), tr("Volume"),
-                                 final=not self.volume_slider.isSliderDown()))
+            lambda v: self._edit(
+                lambda s: setattr(s.edit, "volume", float(v)), tr("Volume"), final=not self.
+                volume_slider.isSliderDown()))
         self.volume_slider.sliderReleased.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "volume", float(self.volume_slider.value())),
-                               tr("Volume")))
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "volume", float(self.volume_slider.value())), tr(
+                    "Volume")))
         self.volume_slider.valueChanged.connect(lambda v: self.volume_label.setText(_db_text(v)))
         self.volume_holder = self._slider_row(self.volume_slider, self.volume_label)
         self.audio_section.row(tr("Volume"), self.volume_holder, 2)
 
         self.normalize_box = QCheckBox(tr("Make the loudness even (−14 LUFS)"))
-        self.normalize_box.setToolTip(tr(
-            "Sets the whole sound to the loudness YouTube and Spotify play at, so it isn't too quiet or too "
-            "loud next to other videos. It measures the sound first, so exporting takes a little longer."))
-        self.normalize_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "normalize", on),
-                                                                 tr("Even loudness")))
+        self.normalize_box.setToolTip(
+            tr(
+                "Sets the whole sound to the loudness YouTube and Spotify play at, so it isn't too quiet or too "
+                "loud next to other videos. It measures the sound first, so exporting takes a little longer."
+            ))
+        self.normalize_box.toggled.connect(
+            lambda on: self._edit(lambda s: setattr(s.edit, "normalize", on), tr("Even loudness")))
         self.audio_section.grid.addWidget(self.normalize_box, 3, 0, 1, 2)
 
         self.noise_box = QComboBox()
         for key, label in NOISE_LABELS.items():
             self.noise_box.addItem(tr(label), key)
-        self.noise_box.setToolTip(tr("Takes out steady background noise, like hiss or a fan. Light keeps voices "
-                                     "natural; Strong removes more but can make them sound thin."))
+        self.noise_box.setToolTip(
+            tr(
+                "Takes out steady background noise, like hiss or a fan. Light keeps voices "
+                "natural; Strong removes more but can make them sound thin."))
         self.noise_box.currentIndexChanged.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "audio_denoise", self.noise_box.currentData()),
-                               tr("Noise reduction")))
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "audio_denoise", self.noise_box.currentData()),
+                tr("Noise reduction")))
         self.audio_section.row(tr("Noise reduction"), self.noise_box, 4)
 
         music_line = QHBoxLayout()
@@ -421,8 +462,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.music_choose.clicked.connect(self._choose_music)
         self.music_remove = QPushButton(tr("Remove"))
         self.music_remove.setToolTip(tr("Take the background music away"))
-        self.music_remove.clicked.connect(lambda: self._edit(lambda s: setattr(s.edit, "music", ""),
-                                                             tr("Remove music")))
+        self.music_remove.clicked.connect(
+            lambda: self._edit(lambda s: setattr(s.edit, "music", ""), tr("Remove music")))
         music_line.addWidget(self.music_name, 1)
         music_line.addWidget(self.music_choose)
         music_line.addWidget(self.music_remove)
@@ -437,28 +478,36 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
 
         self.music_slider = QSlider(Qt.Orientation.Horizontal)
         self.music_slider.setRange(round(MUSIC_VOLUME_MIN), round(MUSIC_VOLUME_MAX))
-        self.music_slider.setToolTip(tr(
-            "How loud the music is next to the video's own sound. A video with no sound of its own plays "
-            "the music at full volume."))
+        self.music_slider.setToolTip(
+            tr(
+                "How loud the music is next to the video's own sound. A video with no sound of its own plays "
+                "the music at full volume."))
         self.music_label = QLabel()
         self.music_label.setMinimumWidth(48)
         self.music_slider.valueChanged.connect(
-            lambda v: self._edit(lambda s: setattr(s.edit, "music_volume", float(v)), tr("Music volume"),
-                                 final=not self.music_slider.isSliderDown()))
+            lambda v: self._edit(
+                lambda s: setattr(s.edit, "music_volume", float(v)), tr("Music volume"),
+                final=not self.music_slider.isSliderDown()))
         self.music_slider.sliderReleased.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "music_volume", float(self.music_slider.value())),
-                               tr("Music volume")))
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "music_volume", float(self.music_slider.value())),
+                tr("Music volume")))
         self.music_slider.valueChanged.connect(lambda v: self.music_label.setText(_db_text(v)))
         self.music_holder = self._slider_row(self.music_slider, self.music_label)
         self.audio_section.row(tr("Music volume"), self.music_holder, 7)
         self.duck_box = QCheckBox(tr("Lower the music when people talk"))
-        self.duck_box.setToolTip(tr("The music dips whenever the video's own sound is playing, and comes back "
-                                    "up in the quiet parts."))
-        self.duck_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "music_duck", on),
-                                                            tr("Music ducking")))
+        self.duck_box.setToolTip(
+            tr(
+                "The music dips whenever the video's own sound is playing, and comes back "
+                "up in the quiet parts."))
+        self.duck_box.toggled.connect(
+            lambda on: self._edit(
+                lambda s: setattr(s.edit, "music_duck", on), tr("Music ducking")))
         self.audio_section.grid.addWidget(self.duck_box, 8, 0, 1, 2)
-        music_hint = QLabel(tr("The music plays over the whole result, starts again if it is shorter, and fades "
-                               "out over the last 2 seconds."))
+        music_hint = QLabel(
+            tr(
+                "The music plays over the whole result, starts again if it is shorter, and fades "
+                "out over the last 2 seconds."))
         music_hint.setObjectName("muted")
         music_hint.setWordWrap(True)
         self.audio_section.grid.addWidget(music_hint, 9, 0, 1, 2)
@@ -467,7 +516,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
 
         # Quality
         self.quality_section = Section(tr("Video quality"))
-        self.quality_rows: dict[str, list[QWidget]] = {}      # name -> the widgets of that row, to show or hide
+        self.quality_rows: dict[str, list[QWidget]] = {
+        }  # name -> the widgets of that row, to show or hide
 
         def row(name: str, label: str, widget: QWidget, index: int) -> None:
             self.quality_rows[name] = [self.quality_section.row(label, widget, index), widget]
@@ -483,46 +533,54 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.format_box = QComboBox()
         for key, fmt in OUTPUT_FORMATS.items():
             self.format_box.addItem(tr(fmt.label), key)
-        self.format_box.setToolTip(tr(
-            "MP4 (H.264) plays on everything. H.265 makes smaller files, but older phones and programs can't "
-            "play it. WebM is for the web. MOV suits Apple's apps and video editors. A GIF is a short, silent, "
-            "looping picture."))
+        self.format_box.setToolTip(
+            tr(
+                "MP4 (H.264) plays on everything. H.265 makes smaller files, but older phones and programs can't "
+                "play it. WebM is for the web. MOV suits Apple's apps and video editors. A GIF is a short, silent, "
+                "looping picture."))
         self.format_box.currentIndexChanged.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "video_format", self.format_box.currentData()),
-                               tr("Format")))
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "video_format", self.format_box.currentData()),
+                tr("Format")))
         row("format", tr("Format"), self.format_box, 0)
         self.format_hint = note(1)
         self.format_warning = note(2, error=True)
         self.size_box = QComboBox()
         for label, value in RESOLUTIONS.items():
             self.size_box.addItem(tr(label), value)
-        self.size_box.setToolTip(tr(
-            "Same as source matches the source's short side, so 1080p makes a 1080x1920 phone video. Phone, "
-            "portrait and square videos are capped at 1080 pixels on the short side, so 4K doesn't make huge "
-            "files. Up to 1080p does the same for any shape, and never makes a smaller video bigger. "
-            "1080p, 720p and 480p set the short side."))
+        self.size_box.setToolTip(
+            tr(
+                "Same as source matches the source's short side, so 1080p makes a 1080x1920 phone video. Phone, "
+                "portrait and square videos are capped at 1080 pixels on the short side, so 4K doesn't make huge "
+                "files. Up to 1080p does the same for any shape, and never makes a smaller video bigger. "
+                "1080p, 720p and 480p set the short side."))
         self.size_box.currentIndexChanged.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "resolution", self.size_box.currentData()), tr("Size")))
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "resolution", self.size_box.currentData()), tr("Size")))
         row("size", tr("Size"), self.size_box, 3)
         self.rate_box = QComboBox()
         for label, value in FRAME_RATES.items():
             self.rate_box.addItem(tr(label), value)
-        self.rate_box.setToolTip(tr(
-            "Steady makes every frame the same distance apart, which phones need. A steady MP4 or MOV is also "
-            "made phone-safe (H.264 High, AAC sound). A video that is slower than the rate you choose keeps "
-            "its own rate, so Steady 60 never makes a 30 fps video bigger."))
+        self.rate_box.setToolTip(
+            tr(
+                "Steady makes every frame the same distance apart, which phones need. A steady MP4 or MOV is also "
+                "made phone-safe (H.264 High, AAC sound). A video that is slower than the rate you choose keeps "
+                "its own rate, so Steady 60 never makes a 30 fps video bigger."))
         self.rate_box.currentIndexChanged.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "frame_rate", self.rate_box.currentData()),
-                               tr("Frame rate")))
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "frame_rate", self.rate_box.currentData()),
+                tr("Frame rate")))
         row("rate", tr("Frame rate"), self.rate_box, 4)
         self.rate_hint = note(5)
         self.crf_box = QComboBox()
         for label, value in VIDEO_QUALITY.items():
             self.crf_box.addItem(tr(label), value)
         self.crf_box.addItem(tr(FIT_LABEL), FIT_DATA)
-        self.crf_box.setToolTip(tr(
-            "Higher quality makes bigger files. Fit in a file size does the opposite: you say how big the file "
-            "may be, for Discord, WhatsApp or email, and the picture gets what is left after the sound."))
+        self.crf_box.setToolTip(
+            tr(
+                "Higher quality makes bigger files. Fit in a file size does the opposite: you say how big the file "
+                "may be, for Discord, WhatsApp or email, and the picture gets what is left after the sound."
+            ))
         self.crf_box.currentIndexChanged.connect(self._quality_chosen)
         row("quality", tr("Quality"), self.crf_box, 6)
         self.limit_box = QComboBox()
@@ -536,33 +594,40 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.limit_spin.setDecimals(1)
         self.limit_spin.setSuffix(" MB")
         self.limit_spin.setKeyboardTracking(False)
-        self.limit_spin.setValue(20.0)          # where Custom… starts: not one of the presets
+        self.limit_spin.setValue(20.0)  # where Custom… starts: not one of the presets
         self.limit_spin.valueChanged.connect(
-            lambda value: self._edit(lambda s: setattr(s.edit, "target_mb", round(value, 1)), tr("File size")))
+            lambda value: self._edit(
+                lambda s: setattr(s.edit, "target_mb", round(value, 1)), tr("File size")))
         row("custom", tr("Size in MB"), self.limit_spin, 8)
         self.size_note = note(9)
         self.size_error = note(10, error=True)
         self.gif_fps_box = QComboBox()
         self.gif_fps_box.currentIndexChanged.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "gif_fps", self.gif_fps_box.currentData()),
-                               tr("GIF frame rate")))
-        self.gif_fps_box.setToolTip(tr("The most frames a second the GIF gets. A video with fewer keeps its own."))
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "gif_fps", self.gif_fps_box.currentData()),
+                tr("GIF frame rate")))
+        self.gif_fps_box.setToolTip(
+            tr("The most frames a second the GIF gets. A video with fewer keeps its own."))
         row("gif_fps", tr("GIF frame rate"), self.gif_fps_box, 11)
         self.gif_width_box = QComboBox()
         self.gif_width_box.currentIndexChanged.connect(
-            lambda: self._edit(lambda s: setattr(s.edit, "gif_width", self.gif_width_box.currentData()),
-                               tr("GIF width")))
-        self.gif_width_box.setToolTip(tr("The widest the GIF gets, in pixels. A narrower picture keeps its width."))
+            lambda: self._edit(
+                lambda s: setattr(s.edit, "gif_width", self.gif_width_box.currentData()),
+                tr("GIF width")))
+        self.gif_width_box.setToolTip(
+            tr("The widest the GIF gets, in pixels. A narrower picture keeps its width."))
         row("gif_width", tr("GIF width"), self.gif_width_box, 12)
         for box, values, text in ((self.gif_fps_box, GIF_FPS_CHOICES, "{} fps"),
                                   (self.gif_width_box, GIF_WIDTH_CHOICES, "{} px")):
             for value in values:
                 box.addItem(text.format(value), value)
         self.gpu_box = QCheckBox(tr("Use the graphics card when possible"))
-        self.gpu_box.setToolTip(tr("Exports much faster on most PCs. The picture quality is about the same; "
-                                   "if the graphics card fails, the export runs on the CPU instead."))
-        self.gpu_box.toggled.connect(lambda on: self._edit(lambda s: setattr(s.edit, "use_gpu", on),
-                                                           tr("Graphics card")))
+        self.gpu_box.setToolTip(
+            tr(
+                "Exports much faster on most PCs. The picture quality is about the same; "
+                "if the graphics card fails, the export runs on the CPU instead."))
+        self.gpu_box.toggled.connect(
+            lambda on: self._edit(lambda s: setattr(s.edit, "use_gpu", on), tr("Graphics card")))
         self.quality_section.grid.addWidget(self.gpu_box, 13, 0, 1, 2)
         self.gpu_label = QLabel()
         self.gpu_label.setObjectName("muted")
@@ -580,16 +645,18 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         change.clicked.connect(self.outputFolderRequested)
         self.export_section.grid.addWidget(change, 1, 0, 1, 2)
 
-        self.sections = [self.preset_section, self.output_section, self.frame_section, self.adjust_section,
-                         self.trim_section,
-                         self.speed_section, self.fade_section, self.captions_section, self.audio_section,
-                         self.quality_section]
+        self.sections = [
+            self.preset_section, self.output_section, self.frame_section, self.adjust_section,
+            self.trim_section, self.speed_section, self.fade_section, self.captions_section,
+            self.audio_section, self.quality_section
+        ]
         for section in self.sections + [self.export_section]:
             layout.addWidget(section)
         layout.addStretch(1)
         for combo in self.findChildren(QComboBox):
             # Long option names shouldn't force the panel wider than the window allows.
-            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             combo.setMinimumContentsLength(8)
         self.wheel_guard = WheelGuard(self)
         self.wheel_guard.watch(content)

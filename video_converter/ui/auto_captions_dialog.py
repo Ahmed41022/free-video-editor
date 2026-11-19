@@ -9,11 +9,13 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QGridLayout, QLabel, QProgressBar, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QGridLayout, QLabel, QProgressBar,
+    QVBoxLayout, QWidget,
 )
 
 from ..autocaptions import (
-    DOWNLOADING, LANGUAGES, LISTENING, LOADING, PREPARING, WAITING, CaptionOptions, CaptionResult, make_captions,
+    DOWNLOADING, LANGUAGES, LISTENING, LOADING, PREPARING, WAITING, CaptionOptions, CaptionResult,
+    make_captions,
 )
 from ..core import ConversionCancelled
 from ..i18n import N_, isolate, tr, trc
@@ -22,9 +24,10 @@ from ..speech_models import DEFAULT_MODEL, MODELS, is_downloaded
 # What the window remembers between runs.
 LANGUAGE_KEY, MODEL_KEY, TRANSLATE_KEY = "captionsLanguage", "captionsModel", "captionsTranslate"
 
-HELP = N_("Listens to the speech in the video and writes it down as captions that you can fix afterwards. "
-          "It runs entirely on this PC: the first time you use an accuracy level its speech model is downloaded "
-          "once, and after that no internet is needed and nothing is sent anywhere.")
+HELP = N_(
+    "Listens to the speech in the video and writes it down as captions that you can fix afterwards. "
+    "It runs entirely on this PC: the first time you use an accuracy level its speech model is downloaded "
+    "once, and after that no internet is needed and nothing is sent anywhere.")
 
 Runner = Callable[..., CaptionResult]
 
@@ -33,17 +36,19 @@ class AutoCaptionsDialog(QDialog):
     """Runs the captions job in the background. After `accept()`, `outcome` holds the cues (in the source
     video's time) and the language that was heard."""
 
-    worked = Signal(int, object, str)           # which run it was, the result (or None), what went wrong
-    progressed = Signal(int, str, float, str)   # which run it was, the phase, how far through it, a few words
+    worked = Signal(int, object, str)  # which run it was, the result (or None), what went wrong
+    progressed = Signal(
+        int, str, float, str)  # which run it was, the phase, how far through it, a few words
 
     # The worker thread of the latest run, whichever window started it. A window closed during a run only
     # tells that run to stop; the thread needs a moment to notice. Until it has ended, a new run waits.
     _last_worker: Optional[threading.Thread] = None
-    WAIT_MS = 150                                # how often a waiting run looks again
+    WAIT_MS = 150  # how often a waiting run looks again
 
-    def __init__(self, ffmpeg: str, source: Path, duration: Optional[float], start: Optional[float],
-                 end: Optional[float], store=None, parent: Optional[QWidget] = None, models_root: Optional[Path] = None,
-                 runner: Runner = make_captions):
+    def __init__(
+            self, ffmpeg: str, source: Path, duration: Optional[float], start: Optional[float],
+            end: Optional[float], store=None, parent: Optional[QWidget] = None,
+            models_root: Optional[Path] = None, runner: Runner = make_captions):
         super().__init__(parent)
         self.setWindowTitle(tr("Make captions automatically"))
         self.setModal(True)
@@ -74,19 +79,25 @@ class AutoCaptionsDialog(QDialog):
         self.language_box = QComboBox()
         for code, name in LANGUAGES.items():
             self.language_box.addItem(tr(name), code)
-        self.language_box.setToolTip(tr("The language spoken in the video. \"Detect automatically\" works for most "
-                                        "videos; choose the language if the guess is wrong."))
+        self.language_box.setToolTip(
+            tr(
+                "The language spoken in the video. \"Detect automatically\" works for most "
+                "videos; choose the language if the guess is wrong."))
         self.model_box = QComboBox()
         for key in MODELS:
             self.model_box.addItem("", key)
-        self.model_box.setToolTip(tr("Higher accuracy takes longer and needs a bigger one-time download"))
+        self.model_box.setToolTip(
+            tr("Higher accuracy takes longer and needs a bigger one-time download"))
         self.model_note = QLabel()
         self.model_note.setObjectName("muted")
         self.model_note.setWordWrap(True)
         self.translate_box = QCheckBox(tr("Translate to English"))
-        self.translate_box.setToolTip(tr("Write the captions in English, whatever language is spoken. The Balanced and "
-                                         "Accurate levels translate much better than Fast."))
-        for n, (label, widget) in enumerate(((tr("Language"), self.language_box), (tr("Accuracy"), self.model_box))):
+        self.translate_box.setToolTip(
+            tr(
+                "Write the captions in English, whatever language is spoken. The Balanced and "
+                "Accurate levels translate much better than Fast."))
+        for n, (label, widget) in enumerate(
+            ((tr("Language"), self.language_box), (tr("Accuracy"), self.model_box))):
             text = QLabel(label)
             text.setObjectName("muted")
             grid.addWidget(text, n, 0)
@@ -110,7 +121,8 @@ class AutoCaptionsDialog(QDialog):
         layout.addWidget(self.error)
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
-        self.start_button = self.buttons.addButton(trc("button", "Start"), QDialogButtonBox.ButtonRole.AcceptRole)
+        self.start_button = self.buttons.addButton(
+            trc("button", "Start"), QDialogButtonBox.ButtonRole.AcceptRole)
         self.cancel_button = self.buttons.button(QDialogButtonBox.StandardButton.Cancel)
         self.cancel_button.setText(tr("Cancel"))
         self.start_button.clicked.connect(self.start_work)
@@ -136,7 +148,8 @@ class AutoCaptionsDialog(QDialog):
         self.language_box.setCurrentIndex(max(self.language_box.findData(language), 0))
         model = self._saved(MODEL_KEY, DEFAULT_MODEL)
         index = self.model_box.findData(model)
-        self.model_box.setCurrentIndex(index if index >= 0 else self.model_box.findData(DEFAULT_MODEL))
+        self.model_box.setCurrentIndex(
+            index if index >= 0 else self.model_box.findData(DEFAULT_MODEL))
         translate = self._saved(TRANSLATE_KEY, False)
         self.translate_box.setChecked(translate is True or str(translate).lower() == "true")
 
@@ -168,15 +181,18 @@ class AutoCaptionsDialog(QDialog):
         for i, (key, model) in enumerate(MODELS.items()):
             ready = is_downloaded(model, self.models_root)
             fill = {"model": model.display_label, "size": isolate(model.size_text)}
-            self.model_box.setItemText(i, tr("{model} ({size}, downloaded)", **fill) if ready
-                                       else tr("{model} ({size}, needs a download)", **fill))
+            self.model_box.setItemText(
+                i,
+                tr("{model} ({size}, downloaded)", **fill) if ready else tr(
+                    "{model} ({size}, needs a download)", **fill))
         self.model_box.setCurrentIndex(max(self.model_box.findData(current), 0))
         self.model_box.blockSignals(False)
         model = MODELS[self.model_key]
         ready = is_downloaded(model, self.models_root)
         note, size = model.display_note, isolate(model.size_text)
-        self.model_note.setText(tr("{note} Already downloaded.", note=note) if ready
-                                else tr("{note} A one-time download of {size} is needed.", note=note, size=size))
+        self.model_note.setText(
+            tr("{note} Already downloaded.", note=note) if ready else tr(
+                "{note} A one-time download of {size} is needed.", note=note, size=size))
 
     # ----- working -------------------------------------------------------------
 
@@ -226,12 +242,11 @@ class AutoCaptionsDialog(QDialog):
             try:
                 result = self.runner(
                     self.ffmpeg, self.source, options, self.duration, root=self.models_root,
-                    on_progress=lambda phase, fraction, text: self._emit(self.progressed, run, cancel, phase,
-                                                                         fraction, text),
-                    cancel_event=cancel)
+                    on_progress=lambda phase, fraction, text: self._emit(
+                        self.progressed, run, cancel, phase, fraction, text), cancel_event=cancel)
             except ConversionCancelled:
                 return
-            except Exception as exc:         # a message in the window beats a thread dying quietly
+            except Exception as exc:  # a message in the window beats a thread dying quietly
                 problem = str(exc) or tr("Something went wrong while making the captions.")
             self._emit(self.worked, run, cancel, result, problem)
 
@@ -245,7 +260,7 @@ class AutoCaptionsDialog(QDialog):
             return
         try:
             signal.emit(run, *values)
-        except RuntimeError:               # the window is already gone
+        except RuntimeError:  # the window is already gone
             pass
 
     def _progressed(self, run: int, phase: str, fraction: float, text: str) -> None:
@@ -264,7 +279,8 @@ class AutoCaptionsDialog(QDialog):
         if phase == PREPARING:
             self.status.setText(tr("Getting the sound ready…"))
         elif phase == DOWNLOADING:
-            self.status.setText(tr("Downloading the speech model, one time only… {progress}", progress=text))
+            self.status.setText(
+                tr("Downloading the speech model, one time only… {progress}", progress=text))
         elif phase == LISTENING:
             self.status.setText(tr("Listening… {percent}", percent=f"{fraction:.0%}"))
 
@@ -281,8 +297,10 @@ class AutoCaptionsDialog(QDialog):
         if problem:
             self._fail(problem)
         elif result is None or not result.cues:
-            self._fail(tr("No speech was found in this video, so there is nothing to write down. If it does have "
-                          "speech, try a more accurate level or choose the language."))
+            self._fail(
+                tr(
+                    "No speech was found in this video, so there is nothing to write down. If it does have "
+                    "speech, try a more accurate level or choose the language."))
         else:
             self.outcome = result
             self.accept()

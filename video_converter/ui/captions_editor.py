@@ -8,8 +8,8 @@ from typing import Optional
 
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel, QPlainTextEdit, QPushButton,
-    QStyledItemDelegate, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel, QPlainTextEdit,
+    QPushButton, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..captions import Cue
@@ -18,7 +18,7 @@ from ..i18n import ntr, tr
 
 TIME_COLUMNS = (0, 1)
 TEXT_COLUMN = 2
-DURATION_MARGIN = 60.0      # a caption may be placed this many seconds past the end of the video
+DURATION_MARGIN = 60.0  # a caption may be placed this many seconds past the end of the video
 
 
 def clock(seconds: float) -> str:
@@ -55,9 +55,12 @@ class CaptionsEditor(QDialog):
     """Shows `cues` in a table. After `accept()`, `cues` holds them as edited: in time order, with the
     ones that were deleted gone."""
 
-    def __init__(self, cues: list[Cue], parent: Optional[QWidget] = None, duration: Optional[float] = None):
+    def __init__(
+            self, cues: list[Cue], parent: Optional[QWidget] = None,
+            duration: Optional[float] = None):
         super().__init__(parent)
-        self.duration = duration if duration is not None and math.isfinite(duration) and duration > 0 else None
+        self.duration = duration if duration is not None and math.isfinite(
+            duration) and duration > 0 else None
         self.setWindowTitle(tr("Edit captions"))
         self.setModal(True)
         self.resize(720, 460)
@@ -66,16 +69,20 @@ class CaptionsEditor(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
-        intro = QLabel(tr("Double-click a time or the words to change them. Times are those of the original video "
-                          "(before any cuts or speed changes). In the text, Enter starts a second line; click "
-                          "somewhere else to finish."))
+        intro = QLabel(
+            tr(
+                "Double-click a time or the words to change them. Times are those of the original video "
+                "(before any cuts or speed changes). In the text, Enter starts a second line; click "
+                "somewhere else to finish."))
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels([tr("Start"), tr("End"), tr("Text")])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.EditKeyPressed)
+        self.table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed)
         self.table.setItemDelegateForColumn(TEXT_COLUMN, _TextDelegate(self.table))
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
@@ -103,7 +110,8 @@ class CaptionsEditor(QDialog):
         row.addWidget(self.count_label, 1)
         layout.addLayout(row)
 
-        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setText(tr("Save"))
         self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("Cancel"))
         self.buttons.accepted.connect(self.accept)
@@ -148,7 +156,8 @@ class CaptionsEditor(QDialog):
             return
         start, end = (value, cue.end) if column == 0 else (cue.start, value)
         if column == 0 and end <= start:
-            end = start + (cue.end - cue.start)         # moved past its end: the whole caption moves later
+            end = start + (
+                cue.end - cue.start)  # moved past its end: the whole caption moves later
             if not self._allowed(end):
                 self._reject_time(item, cue, column, tr("Type a time such as 1:23.5 or 83.5"))
                 return
@@ -198,6 +207,9 @@ class CaptionsEditor(QDialog):
 
     def accept(self) -> None:
         # A time that isn't a real number can never be stored (the cells check it), but never write one either.
-        self.cues = sorted((c for c in self.cues if c.text.strip() and math.isfinite(c.start) and math.isfinite(c.end)),
-                           key=lambda c: (c.start, c.end))
+        self.cues = sorted(
+            (
+                c for c in self.cues
+                if c.text.strip() and math.isfinite(c.start) and math.isfinite(c.end)),
+            key=lambda c: (c.start, c.end))
         super().accept()

@@ -15,7 +15,8 @@ from video_converter.core import ConversionCancelled, ConversionError, MediaInfo
 from video_converter.jobs import Job, run_job
 from video_converter.project import ClipSettings
 from video_converter.video import (
-    JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, join_command, video_codec_args, video_command,
+    JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, join_command,
+    video_codec_args, video_command,
 )
 
 FFMPEG = find_ffmpeg()
@@ -24,10 +25,14 @@ BOGUS = {"h264_bogus": lambda crf, fps: ["-c:v", "h264_does_not_exist", "-pix_fm
 
 
 def make_video(path, width=320, height=180, seconds=2):
-    subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
-                    "-f", "lavfi", "-i", f"testsrc2=duration={seconds}:size={width}x{height}:rate=15",
-                    "-f", "lavfi", "-i", f"sine=duration={seconds}", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-shortest", str(path)], check=True)
+    subprocess.run(
+        [
+            FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+            f"testsrc2=duration={seconds}:size={width}x{height}:rate=15", "-f", "lavfi", "-i",
+            f"sine=duration={seconds}", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+            "-shortest",
+            str(path)
+        ], check=True)
 
 
 def after(cmd, flag):
@@ -35,6 +40,7 @@ def after(cmd, flag):
 
 
 class EncoderOptionTests(unittest.TestCase):
+
     def test_nvenc_uses_constant_quality(self):
         args = gpu.encoder_args("h264_nvenc", 23, 30.0)
         self.assertEqual(args[:2], ["-c:v", "h264_nvenc"])
@@ -43,7 +49,8 @@ class EncoderOptionTests(unittest.TestCase):
         self.assertEqual(after(args, "-preset"), "p5")
         self.assertEqual(after(args, "-pix_fmt"), "yuv420p")
         self.assertEqual(int(after(args, "-cq")), 31)
-        for flag, value in (("-multipass", "fullres"), ("-spatial-aq", "1"), ("-temporal-aq", "1")):
+        for flag, value in (("-multipass", "fullres"), ("-spatial-aq", "1"), ("-temporal-aq",
+                                                                              "1")):
             self.assertEqual(after(args, flag), value)
 
     def test_intel_uses_global_quality_and_says_the_frame_rate(self):
@@ -60,9 +67,12 @@ class EncoderOptionTests(unittest.TestCase):
         self.assertEqual(after(args, "-pix_fmt"), "yuv420p")
 
     def test_better_quality_always_means_a_lower_number(self):
-        for encoder, flag in (("h264_nvenc", "-cq"), ("h264_qsv", "-global_quality"), ("h264_amf", "-qp_i")):
+        for encoder, flag in (("h264_nvenc", "-cq"), ("h264_qsv", "-global_quality"), ("h264_amf",
+                                                                                       "-qp_i")):
             with self.subTest(encoder=encoder):
-                numbers = [int(after(gpu.encoder_args(encoder, crf, 30.0), flag)) for crf in (18, 23, 28)]
+                numbers = [
+                    int(after(gpu.encoder_args(encoder, crf, 30.0), flag)) for crf in (18, 23, 28)
+                ]
                 self.assertEqual(numbers, sorted(numbers))
                 self.assertEqual(len(set(numbers)), 3)
 
@@ -71,6 +81,7 @@ class EncoderOptionTests(unittest.TestCase):
 
 
 class CommandTests(unittest.TestCase):
+
     def job(self, **edit):
         return VideoJob(Path("in.mp4"), Path("out.mp4"), VideoEdit(**edit))
 
@@ -91,7 +102,8 @@ class CommandTests(unittest.TestCase):
         cpu = video_command("ffmpeg", self.job(crf=18, speed=2.0, fade_in=1.0), INFO)
         for encoder in gpu.ENCODERS:
             with self.subTest(encoder=encoder):
-                card = video_command("ffmpeg", self.job(crf=18, speed=2.0, fade_in=1.0), INFO, encoder=encoder)
+                card = video_command(
+                    "ffmpeg", self.job(crf=18, speed=2.0, fade_in=1.0), INFO, encoder=encoder)
                 self.assertEqual(after(card, "-c:v"), encoder)
                 self.assertNotIn("libx264", card)
                 self.assertNotIn("-crf", card)
@@ -103,8 +115,10 @@ class CommandTests(unittest.TestCase):
                 self.assertEqual(card[:cpu.index("-c:v")], cpu[:cpu.index("-c:v")])
 
     def test_the_quality_choices_reach_the_card(self):
-        numbers = [after(video_command("ffmpeg", self.job(crf=crf), INFO, encoder="h264_nvenc"), "-cq")
-                   for crf in (18, 23, 28)]
+        numbers = [
+            after(video_command("ffmpeg", self.job(crf=crf), INFO, encoder="h264_nvenc"), "-cq")
+            for crf in (18, 23, 28)
+        ]
         # each label aims at the SSIM and size of x264's (see gpu.QUALITY_ANCHORS)
         self.assertEqual(numbers, ["27", "31", "37"])
 
@@ -112,10 +126,14 @@ class CommandTests(unittest.TestCase):
         cmd = video_command("ffmpeg", self.job(), INFO, encoder="h264_qsv")
         self.assertEqual(after(cmd, "-r"), "15")
         unknown = MediaInfo(duration=4.0, width=640, height=360, has_audio=True)
-        self.assertEqual(after(video_command("ffmpeg", self.job(), unknown, encoder="h264_qsv"), "-r"), "30")
+        self.assertEqual(
+            after(video_command("ffmpeg", self.job(), unknown, encoder="h264_qsv"), "-r"), "30")
 
     def test_a_join_uses_the_card_for_the_whole_video(self):
-        parts = [JoinPart(Path("a.mp4"), VideoEdit(crf=28), INFO), JoinPart(Path("b.mp4"), VideoEdit(), INFO)]
+        parts = [
+            JoinPart(Path("a.mp4"), VideoEdit(crf=28), INFO),
+            JoinPart(Path("b.mp4"), VideoEdit(), INFO)
+        ]
         job = JoinJob(parts, Path("out.mp4"))
         cpu, _ = join_command("ffmpeg", job)
         card, _ = join_command("ffmpeg", job, encoder="h264_nvenc")
@@ -131,6 +149,7 @@ class CommandTests(unittest.TestCase):
 
 
 class SettingTests(unittest.TestCase):
+
     def test_it_is_on_by_default(self):
         self.assertTrue(VideoEdit().use_gpu)
         self.assertTrue(ClipSettings().edit.use_gpu)
@@ -156,12 +175,14 @@ class SettingTests(unittest.TestCase):
 
 
 class DetectionTests(unittest.TestCase):
+
     def setUp(self):
         gpu.forget_detection()
         self.addCleanup(gpu.forget_detection)
 
     def test_only_encoders_that_really_work_count_and_the_best_comes_first(self):
-        with mock.patch.object(gpu, "_encoder_works", side_effect=lambda ff, name: name != "h264_nvenc") as works:
+        with mock.patch.object(gpu, "_encoder_works",
+                               side_effect=lambda ff, name: name != "h264_nvenc") as works:
             self.assertEqual(gpu.detect_encoders("fake-ffmpeg"), ("h264_qsv", "h264_amf"))
             self.assertEqual(works.call_count, 3)
             self.assertEqual(gpu.best_encoder("fake-ffmpeg"), "h264_qsv")
@@ -186,7 +207,8 @@ class DetectionTests(unittest.TestCase):
             self.assertIsNone(gpu.choose_encoder("fake-ffmpeg", False))
 
     def test_the_card_is_named(self):
-        with mock.patch.object(gpu, "_encoder_works", side_effect=lambda ff, name: name == "h264_amf"):
+        with mock.patch.object(gpu, "_encoder_works",
+                               side_effect=lambda ff, name: name == "h264_amf"):
             self.assertEqual(gpu.describe_gpu("fake-ffmpeg"), "AMD graphics card")
 
     @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
@@ -197,12 +219,14 @@ class DetectionTests(unittest.TestCase):
 
     @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
     def test_a_probe_that_takes_too_long_does_not_count(self):
-        with mock.patch.object(gpu.subprocess, "run", side_effect=subprocess.TimeoutExpired("ffmpeg", 1)):
+        with mock.patch.object(gpu.subprocess, "run",
+                               side_effect=subprocess.TimeoutExpired("ffmpeg", 1)):
             self.assertFalse(gpu._encoder_works(FFMPEG, "h264_nvenc"))
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class FallbackTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -217,8 +241,9 @@ class FallbackTests(unittest.TestCase):
     def export(self, name="out.mp4", encoder="h264_bogus", cancel=None, notes=None, edit=None):
         out = self.tmp / name
         with mock.patch.dict(gpu.ENCODERS, BOGUS):
-            return out, convert_video(FFMPEG, VideoJob(self.source, out, edit or VideoEdit()), cancel_event=cancel,
-                                      encoder=encoder, on_note=(notes.append if notes is not None else None))
+            return out, convert_video(
+                FFMPEG, VideoJob(self.source, out, edit or VideoEdit()), cancel_event=cancel,
+                encoder=encoder, on_note=(notes.append if notes is not None else None))
 
     def test_a_failing_card_means_a_second_try_on_the_cpu(self):
         notes = []
@@ -231,23 +256,29 @@ class FallbackTests(unittest.TestCase):
 
     def test_a_working_encoder_is_not_retried(self):
         notes = []
-        with mock.patch("video_converter.video.export.run_ffmpeg", side_effect=lambda cmd, *a, **k: Path(cmd[-1])) as run:
-            convert_video(FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()), encoder="h264_nvenc",
-                          on_note=notes.append)
+        with mock.patch("video_converter.video.export.run_ffmpeg",
+                        side_effect=lambda cmd, *a, **k: Path(cmd[-1])) as run:
+            convert_video(
+                FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()),
+                encoder="h264_nvenc", on_note=notes.append)
         self.assertEqual(run.call_count, 1)
         self.assertEqual(notes, [])
 
     def test_the_cpu_is_never_retried(self):
-        with mock.patch("video_converter.video.export.run_ffmpeg", side_effect=ConversionError("boom")) as run:
+        with mock.patch("video_converter.video.export.run_ffmpeg",
+                        side_effect=ConversionError("boom")) as run:
             with self.assertRaises(ConversionError):
-                convert_video(FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()), encoder=None)
+                convert_video(
+                    FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()), encoder=None)
         self.assertEqual(run.call_count, 1)
 
     def test_when_the_cpu_fails_too_the_error_is_the_cpus(self):
         errors = [ConversionError("card said no"), ConversionError("cpu said no")]
         with mock.patch("video_converter.video.export.run_ffmpeg", side_effect=errors) as run:
             with self.assertRaisesRegex(ConversionError, "cpu said no"):
-                convert_video(FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()), encoder="h264_nvenc")
+                convert_video(
+                    FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()),
+                    encoder="h264_nvenc")
         self.assertEqual(run.call_count, 2)
         first, second = (call.args[0] for call in run.call_args_list)
         self.assertEqual(after(first, "-c:v"), "h264_nvenc")
@@ -256,8 +287,9 @@ class FallbackTests(unittest.TestCase):
     def test_the_retry_is_the_same_job(self):
         with mock.patch("video_converter.video.export.run_ffmpeg",
                         side_effect=[ConversionError("x"), Path("out.mp4")]) as run:
-            convert_video(FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit(crf=18, speed=2.0)),
-                          encoder="h264_nvenc")
+            convert_video(
+                FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit(crf=18, speed=2.0)),
+                encoder="h264_nvenc")
         first, second = (call.args[0] for call in run.call_args_list)
         self.assertEqual(after(first, "-filter_complex"), after(second, "-filter_complex"))
         self.assertEqual(first[-1], second[-1])
@@ -278,10 +310,12 @@ class FallbackTests(unittest.TestCase):
             cancel.set()
             raise ConversionError("card failed")
 
-        with mock.patch("video_converter.video.export.run_ffmpeg", side_effect=fail_and_cancel) as run:
+        with mock.patch("video_converter.video.export.run_ffmpeg",
+                        side_effect=fail_and_cancel) as run:
             with self.assertRaises(ConversionCancelled):
-                convert_video(FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()),
-                              cancel_event=cancel, encoder="h264_nvenc")
+                convert_video(
+                    FFMPEG, VideoJob(self.source, self.tmp / "x.mp4", VideoEdit()),
+                    cancel_event=cancel, encoder="h264_nvenc")
         self.assertEqual(run.call_count, 1)
 
     def test_cancelling_during_the_cpu_retry_removes_the_partial_file(self):
@@ -296,14 +330,16 @@ class FallbackTests(unittest.TestCase):
                 # The CPU's run: start it, and have the user cancel as soon as there is progress.
                 def progress(fraction):
                     cancel.set()
+
                 return real_run(cmd, output, duration, progress, cancel_event, cwd)
             return real_run(cmd, output, duration, on_progress, cancel_event, cwd)
 
         with mock.patch("video_converter.video.export.run_ffmpeg", side_effect=run):
             with mock.patch.dict(gpu.ENCODERS, BOGUS):
                 with self.assertRaises(ConversionCancelled):
-                    convert_video(FFMPEG, VideoJob(self.source, out, VideoEdit()), cancel_event=cancel,
-                                  encoder="h264_bogus")
+                    convert_video(
+                        FFMPEG, VideoJob(self.source, out, VideoEdit()), cancel_event=cancel,
+                        encoder="h264_bogus")
         self.assertEqual(calls, ["h264_does_not_exist", "libx264"])
         self.assertFalse(out.exists())
 
@@ -313,8 +349,11 @@ class FallbackTests(unittest.TestCase):
         make_video(second)
         out = self.tmp / "joined.mp4"
         with mock.patch.dict(gpu.ENCODERS, BOGUS):
-            join_clips(FFMPEG, JoinJob([JoinPart(self.source, VideoEdit()), JoinPart(second, VideoEdit())], out),
-                       encoder="h264_bogus", on_note=notes.append)
+            join_clips(
+                FFMPEG,
+                JoinJob([JoinPart(self.source, VideoEdit()),
+                         JoinPart(second, VideoEdit())], out), encoder="h264_bogus",
+                on_note=notes.append)
         self.assertEqual(notes, [gpu.CPU_FALLBACK_NOTE])
         self.assertAlmostEqual(probe_media(FFMPEG, out).duration, 4.0, delta=0.4)
 
@@ -337,7 +376,7 @@ class FallbackTests(unittest.TestCase):
             gpu.forget_detection()
             self.addCleanup(gpu.forget_detection)
             run_job(FFMPEG, job, lambda fraction: None)
-        self.assertIsNone(export.call_args.args[5])         # the encoder
+        self.assertIsNone(export.call_args.args[5])  # the encoder
         self.assertEqual(job.note, "")
 
 
@@ -353,23 +392,27 @@ class RealExportTests(unittest.TestCase):
             source, out = Path(folder) / "clip.mp4", Path(folder) / "out.mp4"
             make_video(source, 640, 360, 3)
             notes = []
-            convert_video(FFMPEG, VideoJob(source, out, VideoEdit(crf=23, speed=1.5)), encoder=encoder,
-                          on_note=notes.append)
+            convert_video(
+                FFMPEG, VideoJob(source, out, VideoEdit(crf=23, speed=1.5)), encoder=encoder,
+                on_note=notes.append)
             self.assertEqual(notes, [], "the card should have worked, not fallen back to the CPU")
             info = probe_media(FFMPEG, out)
             self.assertEqual((info.width, info.height), (360, 640))
             self.assertAlmostEqual(info.duration, 2.0, delta=0.3)
             self.assertTrue(info.has_audio)
             self.assertGreater(out.stat().st_size, 1000)
-            decoded = subprocess.run([FFMPEG, "-v", "error", "-i", str(out), "-f", "null", "-"],
-                                     capture_output=True, text=True)
+            decoded = subprocess.run(
+                [FFMPEG, "-v", "error", "-i",
+                 str(out), "-f", "null", "-"], capture_output=True, text=True)
             self.assertEqual((decoded.returncode, decoded.stderr.strip()), (0, ""))
-            header = subprocess.run([FFMPEG, "-hide_banner", "-i", str(out)], capture_output=True, text=True).stderr
+            header = subprocess.run(
+                [FFMPEG, "-hide_banner", "-i", str(out)], capture_output=True, text=True).stderr
             self.assertIn("h264", header)
             self.assertIn("yuv420p", header)
 
 
 class CommandLineTests(unittest.TestCase):
+
     def run_cli(self, *args):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "clip.mp4"

@@ -12,6 +12,7 @@ from .escaping import _hex, _n, _path_value
 from .model import BOX_PADDING, WRAP_WIDTH, Logo, Subtitles, TextItem
 from .scratch import _scratch_file
 
+
 def has_overlays(texts: list[TextItem], logo: Logo, subtitles: Subtitles) -> bool:
     return bool(logo.file or subtitles.file or any(drawable(item) for item in texts))
 
@@ -28,7 +29,8 @@ def text_pixels(item: TextItem, frame: tuple[int, int]) -> int:
 def clean_text(text: str) -> str:
     """`text` without the characters that only draw an empty box: control characters (C0 and C1) are
     dropped, a tab becomes a space and the odd line separators become a line break."""
-    text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\u2028", "\n").replace("\u2029", "\n")
+    text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\u2028",
+                                                                  "\n").replace("\u2029", "\n")
     text = text.replace("\t", " ")
     return "".join(ch for ch in text if ch == "\n" or unicodedata.category(ch) != "Cc")
 
@@ -66,7 +68,7 @@ def text_box(item: TextItem, frame: tuple[int, int]) -> tuple[float, float]:
 
 
 _TAGS = re.compile(r"<[^>]*>|\{[^}]*\}")
-RTL_START, RTL_END = "‫", "‬"      # the embedding marks that start and end a right-to-left line
+RTL_START, RTL_END = "‫", "‬"  # the embedding marks that start and end a right-to-left line
 
 
 def mark_right_to_left(text: str) -> str:
@@ -77,8 +79,10 @@ def mark_right_to_left(text: str) -> str:
     subtitles filter (libass) has the same habit, so subtitle lines get the marks too."""
     lines = []
     for line in text.split("\n"):
-        words = _TAGS.sub("", line)         # <i> and {\i1} are markup, not letters
-        first = next((kind for kind in map(unicodedata.bidirectional, words) if kind in ("L", "R", "AL")), None)
+        words = _TAGS.sub("", line)  # <i> and {\i1} are markup, not letters
+        first = next(
+            (kind for kind in map(unicodedata.bidirectional, words) if kind in ("L", "R", "AL")),
+            None)
         lines.append(RTL_START + line + RTL_END if first in ("R", "AL") else line)
     return "\n".join(lines)
 
@@ -93,8 +97,7 @@ def text_filter(item: TextItem, frame: tuple[int, int], total: Optional[float]) 
     data = mark_right_to_left(wrapped).encode("utf-8")
     options = [
         f"fontfile={_path_value(Path(path))}" if path else "font=Sans",
-        f"textfile={_path_value(_scratch_file(data, '.txt'))}",
-        "expansion=none", "text_shaping=1",
+        f"textfile={_path_value(_scratch_file(data, '.txt'))}", "expansion=none", "text_shaping=1",
         f"fontsize={_n(pixels)}", f"fontcolor={_hex(item.color)}",
     ]
     pad = 0.0
@@ -104,7 +107,10 @@ def text_filter(item: TextItem, frame: tuple[int, int], total: Optional[float]) 
         pad = border
     if item.box:
         spread = int(round(BOX_PADDING * pixels))
-        options += ["box=1", f"boxcolor={_hex(item.box_color)}@{_n(item.box_opacity, 3)}", f"boxborderw={spread}"]
+        options += [
+            "box=1", f"boxcolor={_hex(item.box_color)}@{_n(item.box_opacity, 3)}",
+            f"boxborderw={spread}"
+        ]
         pad = max(pad, spread)
     if "\n" in wrapped and item.align != "left":
         options.append(f"text_align={item.align}")
@@ -126,8 +132,9 @@ def _fade_alpha(item: TextItem, end: Optional[float]) -> str:
     """The expression that fades a text in and out over the time it is shown, or "" for no fade."""
     shown = (end - item.start) if end is not None else None
     fade_in, fade_out = item.fade_in, item.fade_out if end is not None else 0.0
-    if shown is not None and fade_in + fade_out > shown and shown > 0:      # two fades can't be longer than the text
-        fade_in, fade_out = fade_in * shown / (fade_in + fade_out), fade_out * shown / (fade_in + fade_out)
+    if shown is not None and fade_in + fade_out > shown and shown > 0:  # two fades can't be longer than the text
+        fade_in, fade_out = fade_in * shown / (fade_in +
+                                               fade_out), fade_out * shown / (fade_in + fade_out)
     parts = []
     if fade_in > 0:
         parts.append(f"(t-{_n(item.start, 3)})/{_n(fade_in, 3)}")

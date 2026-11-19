@@ -10,7 +10,9 @@ from pathlib import Path
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("VIDEO_EDITOR_NO_GPU_SEARCH", "1")      # a window never searches for graphics cards (see tests/__init__.py)
+os.environ.setdefault(
+    "VIDEO_EDITOR_NO_GPU_SEARCH",
+    "1")  # a window never searches for graphics cards (see tests/__init__.py)
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
@@ -41,14 +43,17 @@ def setUpModule():
 def wheel(widget, delta=-120):
     """Send one turn of the mouse wheel over the middle of `widget`, the way the system would."""
     center = QPointF(widget.rect().center())
-    event = QWheelEvent(center, QPointF(widget.mapToGlobal(widget.rect().center())), QPoint(0, 0), QPoint(0, delta),
-                        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+    event = QWheelEvent(
+        center, QPointF(widget.mapToGlobal(widget.rect().center())), QPoint(0, 0),
+        QPoint(0, delta), Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase, False)
     QApplication.sendEvent(widget, event)
     return event
 
 
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")
 class WindowTestCase(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -87,7 +92,9 @@ class WindowTestCase(unittest.TestCase):
 
     def load(self, *paths):
         self.window.add_paths(list(paths))
-        self.assertTrue(pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)), "files never loaded")
+        self.assertTrue(
+            pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)),
+            "files never loaded")
 
     def labels(self):
         stack = self.window.undo_stack
@@ -142,11 +149,11 @@ class ShortcutKeyTests(WindowTestCase):
         slider = window.inspector.volume_slider
         slider.setFocus()
         QTest.keyClick(slider, Qt.Key.Key_Right)
-        self.assertEqual(slider.value(), 1)                       # the slider moved, the playhead did not
+        self.assertEqual(slider.value(), 1)  # the slider moved, the playhead did not
         self.assertAlmostEqual(window.player.position, position, delta=0.02)
         combo = window.inspector.format_box
         combo.setFocus()
-        QTest.keyClick(combo, Qt.Key.Key_S)                       # type-ahead, not a split
+        QTest.keyClick(combo, Qt.Key.Key_S)  # type-ahead, not a split
         self.assertEqual(item.settings.edit.keep, [])
         button = window.inspector.remove_part_button
         button.setFocus()
@@ -187,6 +194,7 @@ class ShortcutKeyTests(WindowTestCase):
 
 
 class WheelTests(WindowTestCase):
+
     def test_the_wheel_over_a_setting_scrolls_the_panel_instead_of_changing_it(self):
         self.load(self.first)
         inspector = self.window.inspector
@@ -210,8 +218,8 @@ class WheelTests(WindowTestCase):
         inspector = self.window.inspector
         pump(0.3)
         count = self.window.undo_stack.count()
-        for widget in (inspector.speed_box, inspector.volume_slider, inspector.size_box, inspector.rate_box,
-                       inspector.zoom_slider, inspector.crf_box):
+        for widget in (inspector.speed_box, inspector.volume_slider, inspector.size_box,
+                       inspector.rate_box, inspector.zoom_slider, inspector.crf_box):
             before = widget.value() if hasattr(widget, "value") else widget.currentIndex()
             wheel(widget, -120)
             wheel(widget, 120)
@@ -232,12 +240,13 @@ class WheelTests(WindowTestCase):
 
 
 class UndoAcrossFilesTests(WindowTestCase):
+
     def test_undo_and_redo_show_the_file_they_change(self):
         self.load(self.first, self.second)
         window = self.window
         first, second = window.items
         self.assertIs(window.current, first)
-        window.inspector.shape_group.button(2).click()           # 1:1, on the first file
+        window.inspector.shape_group.button(2).click()  # 1:1, on the first file
         self.assertEqual(first.settings.edit.aspect, (1, 1))
         window.media_list.setCurrentRow(1)
         self.assertIs(window.current, second)
@@ -269,27 +278,31 @@ class UndoAcrossFilesTests(WindowTestCase):
 
 
 class RemovingFilesTests(WindowTestCase):
+
     def names(self):
         return [item.path.name for item in self.window.items]
 
     def listed(self):
         window = self.window
-        return [window.media_list.item(row).text().split("\n")[0] for row in range(window.media_list.count())]
+        return [
+            window.media_list.item(row).text().split("\n")[0]
+            for row in range(window.media_list.count())
+        ]
 
     def test_removing_a_file_keeps_the_history_of_the_others(self):
         self.load(self.first, self.second)
         window = self.window
         first, second = window.items
         window.media_list.setCurrentRow(1)
-        window.inspector.shape_group.button(2).click()            # an edit of the second file
+        window.inspector.shape_group.button(2).click()  # an edit of the second file
         window.media_list.setCurrentRow(0)
         window.remove_selected()
         self.assertEqual(self.names(), ["second.mp4"])
         self.assertTrue(window.undo_stack.canUndo())
         self.assertEqual(window.undo_stack.count(), 2)
-        window.undo_stack.undo()                                    # takes the removal back
+        window.undo_stack.undo()  # takes the removal back
         self.assertEqual(self.names(), ["first.mp4", "second.mp4"])
-        window.undo_stack.undo()                                    # and the edit of the second file is still there
+        window.undo_stack.undo()  # and the edit of the second file is still there
         self.assertEqual(second.settings.edit.aspect, (9, 16))
 
     def test_undo_puts_the_file_back_where_it_was_with_its_settings(self):
@@ -343,12 +356,17 @@ class RemovingFilesTests(WindowTestCase):
 
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")
 class AudioOnlyTests(WindowTestCase):
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls.song = cls.tmp / "song.mp3"
-        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=duration=1",
-                        str(cls.song)], check=True)
+        subprocess.run(
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                "sine=duration=1",
+                str(cls.song)
+            ], check=True)
 
     def test_the_video_choice_is_off_for_a_song(self):
         self.load(self.song)
@@ -366,7 +384,9 @@ class AudioOnlyTests(WindowTestCase):
     def test_a_preset_keeps_a_song_an_mp3(self):
         from video_converter.project import PRESETS, apply_preset, ClipSettings
         names = list(PRESETS)
-        self.assertEqual(apply_preset(ClipSettings(), PRESETS[names[1]], has_picture=False).output, OUTPUT_AUDIO)
+        self.assertEqual(
+            apply_preset(ClipSettings(), PRESETS[names[1]], has_picture=False).output,
+            OUTPUT_AUDIO)
         self.assertEqual(apply_preset(ClipSettings(), PRESETS[names[1]]).output, OUTPUT_VIDEO)
         self.load(self.song)
         box = self.window.inspector.preset_box
@@ -386,7 +406,8 @@ class AudioOnlyTests(WindowTestCase):
         self.assertEqual(early.output, OUTPUT_VIDEO)
         later = early.copy()
         later.audio_quality = "320 kbps" if early.audio_quality != "320 kbps" else "128 kbps"
-        window.undo_stack.push(SettingsCommand(window, item, early, later, "early edit", mergeable=False))
+        window.undo_stack.push(
+            SettingsCommand(window, item, early, later, "early edit", mergeable=False))
         window.undo_stack.undo()
         self.assertEqual(item.settings.output, OUTPUT_AUDIO)
         window.undo_stack.redo()
@@ -394,6 +415,7 @@ class AudioOnlyTests(WindowTestCase):
 
 
 class BrokenFileTests(WindowTestCase):
+
     def setUp(self):
         super().setUp()
         self.broken = self.tmp / "broken.mp4"
@@ -456,6 +478,7 @@ class BrokenFileTests(WindowTestCase):
 
 
 class QueuePanelTests(unittest.TestCase):
+
     def setUp(self):
         from video_converter.jobs import JobQueue
         from video_converter.ui.queue_panel import QueueBridge, QueuePanel
@@ -476,13 +499,13 @@ class QueuePanelTests(unittest.TestCase):
         job = self.job(JobState.DONE)
         self.panel.on_job_updated(job)
         self.assertEqual(len(self.panel.rows), 1)
-        self.panel.clear_finished()                 # the worker's last update is still waiting in the event queue
+        self.panel.clear_finished()  # the worker's last update is still waiting in the event queue
         self.assertEqual(self.panel.rows, {})
-        self.panel.on_job_updated(job)              # ...and now it is delivered
+        self.panel.on_job_updated(job)  # ...and now it is delivered
         self.assertEqual(self.panel.rows, {})
         pump(0.1)
         QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-        self.assertEqual(self.panel.list_layout.count(), 1)          # only the stretch
+        self.assertEqual(self.panel.list_layout.count(), 1)  # only the stretch
         self.assertEqual(self.queue.jobs, [])
 
     def test_a_job_still_in_the_queue_gets_its_row(self):
@@ -510,7 +533,10 @@ class QueuePanelTests(unittest.TestCase):
         pump(0.3)
         spans = {(row.bar.x(), row.bar.width()) for row in rows}
         self.assertEqual(len(spans), 1, spans)
-        shown = {name: getattr(rows[0], name).isVisible() for name in ("cancel_button", "details_button")}
+        shown = {
+            name: getattr(rows[0], name).isVisible()
+            for name in ("cancel_button", "details_button")
+        }
         self.assertTrue(shown["cancel_button"])
         self.assertFalse(shown["details_button"])
 
@@ -531,6 +557,7 @@ def use_arabic(test):
 
 
 class QueueArabicTests(unittest.TestCase):
+
     def test_the_texts_of_a_row_line_up_on_the_same_edge_in_arabic(self):
         from video_converter.jobs import Job, JobState
         from video_converter.project import ClipSettings
@@ -555,6 +582,7 @@ class QueueArabicTests(unittest.TestCase):
 
 
 class TimelineTextTests(unittest.TestCase):
+
     def test_the_empty_lane_says_loading_until_the_sound_has_been_read(self):
         from video_converter.ui.timeline import Timeline
         timeline = Timeline()
@@ -576,7 +604,7 @@ class TimelineTextTests(unittest.TestCase):
         timeline = Timeline()
         self.addCleanup(timeline.deleteLater)
         timeline.resize(800, 160)
-        timeline.setDuration(10.0)          # a ruler with many labels, the last one near the right edge
+        timeline.setDuration(10.0)  # a ruler with many labels, the last one near the right edge
         red = QPixmap(80, 46)
         red.fill(QColor("red"))
         timeline.setThumbnails([red] * 12)
@@ -586,8 +614,10 @@ class TimelineTextTests(unittest.TestCase):
         thumbs_y, wave_y = RULER_H + THUMBS_H // 2, RULER_H + THUMBS_H + 4 + WAVE_H // 2
         accent = QColor(theme.colors()["accent"])
         for x in (left + 4, left + width // 4, left + width // 2, left + width - 4):
-            self.assertEqual(image.pixelColor(x, thumbs_y).name(), "#ff0000", f"no thumbnail at x={x}")
-            self.assertEqual(image.pixelColor(x, wave_y).name(), accent.name(), f"no waveform at x={x}")
+            self.assertEqual(
+                image.pixelColor(x, thumbs_y).name(), "#ff0000", f"no thumbnail at x={x}")
+            self.assertEqual(
+                image.pixelColor(x, wave_y).name(), accent.name(), f"no waveform at x={x}")
 
     def test_the_timeline_texts_are_translated(self):
         from video_converter.ui.timeline import Timeline
@@ -598,23 +628,24 @@ class TimelineTextTests(unittest.TestCase):
         timeline.setWaveform([], loading=True)
         self.assertNotEqual(timeline.wave_message(), "Loading…")
         from video_converter import i18n
-        self.assertNotEqual(i18n.tr("The timeline appears when you select a video"),
-                            "The timeline appears when you select a video")
+        self.assertNotEqual(
+            i18n.tr("The timeline appears when you select a video"),
+            "The timeline appears when you select a video")
         timeline.resize(600, 120)
-        timeline.grab()                       # painting the empty timeline, and then a loaded one, works
+        timeline.grab()  # painting the empty timeline, and then a loaded one, works
         timeline.setDuration(10.0)
         timeline.grab()
 
     def test_the_last_ruler_label_stays_inside_the_widget(self):
         from video_converter.ui.timeline import MARGIN, ruler_label_left
         width, text = 500, 38
-        self.assertEqual(ruler_label_left(MARGIN, text, width), MARGIN + 3)             # a tick at the start
-        self.assertEqual(ruler_label_left(250, text, width), 253)                       # one in the middle
+        self.assertEqual(ruler_label_left(MARGIN, text, width), MARGIN + 3)  # a tick at the start
+        self.assertEqual(ruler_label_left(250, text, width), 253)  # one in the middle
         for x in (width - MARGIN, width - MARGIN - 20, width - 5):
             left = ruler_label_left(x, text, width)
             self.assertLessEqual(left + text, width - 2, x)
             self.assertGreaterEqual(left, 0)
-        self.assertEqual(ruler_label_left(10, 600, 100), 0)           # never off the left edge either
+        self.assertEqual(ruler_label_left(10, 600, 100), 0)  # never off the left edge either
 
     def test_the_labels_of_a_real_timeline_fit(self):
         from PySide6.QtGui import QFontMetrics
@@ -628,13 +659,17 @@ class TimelineTextTests(unittest.TestCase):
         step, t = tick_step(60.0, timeline.track_width), 0.0
         while t <= 60.0 + 1e-6:
             label = format_time(t)
-            left = ruler_label_left(timeline._x(t), metrics.horizontalAdvance(label), timeline.width())
-            self.assertLessEqual(left + metrics.horizontalAdvance(label), timeline.width() - 2, label)
+            left = ruler_label_left(
+                timeline._x(t), metrics.horizontalAdvance(label), timeline.width())
+            self.assertLessEqual(
+                left + metrics.horizontalAdvance(label),
+                timeline.width() - 2, label)
             t += step
 
 
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")
 class CutListArabicTests(WindowTestCase):
+
     def cut_info(self):
         from video_converter.video import VideoEdit
         from video_converter.project import ClipSettings
@@ -657,13 +692,14 @@ class CutListArabicTests(WindowTestCase):
 
 
 class SmallFixesTests(WindowTestCase):
+
     def test_a_theme_that_follows_the_system_stays_that_way(self):
         window = self.window
         self.assertEqual(window.theme_choice, "system")
         window._save_preferences()
         self.assertEqual(window.store.value("theme"), "system")
         self.assertIn(window.theme_mode, ("dark", "light"))
-        window.toggle_theme()                       # the button is an explicit choice
+        window.toggle_theme()  # the button is an explicit choice
         window._save_preferences()
         self.assertEqual(window.store.value("theme"), window.theme_mode)
         self.assertIn(window.store.value("theme"), ("dark", "light"))
@@ -672,8 +708,10 @@ class SmallFixesTests(WindowTestCase):
         from video_converter.ui.main_window import MainWindow
         self.window._save_preferences()
         self.window.store.sync()
-        again = MainWindow(FFMPEG, QSettings(self.window.store.fileName(), QSettings.Format.IniFormat))
-        self.addCleanup(lambda: (again.close(), again.loader.shutdown(wait=True), again.deleteLater()))
+        again = MainWindow(
+            FFMPEG, QSettings(self.window.store.fileName(), QSettings.Format.IniFormat))
+        self.addCleanup(
+            lambda: (again.close(), again.loader.shutdown(wait=True), again.deleteLater()))
         self.assertEqual(again.theme_choice, "system")
         again._save_preferences()
         self.assertEqual(again.store.value("theme"), "system")
@@ -690,7 +728,7 @@ class SmallFixesTests(WindowTestCase):
         self.assertAlmostEqual(item.settings.edit.zoom, 1.5)
         self.assertEqual(window.undo_stack.text(count), "Zoom")
         self.assertTrue(pump(3, lambda: not window.merge_open), "the zoom never finished")
-        wheel(view, 120)                              # after a pause it is a new step
+        wheel(view, 120)  # after a pause it is a new step
         self.assertEqual(window.undo_stack.count(), count + 2)
         window.undo_stack.undo()
         self.assertAlmostEqual(item.settings.edit.zoom, 1.5)
@@ -701,7 +739,7 @@ class SmallFixesTests(WindowTestCase):
         self.load(self.first)
         window = self.window
         count = window.undo_stack.count()
-        wheel(window.view, -120)                       # already at the smallest zoom
+        wheel(window.view, -120)  # already at the smallest zoom
         self.assertEqual(window.undo_stack.count(), count)
 
     def test_a_failed_restart_keeps_the_window_open(self):
@@ -728,11 +766,11 @@ class SmallFixesTests(WindowTestCase):
         window = self.window
         with mock.patch.object(QInputDialog, "getText", return_value=("Mine", True)), \
                 mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as asked:
-            window.save_preset()                                     # a new name: no question
+            window.save_preset()  # a new name: no question
             asked.assert_not_called()
             self.assertEqual(window.user_presets["Mine"]["edit"]["speed"], 1.0)
             window.inspector.speed_box.setValue(2.0)
-            window.save_preset()                                     # the name is taken: asked, and the answer is no
+            window.save_preset()  # the name is taken: asked, and the answer is no
             asked.assert_called_once()
             self.assertEqual(window.user_presets["Mine"]["edit"]["speed"], 1.0)
             asked.return_value = QMessageBox.StandardButton.Yes
@@ -743,13 +781,20 @@ class SmallFixesTests(WindowTestCase):
         window = self.window
         shown = []
         button = window.inspector.change_button
+
         class FakeMenu:
-            def __init__(self, *args): pass
-            def addAction(self, *args): return mock.MagicMock()
-            def exec(self, pos=None): shown.append(pos)
+
+            def __init__(self, *args):
+                pass
+
+            def addAction(self, *args):
+                return mock.MagicMock()
+
+            def exec(self, pos=None):
+                shown.append(pos)
 
         with mock.patch("video_converter.ui.main_window.exporting.QMenu", FakeMenu):
-            button.click()                    # the same as pressing Space on the focused button
+            button.click()  # the same as pressing Space on the focused button
         self.assertEqual(len(shown), 1)
         self.assertEqual(shown[0], button.mapToGlobal(QPoint(0, button.height())))
 
@@ -770,7 +815,7 @@ class FakeApplication:
         self.calls.append("sheet")
 
     def palette(self):
-        return type(self.current_palette)(self.current_palette)      # a copy, like the real one's
+        return type(self.current_palette)(self.current_palette)  # a copy, like the real one's
 
     def setPalette(self, palette):
         self.current_palette = palette
@@ -789,8 +834,10 @@ class ThemeAppliedOnceTests(unittest.TestCase):
         from video_converter.ui import theme
         self.theme = theme
         saved = dict(theme._current), dict(theme._applied)
-        self.addCleanup(lambda: (theme._current.clear(), theme._current.update(saved[0]),
-                                 theme._applied.clear(), theme._applied.update(saved[1])))
+        self.addCleanup(
+            lambda: (
+                theme._current.clear(), theme._current.update(saved[0]), theme._applied.clear(),
+                theme._applied.update(saved[1])))
         self.app = FakeApplication()
         theme.apply_theme(self.app, "dark")
         self.app.calls.clear()

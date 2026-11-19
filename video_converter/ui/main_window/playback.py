@@ -11,6 +11,7 @@ from ...i18n import tr
 from ...video import render_frame
 from .. import icons
 
+
 class PlaybackMixin:
     """Playback and before/after."""
 
@@ -57,7 +58,8 @@ class PlaybackMixin:
         self._after_token += 1
         token, settings, at = self._after_token, item.settings.copy(), self.player.position
         ratio = self.view.devicePixelRatioF()
-        size = (int(min(self.view.width() * ratio, 1600)), int(min(self.view.height() * ratio, 1600)))
+        size = (
+            int(min(self.view.width() * ratio, 1600)), int(min(self.view.height() * ratio, 1600)))
         target = self.tmpdir / f"after_{token}.png"
         self._after_busy, self._after_again = True, False
 
@@ -67,11 +69,12 @@ class PlaybackMixin:
                 image = QImage(str(target))
                 target.unlink(missing_ok=True)
                 result = image
-            except Exception as exc:       # whatever happens, the window must hear back or it never renders again
+            except Exception as exc:  # whatever happens, the window must hear back or it never renders again
                 result = str(exc)
             if not self.closed:
                 self.signals.afterReady.emit(token, result)
             self._remove_tmpdir_if_closed()
+
         threading.Thread(target=work, name="render-after", daemon=True).start()
 
     def _on_after_ready(self, token: int, result) -> None:

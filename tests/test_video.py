@@ -7,32 +7,13 @@ from array import array
 from pathlib import Path
 
 from video_converter.core import (
-    ConversionError,
-    ConversionJob,
-    MediaInfo,
-    convert,
-    find_ffmpeg,
-    format_time,
-    parse_media_info,
-    parse_time,
-    probe_media,
+    ConversionError, ConversionJob, MediaInfo, convert, find_ffmpeg, format_time, parse_media_info,
+    parse_time, probe_media,
 )
 from video_converter.video import (
-    JoinJob,
-    JoinPart,
-    VideoEdit,
-    VideoJob,
-    convert_video,
-    join_clips,
-    join_command,
-    format_memory,
-    plan_geometry,
-    render_frame,
-    render_source_frames,
-    REVERSE_BASE_BYTES,
-    reverse_memory,
-    reverse_warning,
-    video_command,
+    JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, join_command, format_memory,
+    plan_geometry, render_frame, render_source_frames, REVERSE_BASE_BYTES, reverse_memory,
+    reverse_warning, video_command,
 )
 
 FFMPEG = find_ffmpeg()
@@ -41,20 +22,28 @@ FRAME_BYTES = 16 * 9
 
 
 def make_video(ffmpeg, path, width=640, height=360, seconds=4, audio=True, rotation=None, rate=15):
-    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-           "-f", "lavfi", "-i", f"testsrc2=duration={seconds}:size={width}x{height}:rate={rate}"]
+    cmd = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+        f"testsrc2=duration={seconds}:size={width}x{height}:rate={rate}"
+    ]
     if audio:
         cmd += ["-f", "lavfi", "-i", f"sine=duration={seconds}", "-c:a", "aac"]
     cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest", str(path)]
     subprocess.run(cmd, check=True)
     if rotation is not None:
         rotated = path.with_name(f"rotated-{path.name}")
-        subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-display_rotation", str(rotation),
-                        "-i", str(path), "-c", "copy", str(rotated)], check=True)
+        subprocess.run(
+            [
+                ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-display_rotation",
+                str(rotation), "-i",
+                str(path), "-c", "copy",
+                str(rotated)
+            ], check=True)
         rotated.replace(path)
 
 
 class TimeParsingTests(unittest.TestCase):
+
     def test_parse_time(self):
         self.assertIsNone(parse_time("  "))
         self.assertEqual(parse_time("90"), 90)
@@ -91,7 +80,8 @@ class MediaInfoParsingTests(unittest.TestCase):
     def test_cover_art_is_not_a_video_track(self):
         info = parse_media_info(
             "  Duration: 00:00:08.05\n  Stream #0:0: Audio: mp3 (mp3float), 44100 Hz, mono\n"
-            "  Stream #0:1: Video: mjpeg (Baseline), yuvj420p, 300x300 [SAR 1:1 DAR 1:1], 90k tbr (attached pic)\n")
+            "  Stream #0:1: Video: mjpeg (Baseline), yuvj420p, 300x300 [SAR 1:1 DAR 1:1], 90k tbr (attached pic)\n"
+        )
         self.assertFalse(info.has_video)
         self.assertTrue(info.has_audio)
         # A real video stream after the cover art still counts.
@@ -102,6 +92,7 @@ class MediaInfoParsingTests(unittest.TestCase):
 
 
 class GeometryTests(unittest.TestCase):
+
     def test_landscape_to_phone_crops_center(self):
         g = plan_geometry(1920, 1080, VideoEdit(aspect=(9, 16)))
         cw, ch, x, y = g.crop
@@ -170,10 +161,11 @@ class OutputSizeTests(unittest.TestCase):
             self.assertEqual(self.size(3840, 2160, aspect=(16, 9), fit=fit), (3840, 2160))
 
     def test_the_original_shape_keeps_the_exact_source_size(self):
-        for size in ((1920, 1080), (3840, 2160), (1280, 720), (1080, 1920), (1918, 1080), (854, 480)):
+        for size in ((1920, 1080), (3840, 2160), (1280, 720), (1080, 1920), (1918, 1080), (854,
+                                                                                           480)):
             self.assertEqual(self.size(*size, aspect=None), size)
         self.assertEqual(self.size(1920, 1080, aspect=None, rotate=90), (1080, 1920))
-        self.assertEqual(self.size(641, 359, aspect=None), (640, 358))      # odd sizes can't be kept
+        self.assertEqual(self.size(641, 359, aspect=None), (640, 358))  # odd sizes can't be kept
 
     def test_zooming_the_original_shape_keeps_the_full_size(self):
         # Zooming in keeps the full output size, as it did before 2.3.1.
@@ -192,7 +184,8 @@ class OutputSizeTests(unittest.TestCase):
         self.assertEqual(self.size(641, 359, aspect=(4, 5), fit="blur"), (360, 450))
 
     def test_the_shape_is_as_exact_as_even_sizes_allow(self):
-        for size in ((1920, 1080), (641, 359), (1279, 719), (3840, 2160), (1080, 1920), (721, 1281)):
+        for size in ((1920, 1080), (641, 359), (1279, 719), (3840, 2160), (1080, 1920), (721,
+                                                                                         1281)):
             for aspect in ((9, 16), (1, 1), (4, 5), (16, 9)):
                 for fit in ("crop", "blur"):
                     for zoom in (1.0, 1.7):
@@ -202,7 +195,8 @@ class OutputSizeTests(unittest.TestCase):
                             # Off by less than one pixel on the long side, the best even sizes can do.
                             long_side = max(out_w, out_h)
                             exact = long_side * min(aspect) / max(aspect)
-                            self.assertLessEqual(abs(min(out_w, out_h) - exact), 1.0, (out_w, out_h))
+                            self.assertLessEqual(
+                                abs(min(out_w, out_h) - exact), 1.0, (out_w, out_h))
 
 
 def held(edit, info, **kwargs):
@@ -212,7 +206,7 @@ def held(edit, info, **kwargs):
 
 class ReverseMemoryTests(unittest.TestCase):
     HD = MediaInfo(duration=600.0, width=1920, height=1080, has_audio=True, fps=30.0)
-    GB = 1024 ** 3
+    GB = 1024**3
 
     def test_nothing_is_needed_unless_the_clip_is_reversed(self):
         self.assertEqual(reverse_memory(VideoEdit(aspect=None), self.HD), 0)
@@ -226,21 +220,24 @@ class ReverseMemoryTests(unittest.TestCase):
         full = held(VideoEdit(aspect=None, reverse=True), self.HD)
         small = held(VideoEdit(aspect=None, reverse=True, resolution=480), self.HD)
         self.assertAlmostEqual(small / full, (854 * 480) / (1920 * 1080), places=4)
-        phone = held(VideoEdit(aspect=(9, 16), reverse=True), self.HD)     # exported at 1080x1920
+        phone = held(VideoEdit(aspect=(9, 16), reverse=True), self.HD)  # exported at 1080x1920
         self.assertEqual(phone, 18000 * 1080 * 1920 * 3)
 
     def test_only_the_kept_and_sped_up_length_counts(self):
         whole = held(VideoEdit(aspect=None, reverse=True), self.HD)
-        cut = held(VideoEdit(aspect=None, reverse=True, keep=[(0.0, 100.0), (200.0, 300.0)]), self.HD)
+        cut = held(
+            VideoEdit(aspect=None, reverse=True, keep=[(0.0, 100.0), (200.0, 300.0)]), self.HD)
         self.assertEqual(cut * 3, whole)
         fast = held(VideoEdit(aspect=None, reverse=True, speed=2.0), self.HD)
-        self.assertEqual(fast * 2, whole)        # the frame rate stays 30, so twice as fast means half the frames
+        self.assertEqual(
+            fast * 2, whole)  # the frame rate stays 30, so twice as fast means half the frames
 
     def test_a_missing_frame_rate_is_taken_as_30_and_a_missing_length_as_unknown(self):
         guessed = MediaInfo(duration=10.0, width=1920, height=1080, has_audio=True, fps=None)
         edit = VideoEdit(aspect=None, reverse=True)
         self.assertEqual(held(edit, guessed), 300 * 1920 * 1080 * 3)
-        self.assertEqual(reverse_memory(edit, MediaInfo(duration=None, width=1920, height=1080, fps=30.0)), 0)
+        self.assertEqual(
+            reverse_memory(edit, MediaInfo(duration=None, width=1920, height=1080, fps=30.0)), 0)
 
     def test_a_joins_frame_rate_decides_the_frames_of_each_clip(self):
         edit = VideoEdit(aspect=None, reverse=True)
@@ -252,19 +249,21 @@ class ReverseMemoryTests(unittest.TestCase):
         sound = reverse_memory(edit, self.HD, sound_only=True)
         self.assertEqual(sound, 600 * 48000 * 2 * 4)
         self.assertLess(sound, reverse_memory(edit, self.HD) / 50)
-        self.assertEqual(reverse_memory(edit, MediaInfo(duration=600.0, has_audio=True), sound_only=False), 0)
+        self.assertEqual(
+            reverse_memory(edit, MediaInfo(duration=600.0, has_audio=True), sound_only=False), 0)
 
     def test_the_warning_appears_only_above_2_gb(self):
         self.assertEqual(reverse_warning(2 * self.GB), "")
         self.assertEqual(reverse_warning(0), "")
         text = reverse_warning(int(6.4 * self.GB))
-        self.assertEqual(text, "Reversing this needs about 6.4 GB of memory. "
-                               "Shorten the clip or lower the size if your PC has less.")
+        self.assertEqual(
+            text, "Reversing this needs about 6.4 GB of memory. "
+            "Shorten the clip or lower the size if your PC has less.")
         self.assertIn("2.5 GB", reverse_warning(int(2.5 * self.GB)))
 
     def test_amounts_are_written_in_gb_or_mb(self):
         self.assertEqual(format_memory(int(1.25 * self.GB)), "1.2 GB")
-        self.assertEqual(format_memory(300 * 1024 ** 2), "300 MB")
+        self.assertEqual(format_memory(300 * 1024**2), "300 MB")
 
 
 SOURCE = MediaInfo(duration=6.0, width=640, height=360, has_audio=True, fps=15.0)
@@ -279,6 +278,7 @@ def graph_of(cmd):
 
 
 class VideoCommandTests(unittest.TestCase):
+
     def test_cuts_seek_to_the_first_kept_part_and_stop_after_the_last(self):
         cmd = command_for(VideoEdit(keep=[(1.0, 2.0), (3.0, 5.0)]))
         before_input = cmd[:cmd.index("-i")]
@@ -303,8 +303,8 @@ class VideoCommandTests(unittest.TestCase):
         cmd = command_for(VideoEdit(keep=[(1.0, 3.0), (4.0, 6.0)], start=2.0, end=5.0))
         self.assertEqual(cmd[:cmd.index("-i")][-4:], ["-ss", "1.999500", "-to", "4.999500"])
         graph = graph_of(cmd)
-        self.assertIn("[vin0_0]trim=start=0:end=0.966667,", graph)          # 2..3, half a frame early
-        self.assertIn("[vin0_1]trim=start=1.966667:end=2.966667,", graph)   # 4..5
+        self.assertIn("[vin0_0]trim=start=0:end=0.966667,", graph)  # 2..3, half a frame early
+        self.assertIn("[vin0_1]trim=start=1.966667:end=2.966667,", graph)  # 4..5
         self.assertIn("atrim=start=0:end=1,", graph)
         self.assertIn("atrim=start=2:end=3,", graph)
 
@@ -360,7 +360,8 @@ class VideoCommandTests(unittest.TestCase):
         cmd = command_for(VideoEdit())
         self.assertEqual(cmd[cmd.index("[a]") - 1], "-map")
         self.assertNotIn("-an", cmd)
-        silent = command_for(VideoEdit(), MediaInfo(duration=6.0, width=640, height=360, has_audio=False, fps=15.0))
+        silent = command_for(
+            VideoEdit(), MediaInfo(duration=6.0, width=640, height=360, has_audio=False, fps=15.0))
         self.assertIn("-an", silent)
         self.assertNotIn("[a]", silent)
 
@@ -388,14 +389,19 @@ def output_labels(graph):
 
 
 class JoinCommandTests(unittest.TestCase):
+
     def build(self, parts, **kwargs):
         return join_command("ffmpeg", JoinJob(parts, Path("out.mp4"), **kwargs))
 
     def test_every_clip_is_fitted_into_the_first_clips_frame_and_frame_rate(self):
-        cmd, _ = self.build([part("a.mp4", 640, 360, 15.0, True), part("b.mp4", 320, 240, 25.0, True)])
+        cmd, _ = self.build(
+            [part("a.mp4", 640, 360, 15.0, True),
+             part("b.mp4", 320, 240, 25.0, True)])
         graph = graph_of(cmd)
-        self.assertEqual(graph.count("scale=640:360:force_original_aspect_ratio=decrease:force_divisible_by=2,"
-                                     "pad=640:360:(ow-iw)/2:(oh-ih)/2:color=black"), 2)
+        self.assertEqual(
+            graph.count(
+                "scale=640:360:force_original_aspect_ratio=decrease:force_divisible_by=2,"
+                "pad=640:360:(ow-iw)/2:(oh-ih)/2:color=black"), 2)
         self.assertIn("[t0]fps=15[tempo0]", graph)
         self.assertIn("[t1]fps=15[tempo1]", graph)
         self.assertNotIn("fps=25", graph)
@@ -413,26 +419,42 @@ class JoinCommandTests(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("-crf") + 1], "28")
 
     def test_a_missing_frame_rate_falls_back_to_30(self):
-        cmd, _ = self.build([part("a.mp4", 640, 360, None, True), part("b.mp4", 640, 360, 25.0, True)])
+        cmd, _ = self.build(
+            [part("a.mp4", 640, 360, None, True),
+             part("b.mp4", 640, 360, 25.0, True)])
         self.assertIn("[t0]fps=30[tempo0]", graph_of(cmd))
 
     def test_the_result_is_as_long_as_the_clips_added_up(self):
-        _, total = self.build([part("a.mp4", 640, 360, 15.0, True, duration=4.0),
-                               part("b.mp4", 640, 360, 15.0, True, duration=2.5)])
+        _, total = self.build(
+            [
+                part("a.mp4", 640, 360, 15.0, True, duration=4.0),
+                part("b.mp4", 640, 360, 15.0, True, duration=2.5)
+            ])
         self.assertEqual(total, 6.5)
 
     def test_cuts_and_speed_change_each_clips_length(self):
-        _, total = self.build([part("a.mp4", 640, 360, 15.0, True, duration=10.0, keep=[(0.0, 2.0), (6.0, 10.0)],
-                                    speed=2.0),
-                               part("b.mp4", 640, 360, 15.0, True, duration=4.0, start=1.0, end=3.0, speed=0.5)])
+        _, total = self.build(
+            [
+                part(
+                    "a.mp4", 640, 360, 15.0, True, duration=10.0, keep=[(0.0, 2.0), (6.0, 10.0)],
+                    speed=2.0),
+                part("b.mp4", 640, 360, 15.0, True, duration=4.0, start=1.0, end=3.0, speed=0.5)
+            ])
         self.assertEqual(total, 3.0 + 4.0)
 
     def test_each_clip_is_cut_from_its_own_input(self):
-        cmd, _ = self.build([part("a.mp4", 640, 360, 15.0, True, duration=10.0, keep=[(1.0, 2.0), (3.0, 5.0)]),
-                             part("b.mp4", 640, 360, 15.0, True, duration=2.0)])
+        cmd, _ = self.build(
+            [
+                part("a.mp4", 640, 360, 15.0, True, duration=10.0, keep=[(1.0, 2.0), (3.0, 5.0)]),
+                part("b.mp4", 640, 360, 15.0, True, duration=2.0)
+            ])
         inputs = cmd[cmd.index("-y") + 1:cmd.index("-filter_complex")]
         # a hair before the times, so the frame that sits on a time is kept (see core.SEEK_SLACK)
-        self.assertEqual(inputs, ["-ss", "0.999500", "-to", "4.999500", "-i", "a.mp4", "-to", "1.999500", "-i", "b.mp4"])
+        self.assertEqual(
+            inputs, [
+                "-ss", "0.999500", "-to", "4.999500", "-i", "a.mp4", "-to", "1.999500", "-i",
+                "b.mp4"
+            ])
         graph = graph_of(cmd)
         self.assertIn("[0:v:0]split=2", graph)
         self.assertIn("[1:v:0]setpts=PTS-STARTPTS[t1]", graph)
@@ -449,14 +471,23 @@ class JoinCommandTests(unittest.TestCase):
         self.assertIn("[bg1]", labels)
 
     def test_labels_do_not_collide_with_cuts_and_sound(self):
-        parts = [part("a.mp4", 640, 360, 15.0, True, duration=10.0, keep=[(0.0, 3.0), (3.0, 5.0), (7.0, 10.0)]),
-                 part("b.mp4", 640, 360, 15.0, True, duration=10.0, keep=[(0.0, 3.0), (3.0, 5.0), (7.0, 10.0)])]
+        parts = [
+            part(
+                "a.mp4", 640, 360, 15.0, True, duration=10.0,
+                keep=[(0.0, 3.0), (3.0, 5.0), (7.0, 10.0)]),
+            part(
+                "b.mp4", 640, 360, 15.0, True, duration=10.0,
+                keep=[(0.0, 3.0), (3.0, 5.0), (7.0, 10.0)])
+        ]
         labels = output_labels(graph_of(self.build(parts)[0]))
         self.assertEqual(len(labels), len(set(labels)), labels)
 
     def test_a_silent_clip_gets_generated_silence_of_its_length(self):
-        cmd, _ = self.build([part("a.mp4", 640, 360, 15.0, True, duration=4.0),
-                             part("b.mp4", 320, 240, 25.0, False, duration=2.0)])
+        cmd, _ = self.build(
+            [
+                part("a.mp4", 640, 360, 15.0, True, duration=4.0),
+                part("b.mp4", 320, 240, 25.0, False, duration=2.0)
+            ])
         graph = graph_of(cmd)
         self.assertEqual(graph.count("anullsrc"), 1)
         self.assertIn("anullsrc=r=48000:cl=stereo,atrim=duration=2.000,", graph)
@@ -465,27 +496,36 @@ class JoinCommandTests(unittest.TestCase):
         self.assertNotIn("[1:a:0]", graph)
 
     def test_silence_matches_the_sped_up_length(self):
-        cmd, _ = self.build([part("a.mp4", 640, 360, 15.0, True, duration=4.0),
-                             part("b.mp4", 320, 240, 25.0, False, duration=4.0, speed=2.0)])
+        cmd, _ = self.build(
+            [
+                part("a.mp4", 640, 360, 15.0, True, duration=4.0),
+                part("b.mp4", 320, 240, 25.0, False, duration=4.0, speed=2.0)
+            ])
         self.assertIn("atrim=duration=2.000", graph_of(cmd))
 
     def test_a_muted_clip_is_replaced_by_silence(self):
-        cmd, _ = self.build([part("a.mp4", 640, 360, 15.0, True, mute=True),
-                             part("b.mp4", 640, 360, 15.0, True)])
+        cmd, _ = self.build(
+            [part("a.mp4", 640, 360, 15.0, True, mute=True),
+             part("b.mp4", 640, 360, 15.0, True)])
         graph = graph_of(cmd)
         self.assertEqual(graph.count("anullsrc"), 1)
         self.assertNotIn("[0:a:0]", graph)
         self.assertIn("[1:a:0]", graph)
 
     def test_all_silent_clips_make_a_silent_video(self):
-        cmd, _ = self.build([part("a.mp4", 640, 360, 15.0, False), part("b.mp4", 640, 360, 15.0, False)])
+        cmd, _ = self.build(
+            [part("a.mp4", 640, 360, 15.0, False),
+             part("b.mp4", 640, 360, 15.0, False)])
         graph = graph_of(cmd)
         self.assertNotIn("anullsrc", graph)
         self.assertIn("concat=n=2:v=1:a=0[v]", graph)
         self.assertIn("-an", cmd)
 
     def test_an_mp3_join_has_no_picture(self):
-        parts = [part("a.mp4", 640, 360, 15.0, True), part("b.mp4", 640, 360, 15.0, False, duration=2.0)]
+        parts = [
+            part("a.mp4", 640, 360, 15.0, True),
+            part("b.mp4", 640, 360, 15.0, False, duration=2.0)
+        ]
         cmd, total = self.build(parts, audio_only=True)
         graph = graph_of(cmd)
         self.assertNotIn("[0:v", graph)
@@ -496,24 +536,34 @@ class JoinCommandTests(unittest.TestCase):
         self.assertEqual(total, 6.0)
 
     def test_an_mp3_join_ignores_the_leftover_mute_setting(self):
-        cmd, _ = self.build([part("a.mp4", 640, 360, 15.0, True, mute=True), part("b.mp4", 640, 360, 15.0, True)],
-                            audio_only=True)
+        cmd, _ = self.build(
+            [part("a.mp4", 640, 360, 15.0, True, mute=True),
+             part("b.mp4", 640, 360, 15.0, True)], audio_only=True)
         graph = graph_of(cmd)
         self.assertIn("[0:a:0]", graph)
         self.assertNotIn("anullsrc", graph)
 
     def test_an_mp3_join_of_silent_clips_is_an_error(self):
         with self.assertRaisesRegex(ConversionError, "have sound"):
-            self.build([part("a.mp4", 640, 360, 15.0, False), part("b.mp4", 640, 360, 15.0, False)], audio_only=True)
+            self.build(
+                [part("a.mp4", 640, 360, 15.0, False),
+                 part("b.mp4", 640, 360, 15.0, False)], audio_only=True)
 
     def test_a_clip_with_nothing_left_is_an_error(self):
         with self.assertRaisesRegex(ConversionError, "Nothing is left of b.mp4"):
-            self.build([part("a.mp4", 640, 360, 15.0, True),
-                        part("b.mp4", 640, 360, 15.0, True, keep=[(0.0, 1.0)], start=2.0)])
+            self.build(
+                [
+                    part("a.mp4", 640, 360, 15.0, True),
+                    part("b.mp4", 640, 360, 15.0, True, keep=[(0.0, 1.0)], start=2.0)
+                ])
 
     def test_an_unknown_length_is_an_error(self):
         with self.assertRaisesRegex(ConversionError, "length of b.mp4"):
-            self.build([part("a.mp4", 640, 360, 15.0, True), part("b.mp4", 640, 360, 15.0, True, duration=None)])
+            self.build(
+                [
+                    part("a.mp4", 640, 360, 15.0, True),
+                    part("b.mp4", 640, 360, 15.0, True, duration=None)
+                ])
 
     def test_joining_needs_two_clips(self):
         with self.assertRaises(ConversionError):
@@ -522,6 +572,7 @@ class JoinCommandTests(unittest.TestCase):
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class VideoExportTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -534,7 +585,9 @@ class VideoExportTests(unittest.TestCase):
         cls._tmp.cleanup()
 
     def export(self, name, edit, source=None):
-        return probe_media(FFMPEG, convert_video(FFMPEG, VideoJob(source or self.landscape, self.tmp / name, edit)))
+        return probe_media(
+            FFMPEG,
+            convert_video(FFMPEG, VideoJob(source or self.landscape, self.tmp / name, edit)))
 
     def test_phone_export_in_every_fit_mode(self):
         # Every fit uses the source's short side: 640x360 becomes 360x640.
@@ -548,11 +601,15 @@ class VideoExportTests(unittest.TestCase):
         """(seconds of picture, seconds of sound) of an exported file: the picture counted in frames,
         the sound decoded to the sample."""
         # Decoded, not copied: ffmpeg 6.1.1 (WSL) printed no "frame=" count for a stream copy, the Windows 7.1 did.
-        shown = subprocess.run([FFMPEG, "-i", str(path), "-map", "0:v:0", "-f", "null", "-"],
-                               capture_output=True, text=True)
+        shown = subprocess.run(
+            [FFMPEG, "-i", str(path), "-map", "0:v:0", "-f", "null", "-"], capture_output=True,
+            text=True)
         frames = int(re.findall(r"frame=\s*(\d+)", shown.stderr)[-1])
-        sound = subprocess.run([FFMPEG, "-v", "error", "-i", str(path), "-map", "0:a:0", "-f", "s16le", "-ac", "1",
-                                "-ar", "48000", "-"], capture_output=True)
+        sound = subprocess.run(
+            [
+                FFMPEG, "-v", "error", "-i",
+                str(path), "-map", "0:a:0", "-f", "s16le", "-ac", "1", "-ar", "48000", "-"
+            ], capture_output=True)
         return frames / rate, len(sound.stdout) / 2 / 48000
 
     def test_many_cuts_off_the_frame_grid_keep_picture_and_sound_together(self):
@@ -565,7 +622,7 @@ class VideoExportTests(unittest.TestCase):
         convert_video(FFMPEG, VideoJob(source, output, VideoEdit(aspect=None, keep=keep)))
         picture, sound = self.stream_lengths(output, 25)
         self.assertLess(abs(picture - sound), 1 / 25)
-        self.assertAlmostEqual(picture, 6.0, delta=0.05)         # 30 x 5 frames
+        self.assertAlmostEqual(picture, 6.0, delta=0.05)  # 30 x 5 frames
 
     def test_the_same_holds_when_joining_clips(self):
         source = self.tmp / "grid.mp4"
@@ -578,7 +635,8 @@ class VideoExportTests(unittest.TestCase):
         self.assertAlmostEqual(picture, 6.0, delta=0.1)
 
     def test_trim_rotate_mute_and_size(self):
-        edit = VideoEdit(aspect=None, rotate=90, flip=True, mute=True, resolution=480, start=1.0, end=2.5)
+        edit = VideoEdit(
+            aspect=None, rotate=90, flip=True, mute=True, resolution=480, start=1.0, end=2.5)
         info = self.export("edited.mp4", edit)
         self.assertEqual((info.width, info.height), (480, 854))
         self.assertAlmostEqual(info.duration, 1.5, delta=0.2)
@@ -598,25 +656,31 @@ class VideoExportTests(unittest.TestCase):
 
     def test_rejects_bad_trim(self):
         with self.assertRaises(ConversionError):
-            convert_video(FFMPEG, VideoJob(self.landscape, self.tmp / "bad.mp4", VideoEdit(start=3, end=2)))
+            convert_video(
+                FFMPEG, VideoJob(self.landscape, self.tmp / "bad.mp4", VideoEdit(start=3, end=2)))
 
     def test_preview_frames(self):
         info = probe_media(FFMPEG, self.landscape)
-        result = render_frame(FFMPEG, self.landscape, self.tmp / "res.png", 1.0, (200, 200), VideoEdit(), info)
-        render_source_frames(FFMPEG, self.landscape, self.tmp / "src.png", self.tmp / "dim.png", 1.0,
-                             (320, 200), VideoEdit())
+        result = render_frame(
+            FFMPEG, self.landscape, self.tmp / "res.png", 1.0, (200, 200), VideoEdit(), info)
+        render_source_frames(
+            FFMPEG, self.landscape, self.tmp / "src.png", self.tmp / "dim.png", 1.0, (320, 200),
+            VideoEdit())
         for png in (result, self.tmp / "src.png", self.tmp / "dim.png"):
             self.assertGreater(png.stat().st_size, 0)
 
     def test_trimmed_mp3(self):
-        output = convert(FFMPEG, ConversionJob(self.landscape, self.tmp / "clip.mp3", start=1.0, end=3.0))
+        output = convert(
+            FFMPEG, ConversionJob(self.landscape, self.tmp / "clip.mp3", start=1.0, end=3.0))
         self.assertAlmostEqual(probe_media(FFMPEG, output).duration, 2.0, delta=0.2)
 
     def test_command_line_video_export(self):
         result = subprocess.run(
-            [sys.executable, "-m", "video_converter", str(self.landscape), "--video", "square", "--fit", "bars",
-             "--end", "2", "-o", str(self.tmp / "cli")],
-            cwd=ROOT, capture_output=True, text=True,
+            [
+                sys.executable, "-m", "video_converter",
+                str(self.landscape), "--video", "square", "--fit", "bars", "--end", "2", "-o",
+                str(self.tmp / "cli")
+            ], cwd=ROOT, capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         info = probe_media(FFMPEG, self.tmp / "cli" / "landscape (square).mp4")
@@ -645,8 +709,11 @@ def difference(a, b):
 
 def mono_samples(path):
     """The sound of `path` as 8 kHz mono samples (8000 per second)."""
-    data = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-i", str(path), "-vn", "-ac", "1",
-                           "-ar", "8000", "-f", "s16le", "-"], capture_output=True, check=True).stdout
+    data = subprocess.run(
+        [
+            FFMPEG, "-hide_banner", "-loglevel", "error", "-i",
+            str(path), "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "-"
+        ], capture_output=True, check=True).stdout
     samples = array("h")
     samples.frombytes(data)
     return samples
@@ -654,10 +721,15 @@ def mono_samples(path):
 
 def audio_end(path):
     """When the last sound packet of `path` ends, by its timestamps (not by how much sound there is)."""
-    out = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-i", str(path), "-vn", "-c", "copy",
-                          "-f", "null", "-progress", "pipe:1", "-"], capture_output=True, text=True,
-                         check=True).stdout
-    times = [int(line.partition("=")[2]) for line in out.splitlines() if line.startswith("out_time_us=")]
+    out = subprocess.run(
+        [
+            FFMPEG, "-hide_banner", "-loglevel", "error", "-i",
+            str(path), "-vn", "-c", "copy", "-f", "null", "-progress", "pipe:1", "-"
+        ], capture_output=True, text=True, check=True).stdout
+    times = [
+        int(line.partition("=")[2]) for line in out.splitlines()
+        if line.startswith("out_time_us=")
+    ]
     return times[-1] / 1_000_000
 
 
@@ -667,11 +739,12 @@ def peak(samples):
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class TimingExportTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.tmp = Path(cls._tmp.name)
-        cls.clip = cls.tmp / "clip.mp4"                    # 4 s, 320x180, 15 fps, with sound
+        cls.clip = cls.tmp / "clip.mp4"  # 4 s, 320x180, 15 fps, with sound
         make_video(FFMPEG, cls.clip, 320, 180, 4)
 
     @classmethod
@@ -679,7 +752,8 @@ class TimingExportTests(unittest.TestCase):
         cls._tmp.cleanup()
 
     def export(self, name, edit, source=None, **kwargs):
-        output = convert_video(FFMPEG, VideoJob(source or self.clip, self.tmp / name, edit), **kwargs)
+        output = convert_video(
+            FFMPEG, VideoJob(source or self.clip, self.tmp / name, edit), **kwargs)
         return output, probe_media(FFMPEG, output)
 
     def test_cutting_out_a_middle_part(self):
@@ -690,13 +764,15 @@ class TimingExportTests(unittest.TestCase):
     def test_the_kept_parts_are_the_right_ones(self):
         # Keeping 2..4 only: the export starts on the picture that was at 2 s.
         output, _ = self.export("late.mp4", VideoEdit(aspect=None, keep=[(2.0, 4.0)]))
-        self.assertLess(difference(raw_gray(output, 0), raw_gray(self.clip, 2.0)),
-                        difference(raw_gray(output, 0), raw_gray(self.clip, 0.0)))
+        self.assertLess(
+            difference(raw_gray(output, 0), raw_gray(self.clip, 2.0)),
+            difference(raw_gray(output, 0), raw_gray(self.clip, 0.0)))
         self.assertLess(difference(raw_gray(output, 0), raw_gray(self.clip, 2.0)), 3)
 
     def test_cuts_and_trim_work_together(self):
-        _, info = self.export("both.mp4", VideoEdit(aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)], start=0.5, end=3.0))
-        self.assertAlmostEqual(info.duration, 1.5, delta=0.15)             # 0.5..1 and 2..3
+        _, info = self.export(
+            "both.mp4", VideoEdit(aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)], start=0.5, end=3.0))
+        self.assertAlmostEqual(info.duration, 1.5, delta=0.15)  # 0.5..1 and 2..3
 
     def test_splits_leave_no_visible_seam(self):
         _, info = self.export("split.mp4", VideoEdit(aspect=None, keep=[(0.0, 2.0), (2.0, 4.0)]))
@@ -713,11 +789,13 @@ class TimingExportTests(unittest.TestCase):
         self.assertAlmostEqual(info.duration, 2.0, delta=0.15)
 
     def test_quarter_speed_uses_a_two_step_audio_chain(self):
-        _, info = self.export("quarter.mp4", VideoEdit(aspect=None, speed=0.25, start=0.0, end=1.0))
+        _, info = self.export(
+            "quarter.mp4", VideoEdit(aspect=None, speed=0.25, start=0.0, end=1.0))
         self.assertAlmostEqual(info.duration, 4.0, delta=0.2)
 
     def test_cuts_and_speed_combine(self):
-        _, info = self.export("cut-fast.mp4", VideoEdit(aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)], speed=2.0))
+        _, info = self.export(
+            "cut-fast.mp4", VideoEdit(aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)], speed=2.0))
         self.assertAlmostEqual(info.duration, 1.5, delta=0.15)
 
     def test_reverse_starts_on_the_last_picture(self):
@@ -732,10 +810,12 @@ class TimingExportTests(unittest.TestCase):
 
     def test_reverse_with_cuts_keeps_all_the_sound(self):
         # Reversing sound that was cut into parts used to leave under a second of it.
-        output, _ = self.export("cut-backward.mp4", VideoEdit(aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)],
-                                                              reverse=True))
+        output, _ = self.export(
+            "cut-backward.mp4",
+            VideoEdit(aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)], reverse=True))
         self.assertAlmostEqual(audio_end(output), 3.0, delta=0.2)
-        job = ConversionJob(self.clip, self.tmp / "cut-backward.mp3", keep=[(0.0, 1.0), (2.0, 4.0)], reverse=True)
+        job = ConversionJob(
+            self.clip, self.tmp / "cut-backward.mp3", keep=[(0.0, 1.0), (2.0, 4.0)], reverse=True)
         self.assertAlmostEqual(audio_end(convert(FFMPEG, job)), 3.0, delta=0.2)
 
     def test_picture_fade_in_starts_dark(self):
@@ -750,8 +830,9 @@ class TimingExportTests(unittest.TestCase):
         self.assertGreater(brightness(raw_gray(output, 1.0)), 80)
 
     def test_fade_out_lands_at_the_end_of_a_sped_up_cut_export(self):
-        output, _ = self.export("fade-fast.mp4", VideoEdit(aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)], speed=2.0,
-                                                           fade_out=0.5))
+        output, _ = self.export(
+            "fade-fast.mp4",
+            VideoEdit(aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)], speed=2.0, fade_out=0.5))
         frames = raw_gray(output)
         self.assertLess(brightness(frames[-FRAME_BYTES:]), 30)
         self.assertGreater(brightness(raw_gray(output, 0.5)), 80)
@@ -777,7 +858,8 @@ class TimingExportTests(unittest.TestCase):
     def test_preview_frame_shows_the_fade(self):
         info = probe_media(FFMPEG, self.clip)
         edit = VideoEdit(aspect=None, fade_in=1.0)
-        early = render_frame(FFMPEG, self.clip, self.tmp / "early.png", 0.05, (160, 90), edit, info)
+        early = render_frame(
+            FFMPEG, self.clip, self.tmp / "early.png", 0.05, (160, 90), edit, info)
         late = render_frame(FFMPEG, self.clip, self.tmp / "late.png", 2.0, (160, 90), edit, info)
         self.assertLess(brightness(raw_gray(early)[:FRAME_BYTES]), 30)
         self.assertGreater(brightness(raw_gray(late)[:FRAME_BYTES]), 80)
@@ -800,7 +882,8 @@ class TimingExportTests(unittest.TestCase):
         self.assertFalse(mp3.exists())
 
     def test_mp3_with_cuts_and_speed(self):
-        job = ConversionJob(self.clip, self.tmp / "fast.mp3", keep=[(0.0, 1.0), (2.0, 4.0)], speed=2.0)
+        job = ConversionJob(
+            self.clip, self.tmp / "fast.mp3", keep=[(0.0, 1.0), (2.0, 4.0)], speed=2.0)
         self.assertAlmostEqual(probe_media(FFMPEG, convert(FFMPEG, job)).duration, 1.5, delta=0.15)
 
     def test_mp3_fade_and_reverse(self):
@@ -813,13 +896,14 @@ class TimingExportTests(unittest.TestCase):
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class JoinExportTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.tmp = Path(cls._tmp.name)
-        cls.wide = cls.tmp / "wide.mp4"                    # 2 s, 640x360, 15 fps, with sound
-        cls.boxy = cls.tmp / "boxy.mp4"                    # 2 s, 320x240, 25 fps, no sound
-        cls.short = cls.tmp / "short.mp4"                  # 1.5 s, 160x90, 15 fps, with sound
+        cls.wide = cls.tmp / "wide.mp4"  # 2 s, 640x360, 15 fps, with sound
+        cls.boxy = cls.tmp / "boxy.mp4"  # 2 s, 320x240, 25 fps, no sound
+        cls.short = cls.tmp / "short.mp4"  # 1.5 s, 160x90, 15 fps, with sound
         make_video(FFMPEG, cls.wide, 640, 360, 2)
         make_video(FFMPEG, cls.boxy, 320, 240, 2, audio=False, rate=25)
         make_video(FFMPEG, cls.short, 160, 90, 1.5)
@@ -861,10 +945,15 @@ class JoinExportTests(unittest.TestCase):
     def test_each_clip_keeps_its_own_edits(self):
         edits = [VideoEdit(aspect=None, start=0.5, end=1.5), VideoEdit(aspect=None, speed=2.0)]
         output = self.join("edited.mp4", [self.wide, self.boxy], edits)
-        self.assertAlmostEqual(probe_media(FFMPEG, output).duration, 2.0, delta=0.2)    # 1 s + 2 s at 2x
+        self.assertAlmostEqual(
+            probe_media(FFMPEG, output).duration, 2.0, delta=0.2)  # 1 s + 2 s at 2x
 
     def test_three_clips_to_one_mp3(self):
-        edits = [VideoEdit(start=0.0, end=1.0), VideoEdit(), VideoEdit(keep=[(0.0, 0.5), (1.0, 2.0)])]
+        edits = [
+            VideoEdit(start=0.0, end=1.0),
+            VideoEdit(),
+            VideoEdit(keep=[(0.0, 0.5), (1.0, 2.0)])
+        ]
         output = self.join("three.mp3", [self.wide, self.short, self.wide], edits, audio_only=True)
         info = probe_media(FFMPEG, output)
         self.assertFalse(info.has_video)
@@ -876,15 +965,19 @@ class JoinExportTests(unittest.TestCase):
 
     def test_joining_progress_ends_at_one(self):
         progress = []
-        job = JoinJob([JoinPart(self.wide, VideoEdit(aspect=None)), JoinPart(self.short, VideoEdit(aspect=None))],
-                      self.tmp / "progress.mp4")
+        job = JoinJob(
+            [
+                JoinPart(self.wide, VideoEdit(aspect=None)),
+                JoinPart(self.short, VideoEdit(aspect=None))
+            ], self.tmp / "progress.mp4")
         join_clips(FFMPEG, job, on_progress=progress.append)
         self.assertEqual(progress[-1], 1.0)
         self.assertEqual(progress, sorted(progress))
 
     def test_a_missing_file_stops_the_join(self):
-        job = JoinJob([JoinPart(self.wide, VideoEdit()), JoinPart(self.tmp / "nope.mp4", VideoEdit())],
-                      self.tmp / "nope-out.mp4")
+        job = JoinJob(
+            [JoinPart(self.wide, VideoEdit()),
+             JoinPart(self.tmp / "nope.mp4", VideoEdit())], self.tmp / "nope-out.mp4")
         with self.assertRaisesRegex(ConversionError, "not found"):
             join_clips(FFMPEG, job)
         self.assertFalse(job.output.exists())
@@ -892,26 +985,32 @@ class JoinExportTests(unittest.TestCase):
     def test_mp4_join_of_a_sound_only_file_is_refused(self):
         sound = self.tmp / "sound.mp3"
         convert(FFMPEG, ConversionJob(self.wide, sound))
-        job = JoinJob([JoinPart(self.wide, VideoEdit()), JoinPart(sound, VideoEdit())], self.tmp / "refused.mp4")
+        job = JoinJob(
+            [JoinPart(self.wide, VideoEdit()),
+             JoinPart(sound, VideoEdit())], self.tmp / "refused.mp4")
         with self.assertRaisesRegex(ConversionError, "no video track"):
             join_clips(FFMPEG, job)
 
 
 class CommandLineTests(unittest.TestCase):
+
     def run_cli(self, *args):
-        return subprocess.run([sys.executable, "-m", "video_converter", *map(str, args)],
-                              cwd=ROOT, capture_output=True, text=True)
+        return subprocess.run(
+            [sys.executable, "-m", "video_converter", *map(str, args)], cwd=ROOT,
+            capture_output=True, text=True)
 
     @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
     def test_cut_and_speed(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "clip.mp4"
             make_video(FFMPEG, source, 320, 180, 4)
-            result = self.run_cli(source, "--video", "square", "--cut", "1-2", "--speed", "2", "-o", Path(tmp) / "out")
+            result = self.run_cli(
+                source, "--video", "square", "--cut", "1-2", "--speed", "2", "-o",
+                Path(tmp) / "out")
             self.assertEqual(result.returncode, 0, result.stderr)
             output = Path(tmp) / "out" / "clip (square).mp4"
             info = probe_media(FFMPEG, output)
-            self.assertAlmostEqual(info.duration, 1.5, delta=0.15)           # 3 s kept, at 2x
+            self.assertAlmostEqual(info.duration, 1.5, delta=0.15)  # 3 s kept, at 2x
             self.assertEqual((info.width, info.height), (180, 180))
 
     @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
@@ -919,9 +1018,12 @@ class CommandLineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "clip.mp4"
             make_video(FFMPEG, source, 320, 180, 4)
-            result = self.run_cli(source, "--cut", "0:01-0:02", "--cut", "3-4", "--fade-out", "0.5", "-o", tmp)
+            result = self.run_cli(
+                source, "--cut", "0:01-0:02", "--cut", "3-4", "--fade-out", "0.5", "-o", tmp)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertAlmostEqual(probe_media(FFMPEG, Path(tmp) / "clip.mp3").duration, 2.0, delta=0.15)
+            self.assertAlmostEqual(
+                probe_media(FFMPEG,
+                            Path(tmp) / "clip.mp3").duration, 2.0, delta=0.15)
 
     @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
     def test_join_makes_one_file_named_after_the_first(self):
@@ -929,9 +1031,12 @@ class CommandLineTests(unittest.TestCase):
             first, second = Path(tmp) / "first.mp4", Path(tmp) / "second.mp4"
             make_video(FFMPEG, first, 320, 180, 2)
             make_video(FFMPEG, second, 160, 120, 1.5, audio=False)
-            result = self.run_cli(first, second, "--video", "original", "--join", "-o", Path(tmp) / "out")
+            result = self.run_cli(
+                first, second, "--video", "original", "--join", "-o",
+                Path(tmp) / "out")
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual([p.name for p in (Path(tmp) / "out").iterdir()], ["first (joined).mp4"])
+            self.assertEqual(
+                [p.name for p in (Path(tmp) / "out").iterdir()], ["first (joined).mp4"])
             info = probe_media(FFMPEG, Path(tmp) / "out" / "first (joined).mp4")
             self.assertAlmostEqual(info.duration, 3.5, delta=0.2)
             self.assertEqual((info.width, info.height), (320, 180))

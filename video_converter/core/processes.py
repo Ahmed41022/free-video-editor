@@ -23,14 +23,16 @@ def start_process(cmd: list[str], **kwargs) -> subprocess.Popen:
     except OSError as exc:
         log.error("Couldn't start %s: %s", cmd[0] if cmd else "?", exc)
         if getattr(exc, "winerror", None) == 206 or len(subprocess.list2cmdline(cmd)) > 32000:
-            raise ConversionError(tr("This export is too complicated to start (too many cuts or texts at once). "
-                                     "Try fewer, or export in parts.")) from exc
+            raise ConversionError(
+                tr(
+                    "This export is too complicated to start (too many cuts or texts at once). "
+                    "Try fewer, or export in parts.")) from exc
         raise ConversionError(tr("Couldn't start ffmpeg: {error}", error=exc)) from exc
     job = ProcessJob.create()
     if job is not None and not job.add(proc):
         job.close()
         job = None
-    proc.fve_job = job          # type: ignore[attr-defined]
+    proc.fve_job = job  # type: ignore[attr-defined]
     return proc
 
 
@@ -46,11 +48,12 @@ def stop_process(proc: subprocess.Popen) -> None:
             if job.wait_until_empty(timeout=2.0):
                 return
         except subprocess.TimeoutExpired:
-            pass                                    # something got out of the job: do it the slow way
+            pass  # something got out of the job: do it the slow way
     if sys.platform == "win32":
         try:
-            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True,
-                           stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, timeout=10)
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True,
+                stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, timeout=10)
         except (OSError, subprocess.SubprocessError):
             pass
     if proc.poll() is None:

@@ -14,11 +14,12 @@ from video_converter import APP_NAME, REPO_URL, __version__, diagnostics
 
 
 class LoggingSetupTests(unittest.TestCase):
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.folder = Path(self._tmp.name) / "logs"
         self.addCleanup(self._tmp.cleanup)
-        self.addCleanup(diagnostics.shutdown_logging)      # release the file before the folder goes
+        self.addCleanup(diagnostics.shutdown_logging)  # release the file before the folder goes
 
     def test_the_log_is_written_to_app_log_in_the_folder(self):
         path = diagnostics.setup_logging(self.folder)
@@ -45,8 +46,9 @@ class LoggingSetupTests(unittest.TestCase):
         logging.getLogger("video_converter").info("only once")
         diagnostics.shutdown_logging()
         self.assertEqual(path.read_text(encoding="utf-8").count("only once"), 1)
-        self.assertFalse((self.folder / "a" / "app.log").exists() and "only once" in
-                         (self.folder / "a" / "app.log").read_text(encoding="utf-8"))
+        self.assertFalse(
+            (self.folder / "a" / "app.log").exists()
+            and "only once" in (self.folder / "a" / "app.log").read_text(encoding="utf-8"))
 
     def test_the_log_rotates_instead_of_growing_forever(self):
         with mock.patch.object(diagnostics, "MAX_LOG_BYTES", 2000):
@@ -114,13 +116,15 @@ class LoggingSetupTests(unittest.TestCase):
         path = diagnostics.setup_logging(self.folder)
         gpu.forget_detection()
         self.addCleanup(gpu.forget_detection)
-        with mock.patch.object(gpu, "_encoder_works", side_effect=lambda ff, name: name == "h264_nvenc"):
+        with mock.patch.object(gpu, "_encoder_works",
+                               side_effect=lambda ff, name: name == "h264_nvenc"):
             gpu.detect_encoders("fake-ffmpeg")
         diagnostics.shutdown_logging()
         self.assertIn("Hardware encoders that work: h264_nvenc", path.read_text(encoding="utf-8"))
 
 
 class FfmpegLoggingTests(unittest.TestCase):
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -134,8 +138,11 @@ class FfmpegLoggingTests(unittest.TestCase):
             self.skipTest("ffmpeg is not installed")
         missing = Path(self._tmp.name) / "missing.mp4"
         out = Path(self._tmp.name) / "out.mp4"
-        cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", str(missing),
-               "-progress", "pipe:1", "-nostats", str(out)]
+        cmd = [
+            ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i",
+            str(missing), "-progress", "pipe:1", "-nostats",
+            str(out)
+        ]
         with self.assertRaises(ConversionError):
             run_ffmpeg(cmd, out, None)
         diagnostics.shutdown_logging()
@@ -170,6 +177,7 @@ class FfmpegLoggingTests(unittest.TestCase):
 
 
 class ExceptionHookTests(unittest.TestCase):
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -198,6 +206,7 @@ class ExceptionHookTests(unittest.TestCase):
         self.assertEqual(self.seen, ["ValueError: something broke"])
 
     def test_an_error_in_another_thread_is_logged_too(self):
+
         def work():
             raise RuntimeError("worker died")
 
@@ -217,7 +226,8 @@ class ExceptionHookTests(unittest.TestCase):
 
     def test_a_broken_listener_cannot_stop_the_logging(self):
         self.restore()
-        self.restore = diagnostics.install_excepthooks(mock.Mock(side_effect=RuntimeError("dialog failed")))
+        self.restore = diagnostics.install_excepthooks(
+            mock.Mock(side_effect=RuntimeError("dialog failed")))
         sys.excepthook(*self.raised())
         self.assertIn("something broke", self.log_text())
 
@@ -241,7 +251,10 @@ class ExceptionHookTests(unittest.TestCase):
 
 
 class IssueUrlTests(unittest.TestCase):
-    SYSTEM = [f"{APP_NAME} {__version__}", "Windows 11 (build 26300)", "ffmpeg 7.1", "Graphics card encoders: h264_nvenc"]
+    SYSTEM = [
+        f"{APP_NAME} {__version__}", "Windows 11 (build 26300)", "ffmpeg 7.1",
+        "Graphics card encoders: h264_nvenc"
+    ]
 
     def fields(self, url):
         return {key: value[0] for key, value in parse_qs(urlparse(url).query).items()}
@@ -252,7 +265,8 @@ class IssueUrlTests(unittest.TestCase):
         self.assertEqual(REPO_URL, "https://github.com/Ahmed41022/free-video-editor")
 
     def test_the_title_and_body_carry_the_details(self):
-        fields = self.fields(diagnostics.issue_url(self.SYSTEM, ["12:00 INFO started", "12:01 ERROR it broke"]))
+        fields = self.fields(
+            diagnostics.issue_url(self.SYSTEM, ["12:00 INFO started", "12:01 ERROR it broke"]))
         self.assertIn(__version__, fields["title"])
         body = fields["body"]
         for line in self.SYSTEM:
@@ -261,24 +275,29 @@ class IssueUrlTests(unittest.TestCase):
         self.assertIn("What happened?", body)
 
     def test_special_characters_are_encoded_and_decode_back(self):
-        lines = ["C:\\Users\\Zoë\\vidéo & more #1 100%.mp4", "a=b?c&d", "line with ``` fence", "日本語"]
+        lines = [
+            "C:\\Users\\Zoë\\vidéo & more #1 100%.mp4", "a=b?c&d", "line with ``` fence", "日本語"
+        ]
         url = diagnostics.issue_url(self.SYSTEM, lines)
         self.assertNotIn(" ", url)
         self.assertNotIn("\n", url)
         self.assertEqual(url.count("?"), 1)
-        self.assertEqual(url.count("&"), 1)            # only between title and body
+        self.assertEqual(url.count("&"), 1)  # only between title and body
         body = self.fields(url)["body"]
         self.assertIn("C:\\Users\\Zoë\\vidéo & more #1 100%.mp4", body)
         self.assertIn("a=b?c&d", body)
         self.assertIn("日本語", body)
-        self.assertEqual(body.count("```"), 2)         # only the report's own fence survives
+        self.assertEqual(body.count("```"), 2)  # only the report's own fence survives
 
     def test_a_long_log_is_cut_from_the_old_end_to_stay_under_the_limit(self):
-        lines = [f"2026-10-18 12:00:{i % 60:02d} INFO video_converter: entry {i:03d} " + "x" * 120 for i in range(30)]
+        lines = [
+            f"2026-10-18 12:00:{i % 60:02d} INFO video_converter: entry {i:03d} " + "x" * 120
+            for i in range(30)
+        ]
         url = diagnostics.issue_url(self.SYSTEM, lines)
         self.assertLessEqual(len(url), diagnostics.URL_LIMIT)
         body = self.fields(url)["body"]
-        self.assertIn("entry 029", body)             # the newest line is the one that matters
+        self.assertIn("entry 029", body)  # the newest line is the one that matters
         self.assertNotIn("entry 000", body)
 
     def test_the_limit_holds_for_awkward_text_that_grows_when_encoded(self):
@@ -302,6 +321,7 @@ class IssueUrlTests(unittest.TestCase):
 
 
 class AboutTests(unittest.TestCase):
+
     def test_it_names_the_version_license_repository_and_credits(self):
         text = diagnostics.about_text()
         self.assertIn(__version__, text)
@@ -321,15 +341,23 @@ class AboutTests(unittest.TestCase):
         self.assertIn("Third-party licenses", text)
         self.assertIn(folder.as_uri(), text)
 
-    def test_the_licenses_folder_is_found_next_to_an_installed_program_or_in_the_portable_bundle(self):
+    def test_the_licenses_folder_is_found_next_to_an_installed_program_or_in_the_portable_bundle(
+            self):
         with tempfile.TemporaryDirectory() as tmp:
             installed = Path(tmp) / "installed"
             (installed / "licenses").mkdir(parents=True)
             bundle = Path(tmp) / "bundle"
             (bundle / "licenses").mkdir(parents=True)
-            with mock.patch.object(sys, "frozen", True, create=True),                     mock.patch.object(sys, "executable", str(installed / "app.exe")),                     mock.patch.object(sys, "_MEIPASS", str(bundle), create=True):
+            with mock.patch.object(sys, "frozen", True, create=True), mock.patch.object(
+                    sys, "executable",
+                    str(installed / "app.exe")), mock.patch.object(sys, "_MEIPASS", str(bundle),
+                                                                   create=True):
                 self.assertEqual(diagnostics.licenses_folder(), (installed / "licenses").resolve())
-            with mock.patch.object(sys, "frozen", True, create=True),                     mock.patch.object(sys, "executable", str(Path(tmp) / "elsewhere" / "app.exe")),                     mock.patch.object(sys, "_MEIPASS", str(bundle), create=True):
+            with mock.patch.object(sys, "frozen", True, create=True), mock.patch.object(
+                    sys, "executable",
+                    str(Path(tmp) / "elsewhere" / "app.exe")), mock.patch.object(sys, "_MEIPASS",
+                                                                                 str(bundle),
+                                                                                 create=True):
                 self.assertEqual(diagnostics.licenses_folder(), bundle / "licenses")
 
     def test_without_a_licenses_folder_the_link_goes_to_the_one_on_github(self):
@@ -339,6 +367,7 @@ class AboutTests(unittest.TestCase):
 
 
 class SystemInfoTests(unittest.TestCase):
+
     def test_the_lines_say_which_encoders_were_found(self):
         with mock.patch.object(diagnostics, "ffmpeg_version", return_value="7.1"):
             found = diagnostics.system_lines("ffmpeg", ("h264_nvenc", "h264_qsv"))

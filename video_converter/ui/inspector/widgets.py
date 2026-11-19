@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QSlider, QToolButton, QVBoxLayout, QWidget,
 )
 
+
 def _db_text(value: float) -> str:
     return f"{value:+g} dB".replace("-", "−") if value else "0 dB"
 
@@ -31,7 +32,8 @@ class WheelGuard(QObject):
     def watch(self, root: QWidget) -> None:
         for widget in root.findChildren(QWidget):
             if isinstance(widget, (QComboBox, QAbstractSpinBox, QSlider)):
-                widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)       # a wheel turn must not give it the focus
+                widget.setFocusPolicy(
+                    Qt.FocusPolicy.StrongFocus)  # a wheel turn must not give it the focus
                 widget.installEventFilter(self)
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
@@ -44,9 +46,12 @@ class WheelGuard(QObject):
         if area is not None:
             viewport = area.viewport()
             where = viewport.mapFromGlobal(event.globalPosition().toPoint())
-            QApplication.sendEvent(viewport, QWheelEvent(
-                QPointF(where), event.globalPosition(), event.pixelDelta(), event.angleDelta(), event.buttons(),
-                event.modifiers(), event.phase(), event.inverted(), event.source()))
+            QApplication.sendEvent(
+                viewport,
+                QWheelEvent(
+                    QPointF(where), event.globalPosition(), event.pixelDelta(), event.angleDelta(),
+                    event.buttons(), event.modifiers(), event.phase(), event.inverted(),
+                    event.source()))
         return True
 
 

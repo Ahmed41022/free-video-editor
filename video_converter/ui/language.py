@@ -46,7 +46,8 @@ def apply_to_app(app: Optional[QApplication] = None) -> None:
     code = i18n.language()
     if _original_font is None:
         _original_font, _original_locale = QFont(app.font()), QLocale()
-    app.setLayoutDirection(Qt.LayoutDirection.RightToLeft if i18n.is_rtl() else Qt.LayoutDirection.LeftToRight)
+    app.setLayoutDirection(
+        Qt.LayoutDirection.RightToLeft if i18n.is_rtl() else Qt.LayoutDirection.LeftToRight)
     if _translator is not None:
         QCoreApplication.removeTranslator(_translator)
         _translator = None
@@ -82,7 +83,8 @@ def restart(paths: list[str]) -> bool:
     process.setArguments(args)
     process.setWorkingDirectory(folder)
     environment = QProcessEnvironment.systemEnvironment()
-    environment.insert("PYINSTALLER_RESET_ENVIRONMENT", "1")      # a one-file exe must unpack itself again
+    environment.insert(
+        "PYINSTALLER_RESET_ENVIRONMENT", "1")  # a one-file exe must unpack itself again
     process.setProcessEnvironment(environment)
     # PySide6 6.12 returns just whether it started; older versions returned (started, pid).
     result = process.startDetached()

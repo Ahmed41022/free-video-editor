@@ -10,7 +10,9 @@ from pathlib import Path
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("VIDEO_EDITOR_NO_GPU_SEARCH", "1")      # a window never searches for graphics cards (see tests/__init__.py)
+os.environ.setdefault(
+    "VIDEO_EDITOR_NO_GPU_SEARCH",
+    "1")  # a window never searches for graphics cards (see tests/__init__.py)
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
@@ -47,9 +49,13 @@ def pump(seconds, until=lambda: False):
 
 
 def make_video(path, width=320, height=180, seconds=4):
-    subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-                    f"color=c=0x203040:s={width}x{height}:d={seconds}:r=15", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                    str(path)], check=True)
+    subprocess.run(
+        [
+            FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+            f"color=c=0x203040:s={width}x{height}:d={seconds}:r=15", "-c:v", "libx264", "-pix_fmt",
+            "yuv420p",
+            str(path)
+        ], check=True)
 
 
 def png(path: Path) -> Path:
@@ -59,12 +65,14 @@ def png(path: Path) -> Path:
 
 
 class PanelTests(unittest.TestCase):
+
     def setUp(self):
         from video_converter.ui.inspector import Inspector
         self.inspector = Inspector()
         self.panel = self.inspector.captions
         self.edits = []
-        self.inspector.settingsEdited.connect(lambda s, label, final: self.edits.append((s, label, final)))
+        self.inspector.settingsEdited.connect(
+            lambda s, label, final: self.edits.append((s, label, final)))
         self.selected = []
         self.inspector.textSelected.connect(self.selected.append)
         self.times = []
@@ -73,7 +81,8 @@ class PanelTests(unittest.TestCase):
 
     def tearDown(self):
         self.inspector.close()
-        shiboken6.delete(self.inspector)     # free it now: every widget left alive slows each later theme change
+        shiboken6.delete(
+            self.inspector)  # free it now: every widget left alive slows each later theme change
 
     def show(self, edit: VideoEdit, output="video"):
         settings = ClipSettings(edit=edit)
@@ -92,8 +101,10 @@ class PanelTests(unittest.TestCase):
         self.assertTrue(self.inspector.captions_section.isHidden())
 
     def test_showing_settings_reports_no_edits(self):
-        self.show(VideoEdit(texts=[TextItem(text="a"), TextItem(text="b")], logo=Logo(file="x.png"),
-                            subtitles=Subtitles(file="s.srt")))
+        self.show(
+            VideoEdit(
+                texts=[TextItem(text="a"), TextItem(text="b")], logo=Logo(file="x.png"),
+                subtitles=Subtitles(file="s.srt")))
         self.assertEqual(self.edits, [])
 
     def test_without_texts_there_is_a_hint_and_no_editor(self):
@@ -155,25 +166,36 @@ class PanelTests(unittest.TestCase):
         edit = self.edits[-1][0].edit
         first, second = edit.texts
         self.assertEqual(first, TextItem(text="one"))
-        self.assertEqual((second.size, second.bold, second.outline, second.box, second.box_opacity, second.align,
-                          second.fade_in, second.fade_out), (0.125, True, 0.15, True, 0.4, "right", 0.5, 1.5))
-        self.assertEqual({label for _, label, _ in self.edits},
-                         {"Text size", "Text bold", "Outline", "Text box", "Box opacity", "Text alignment", "Text fade"})
+        self.assertEqual(
+            (
+                second.size, second.bold, second.outline, second.box, second.box_opacity,
+                second.align, second.fade_in, second.fade_out),
+            (0.125, True, 0.15, True, 0.4, "right", 0.5, 1.5))
+        self.assertEqual(
+            {label
+             for _, label, _ in self.edits}, {
+                 "Text size", "Text bold", "Outline", "Text box", "Box opacity", "Text alignment",
+                 "Text fade"
+             })
         self.assertTrue(all(final for _, _, final in self.edits))
 
     def test_colors_come_from_the_color_dialog(self):
         self.show(VideoEdit(texts=[TextItem(text="one")]))
-        for button, field in ((self.panel.color_button, "color"), (self.panel.outline_button, "outline_color")):
-            with mock.patch("video_converter.ui.captions_panel.QColorDialog.getColor", return_value=QColor("#336699")):
+        for button, field in ((self.panel.color_button, "color"), (self.panel.outline_button,
+                                                                   "outline_color")):
+            with mock.patch("video_converter.ui.captions_panel.QColorDialog.getColor",
+                            return_value=QColor("#336699")):
                 button.click()
             self.assertEqual(getattr(self.edits[-1][0].edit.texts[0], field), "#336699")
         self.panel.box_check.setChecked(True)
         self.apply_last()
-        with mock.patch("video_converter.ui.captions_panel.QColorDialog.getColor", return_value=QColor("#112233")):
+        with mock.patch("video_converter.ui.captions_panel.QColorDialog.getColor",
+                        return_value=QColor("#112233")):
             self.panel.box_button.click()
         self.assertEqual(self.edits[-1][0].edit.texts[0].box_color, "#112233")
         count = len(self.edits)
-        with mock.patch("video_converter.ui.captions_panel.QColorDialog.getColor", return_value=QColor()):    # cancelled
+        with mock.patch("video_converter.ui.captions_panel.QColorDialog.getColor",
+                        return_value=QColor()):  # cancelled
             self.panel.color_button.click()
         self.assertEqual(len(self.edits), count)
 
@@ -195,7 +217,9 @@ class PanelTests(unittest.TestCase):
         self.show(VideoEdit(texts=[TextItem(text="one")]))
         if self.panel.font_box.count() < 2:
             self.skipTest("this machine has only one font")
-        index = next(i for i in range(self.panel.font_box.count()) if self.panel.font_box.itemText(i) != self.panel.font_box.currentText())
+        index = next(
+            i for i in range(self.panel.font_box.count())
+            if self.panel.font_box.itemText(i) != self.panel.font_box.currentText())
         family = self.panel.font_box.itemText(index)
         self.panel.font_box.setCurrentIndex(index)
         self.assertEqual(self.edits[-1][0].edit.texts[0].font, family)
@@ -206,7 +230,9 @@ class PanelTests(unittest.TestCase):
         for text in ("t", "tw", "two"):
             self.panel.text_box.setPlainText(text)
         steps = [(s.edit.texts[0].text, label, final) for s, label, final in self.edits]
-        self.assertEqual(steps, [("t", "Edit text", False), ("tw", "Edit text", False), ("two", "Edit text", False)])
+        self.assertEqual(
+            steps,
+            [("t", "Edit text", False), ("tw", "Edit text", False), ("two", "Edit text", False)])
         self.assertTrue(pump(3, lambda: self.edits[-1][2]), "the edit was never finished")
         self.assertEqual(self.edits[-1][0].edit.texts[0].text, "two")
         self.assertEqual(len(self.edits), 4)
@@ -245,7 +271,8 @@ class PanelTests(unittest.TestCase):
 
     def test_an_empty_end_means_to_the_end_of_the_video(self):
         self.show(VideoEdit(texts=[TextItem(text="one", start=1.0, end=4.0)]))
-        self.assertEqual((self.panel.start_edit.text(), self.panel.end_edit.text()), ("0:01.0", "0:04.0"))
+        self.assertEqual(
+            (self.panel.start_edit.text(), self.panel.end_edit.text()), ("0:01.0", "0:04.0"))
         self.panel.end_edit.setText("")
         self.panel.end_edit.editingFinished.emit()
         self.assertIsNone(self.edits[-1][0].edit.texts[0].end)
@@ -273,7 +300,10 @@ class PanelTests(unittest.TestCase):
 
     def test_use_playhead_buttons_ask_for_the_playhead(self):
         self.show(VideoEdit(texts=[TextItem(text="one")]))
-        buttons = [b for b in self.panel.editor.findChildren(type(self.panel.add_button)) if b.text() == "Use playhead"]
+        buttons = [
+            b for b in self.panel.editor.findChildren(type(self.panel.add_button))
+            if b.text() == "Use playhead"
+        ]
         self.assertEqual(len(buttons), 2)
         for button in buttons:
             button.click()
@@ -284,7 +314,8 @@ class PanelTests(unittest.TestCase):
         self.assertFalse(self.panel.logo_remove.isEnabled())
         with tempfile.TemporaryDirectory() as tmp:
             path = png(Path(tmp) / "logo.png")
-            with mock.patch("video_converter.ui.captions_panel.QFileDialog.getOpenFileName", return_value=(str(path), "")):
+            with mock.patch("video_converter.ui.captions_panel.QFileDialog.getOpenFileName",
+                            return_value=(str(path), "")):
                 self.panel.logo_choose.click()
             settings, label, _ = self.edits[-1]
             self.assertEqual((label, settings.edit.logo.file), ("Choose logo", str(path)))
@@ -297,12 +328,14 @@ class PanelTests(unittest.TestCase):
             self.panel.logo_opacity.setValue(60)
             self.panel.logo_margin.setValue(5)
             logo = self.edits[-1][0].edit.logo
-            self.assertEqual((logo.corner, logo.size, logo.opacity, logo.margin), ("top-left", 0.3, 0.6, 0.05))
+            self.assertEqual(
+                (logo.corner, logo.size, logo.opacity, logo.margin), ("top-left", 0.3, 0.6, 0.05))
             self.panel.logo_remove.click()
             self.assertEqual(self.edits[-1][0].edit.logo.file, "")
 
     def test_a_cancelled_file_dialog_changes_nothing(self):
-        with mock.patch("video_converter.ui.captions_panel.QFileDialog.getOpenFileName", return_value=("", "")):
+        with mock.patch("video_converter.ui.captions_panel.QFileDialog.getOpenFileName",
+                        return_value=("", "")):
             self.panel.logo_choose.click()
             self.panel.sub_choose.click()
         self.assertEqual(self.edits, [])
@@ -317,42 +350,56 @@ class PanelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "talk.srt"
             path.write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n", encoding="utf-8")
-            with mock.patch("video_converter.ui.captions_panel.QFileDialog.getOpenFileName", return_value=(str(path), "")):
+            with mock.patch("video_converter.ui.captions_panel.QFileDialog.getOpenFileName",
+                            return_value=(str(path), "")):
                 self.panel.sub_choose.click()
             settings, label, _ = self.edits[-1]
-            self.assertEqual((label, settings.edit.subtitles.file), ("Choose subtitles", str(path)))
+            self.assertEqual(
+                (label, settings.edit.subtitles.file), ("Choose subtitles", str(path)))
             self.inspector.set_settings(settings, 10.0)
             self.assertFalse(self.panel.sub_options.isHidden())
             self.assertEqual(self.panel.sub_name.text(), "talk.srt")
             self.panel.sub_size.setValue(8)
             self.panel.sub_bold.setChecked(True)
             self.panel.sub_position.setCurrentIndex(self.panel.sub_position.findData("top"))
-            with mock.patch("video_converter.ui.captions_panel.QColorDialog.getColor", return_value=QColor("#ffee00")):
+            with mock.patch("video_converter.ui.captions_panel.QColorDialog.getColor",
+                            return_value=QColor("#ffee00")):
                 self.panel.sub_color.click()
             sub = self.edits[-1][0].edit.subtitles
-            self.assertEqual((sub.size, sub.bold, sub.position, sub.color), (0.08, True, "top", "#ffee00"))
+            self.assertEqual(
+                (sub.size, sub.bold, sub.position, sub.color), (0.08, True, "top", "#ffee00"))
             self.panel.sub_remove.click()
             self.assertEqual(self.edits[-1][0].edit.subtitles.file, "")
 
     def test_a_missing_subtitle_file_is_flagged(self):
-        self.show(VideoEdit(subtitles=Subtitles(file=str(Path(tempfile.gettempdir()) / "gone.srt"))))
+        self.show(
+            VideoEdit(subtitles=Subtitles(file=str(Path(tempfile.gettempdir()) / "gone.srt"))))
         self.assertFalse(self.panel.sub_message.isHidden())
         self.assertTrue(self.panel.logo_missing.isHidden())
 
     def test_duplicating_a_text_near_the_bottom_puts_the_copy_above_it(self):
-        self.show(VideoEdit(texts=[TextItem(text="low", y=0.93), TextItem(text="mid", y=0.5), TextItem(text="edge", y=0.95)]))
+        self.show(
+            VideoEdit(
+                texts=[
+                    TextItem(text="low", y=0.93),
+                    TextItem(text="mid", y=0.5),
+                    TextItem(text="edge", y=0.95)
+                ]))
         for row, wanted in ((0, 0.86), (1, 0.57), (2, 0.88)):
             self.panel.list.setCurrentRow(row)
             self.panel.duplicate_button.click()
             edit = self.apply_last()
             self.assertAlmostEqual(edit.texts[row + 1].y, wanted, places=3)
-            self.assertNotAlmostEqual(edit.texts[row + 1].y, edit.texts[row].y, places=2)      # never stacked on the original
+            self.assertNotAlmostEqual(
+                edit.texts[row + 1].y, edit.texts[row].y,
+                places=2)  # never stacked on the original
             self.panel.list.setCurrentRow(row + 1)
             self.panel.remove_button.click()
             self.apply_last()
 
     def test_the_logo_dialog_offers_only_still_pictures(self):
-        with mock.patch("video_converter.ui.captions_panel.QFileDialog.getOpenFileName", return_value=("", "")) as dialog:
+        with mock.patch("video_converter.ui.captions_panel.QFileDialog.getOpenFileName",
+                        return_value=("", "")) as dialog:
             self.panel.logo_choose.click()
         filters = dialog.call_args.args[3]
         for extension in ("*.png", "*.jpg", "*.webp", "*.bmp"):
@@ -366,12 +413,13 @@ class PanelTests(unittest.TestCase):
             ass.write_text("[Script Info]\n", encoding="utf-8")
             srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n", encoding="utf-8")
             self.show(VideoEdit(subtitles=Subtitles(file=str(srt))))
-            self.assertTrue(self.panel.sub_own_style.isHidden())                  # only for .ass / .ssa
+            self.assertTrue(self.panel.sub_own_style.isHidden())  # only for .ass / .ssa
             self.assertTrue(self.panel.sub_options.isEnabled())
             self.show(VideoEdit(subtitles=Subtitles(file=str(ass))))
             self.assertFalse(self.panel.sub_own_style.isHidden())
-            self.assertTrue(self.panel.sub_own_style.isChecked())                 # on by default
-            self.assertFalse(self.panel.sub_options.isEnabled())                  # the file decides, not these controls
+            self.assertTrue(self.panel.sub_own_style.isChecked())  # on by default
+            self.assertFalse(
+                self.panel.sub_options.isEnabled())  # the file decides, not these controls
             self.panel.sub_own_style.click()
             settings, label, _ = self.edits[-1]
             self.assertEqual(label, "Subtitle style")
@@ -388,18 +436,25 @@ class PanelTests(unittest.TestCase):
 
     def test_a_preset_chosen_in_the_inspector_leaves_the_texts_alone(self):
         self.show(VideoEdit(texts=[TextItem(text="mine")], logo=Logo(file="x.png")))
-        self.inspector.set_presets({"saved": ClipSettings(edit=VideoEdit(texts=[TextItem(text="theirs")],
-                                                                        logo=Logo(file="y.png"))).to_dict()})
+        self.inspector.set_presets(
+            {
+                "saved":
+                ClipSettings(
+                    edit=VideoEdit(texts=[TextItem(text="theirs")], logo=Logo(
+                        file="y.png"))).to_dict()
+            })
         self.inspector.preset_box.setCurrentIndex(self.inspector.preset_box.findText("★ saved"))
         edit = self.edits[-1][0].edit
         self.assertEqual([t.text for t in edit.texts], ["mine"])
         self.assertEqual(edit.logo.file, "y.png")
-        self.inspector.preset_box.setCurrentIndex(1)           # the first built-in preset
+        self.inspector.preset_box.setCurrentIndex(1)  # the first built-in preset
         self.assertEqual([t.text for t in self.edits[-1][0].edit.texts], ["mine"])
-        self.assertEqual(self.edits[-1][0].edit.logo.file, "y.png")      # it is the one the saved preset brought
+        self.assertEqual(
+            self.edits[-1][0].edit.logo.file, "y.png")  # it is the one the saved preset brought
 
 
 class OverlayViewTests(unittest.TestCase):
+
     def setUp(self):
         from video_converter.ui.player import VideoView
         self.view = VideoView()
@@ -410,24 +465,30 @@ class OverlayViewTests(unittest.TestCase):
         self.view.show()
         self.events = []
         self.view.overlayPicked.connect(lambda kind, i: self.events.append(("picked", kind, i)))
-        self.view.overlayMoved.connect(lambda kind, i, x, y: self.events.append(("moved", kind, i, x, y)))
-        self.view.overlayEditFinished.connect(lambda: self.events.append(("finished",)))
+        self.view.overlayMoved.connect(
+            lambda kind, i, x, y: self.events.append(("moved", kind, i, x, y)))
+        self.view.overlayEditFinished.connect(lambda: self.events.append(("finished", )))
         self.logo_file = png(Path(tempfile.mkdtemp()) / "logo.png")
 
     def tearDown(self):
         self.view.close()
-        shiboken6.delete(self.view)     # free it now: every widget left alive slows each later theme change
+        shiboken6.delete(
+            self.view)  # free it now: every widget left alive slows each later theme change
 
     def center_of(self, kind, index):
         rect = next(r for k, i, r in self.view.overlay_rects() if (k, i) == (kind, index))
         return rect.center().toPoint()
 
     def drag(self, start, end, steps=4):
-        QTest.mousePress(self.view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start)
+        QTest.mousePress(
+            self.view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start)
         for i in range(1, steps + 1):
-            point = QPoint(start.x() + (end.x() - start.x()) * i // steps, start.y() + (end.y() - start.y()) * i // steps)
+            point = QPoint(
+                start.x() + (end.x() - start.x()) * i // steps,
+                start.y() + (end.y() - start.y()) * i // steps)
             QTest.mouseMove(self.view, point)
-        QTest.mouseRelease(self.view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, end)
+        QTest.mouseRelease(
+            self.view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, end)
 
     def test_a_text_is_a_box_around_where_it_is_drawn(self):
         self.view.set_overlays([TextItem(text="Hello", x=0.5, y=0.85)], Logo(), (1280, 720), 1.0)
@@ -441,7 +502,9 @@ class OverlayViewTests(unittest.TestCase):
         self.view.set_overlays([TextItem(text="Hello", x=0.5, y=0.5)], Logo(), (1280, 720), 1.0)
         out = self.view.output_rect()
         start = self.center_of("text", 0)
-        self.drag(start, QPoint(start.x() + int(out.width() * 0.2), start.y() - int(out.height() * 0.1)))
+        self.drag(
+            start, QPoint(start.x() + int(out.width() * 0.2),
+                          start.y() - int(out.height() * 0.1)))
         moves = [e for e in self.events if e[0] == "moved"]
         self.assertGreaterEqual(len(moves), 3)
         _, kind, index, x, y = moves[-1]
@@ -449,8 +512,8 @@ class OverlayViewTests(unittest.TestCase):
         self.assertAlmostEqual(x, 0.7, delta=0.02)
         self.assertAlmostEqual(y, 0.4, delta=0.02)
         self.assertEqual(self.events[0], ("picked", "text", 0))
-        self.assertEqual(self.events[-1], ("finished",))
-        self.assertEqual(self.events.count(("finished",)), 1)
+        self.assertEqual(self.events[-1], ("finished", ))
+        self.assertEqual(self.events.count(("finished", )), 1)
 
     def test_dragging_past_the_edge_stops_at_the_edge(self):
         self.view.set_overlays([TextItem(text="Hello")], Logo(), (1280, 720), 1.0)
@@ -460,34 +523,40 @@ class OverlayViewTests(unittest.TestCase):
         self.assertEqual((x, y), (1.0, 1.0))
 
     def test_dragging_the_logo_reports_a_custom_place(self):
-        self.view.set_overlays([], Logo(file=str(self.logo_file), corner="top-left"), (1280, 720), None)
+        self.view.set_overlays(
+            [], Logo(file=str(self.logo_file), corner="top-left"), (1280, 720), None)
         start = self.center_of("logo", 0)
         out = self.view.output_rect()
-        self.drag(start, QPoint(start.x() + int(out.width() * 0.3), start.y() + int(out.height() * 0.2)))
+        self.drag(
+            start, QPoint(start.x() + int(out.width() * 0.3),
+                          start.y() + int(out.height() * 0.2)))
         _, kind, index, x, y = [e for e in self.events if e[0] == "moved"][-1]
         self.assertEqual((kind, index), ("logo", 0))
         self.assertGreater(x, 0.3)
         self.assertGreater(y, 0.2)
 
     def test_the_logo_sits_in_its_corner(self):
-        self.view.set_overlays([], Logo(file=str(self.logo_file), corner="bottom-right", size=0.2, margin=0.05),
-                               (1280, 720), None)
+        self.view.set_overlays(
+            [], Logo(file=str(self.logo_file), corner="bottom-right", size=0.2, margin=0.05),
+            (1280, 720), None)
         out = self.view.output_rect()
         rect = next(r for k, i, r in self.view.overlay_rects())
         self.assertAlmostEqual(rect.width(), 0.2 * out.width(), delta=1)
         self.assertAlmostEqual(rect.right(), out.right() - 0.05 * out.width(), delta=1)
         self.assertAlmostEqual(rect.bottom(), out.bottom() - 0.05 * out.width(), delta=1)
-        self.assertAlmostEqual(rect.height() / rect.width(), 0.5, places=2)       # the picture is 40 x 20
+        self.assertAlmostEqual(
+            rect.height() / rect.width(), 0.5, places=2)  # the picture is 40 x 20
 
     def test_a_text_that_is_not_on_screen_now_cannot_be_grabbed_unless_selected(self):
-        self.view.set_overlays([TextItem(text="Later", start=5.0, end=6.0)], Logo(), (1280, 720), 1.0)
+        self.view.set_overlays(
+            [TextItem(text="Later", start=5.0, end=6.0)], Logo(), (1280, 720), 1.0)
         self.assertEqual(self.view.overlay_rects(), [])
         self.view.set_selected_overlay(("text", 0))
         self.assertEqual(len(self.view.overlay_rects()), 1)
         self.view.set_selected_overlay(None)
         self.view.set_overlay_time(5.5)
         self.assertEqual(len(self.view.overlay_rects()), 1)
-        self.view.set_overlay_time(None)        # the playhead is on a cut-out part
+        self.view.set_overlay_time(None)  # the playhead is on a cut-out part
         self.assertEqual(self.view.overlay_rects(), [])
 
     def test_empty_text_has_no_box(self):
@@ -498,7 +567,10 @@ class OverlayViewTests(unittest.TestCase):
         self.view.set_overlays([TextItem(text="Hello", x=0.5, y=0.9)], Logo(), (1280, 720), 1.0)
         self.view.set_crop(None, 1.0)
         out = self.view.output_rect()
-        self.drag(QPoint(int(out.left()) + 5, int(out.top()) + 5), QPoint(int(out.left()) + 50, int(out.top()) + 50))
+        self.drag(
+            QPoint(int(out.left()) + 5,
+                   int(out.top()) + 5), QPoint(int(out.left()) + 50,
+                                               int(out.top()) + 50))
         self.assertEqual([e for e in self.events if e[0] in ("picked", "moved")], [])
 
     def test_the_overlays_go_over_the_crop_box(self):
@@ -523,19 +595,23 @@ class OverlayViewTests(unittest.TestCase):
         self.assertTrue(out.adjusted(-1, -1, 1, 1).contains(frame))
         self.assertAlmostEqual(frame.width(), out.width(), delta=1)
         self.view.set_overlays([TextItem(text="Hi")], Logo(), (1080, 1920), 1.0, canvas=False)
-        self.assertAlmostEqual(self.view.output_rect().width() / self.view.output_rect().height(), 16 / 9, places=2)
+        self.assertAlmostEqual(
+            self.view.output_rect().width() / self.view.output_rect().height(), 16 / 9, places=2)
 
     def test_in_the_after_picture_the_box_is_drawn_but_the_text_is_not_added(self):
-        self.view.set_overlays([TextItem(text="Hello", color="#ffffff", outline=0, size=0.3)], Logo(), (1280, 720), 1.0)
+        self.view.set_overlays(
+            [TextItem(text="Hello", color="#ffffff", outline=0, size=0.3)], Logo(), (1280, 720),
+            1.0)
         after = QImage(640, 360, QImage.Format.Format_RGB32)
         after.fill(QColor("black"))
         self.view.set_after(after, True)
         self.view.set_selected_overlay(("text", 0))
         picture = self.view.grab().toImage()
         out = self.view.output_rect()
-        white = sum(1 for x in range(int(out.left()), int(out.right()), 2)
-                    for y in range(int(out.top()) + 50, int(out.bottom()), 2)       # under the "After" badge
-                    if QColor(picture.pixel(x, y)).lightness() > 200)
+        white = sum(
+            1 for x in range(int(out.left()), int(out.right()), 2)
+            for y in range(int(out.top()) + 50, int(out.bottom()), 2)  # under the "After" badge
+            if QColor(picture.pixel(x, y)).lightness() > 200)
         self.assertEqual(white, 0)
         # and it can still be dragged there
         start = self.center_of("text", 0)
@@ -543,12 +619,16 @@ class OverlayViewTests(unittest.TestCase):
         self.assertTrue([e for e in self.events if e[0] == "moved"])
 
     def test_text_is_painted_over_the_picture_in_the_before_view(self):
-        self.view.set_overlays([TextItem(text="WWWW", color="#ffffff", outline=0, size=0.3, y=0.5)], Logo(),
-                               (1280, 720), 1.0)
+        self.view.set_overlays(
+            [TextItem(text="WWWW", color="#ffffff", outline=0, size=0.3, y=0.5)], Logo(),
+            (1280, 720), 1.0)
         picture = self.view.grab().toImage()
         out = self.view.output_rect()
-        bright = [(x, y) for x in range(int(out.left()), int(out.right())) for y in range(int(out.top()), int(out.bottom()))
-                  if QColor(picture.pixel(x, y)).lightness() > 200]
+        bright = [
+            (x, y) for x in range(int(out.left()), int(out.right()))
+            for y in range(int(out.top()), int(out.bottom()))
+            if QColor(picture.pixel(x, y)).lightness() > 200
+        ]
         self.assertGreater(len(bright), 100)
         cx = sum(p[0] for p in bright) / len(bright)
         cy = sum(p[1] for p in bright) / len(bright)
@@ -556,23 +636,31 @@ class OverlayViewTests(unittest.TestCase):
         self.assertAlmostEqual(cy, out.center().y(), delta=0.05 * out.height())
 
     def test_text_that_is_not_shown_now_is_not_painted(self):
-        self.view.set_overlays([TextItem(text="WWWW", color="#ffffff", outline=0, size=0.3, start=5.0)], Logo(),
-                               (1280, 720), 1.0)
+        self.view.set_overlays(
+            [TextItem(text="WWWW", color="#ffffff", outline=0, size=0.3, start=5.0)], Logo(),
+            (1280, 720), 1.0)
         picture = self.view.grab().toImage()
         out = self.view.output_rect()
-        self.assertFalse(any(QColor(picture.pixel(x, y)).lightness() > 200 for x in range(int(out.left()), int(out.right()), 2)
-                             for y in range(int(out.top()), int(out.bottom()), 2)))
+        self.assertFalse(
+            any(
+                QColor(picture.pixel(x, y)).lightness() > 200
+                for x in range(int(out.left()), int(out.right()), 2)
+                for y in range(int(out.top()), int(out.bottom()), 2)))
 
     def test_arabic_and_emoji_are_painted_without_trouble(self):
-        self.view.set_overlays([TextItem(text="مرحبا \U0001F600\nline two", box=True, y=0.5),
-                                TextItem(text="x" * 400, y=0.2)], Logo(file="/no/such/logo.png"), (1280, 720), 1.0)
+        self.view.set_overlays(
+            [
+                TextItem(text="مرحبا \U0001F600\nline two", box=True, y=0.5),
+                TextItem(text="x" * 400, y=0.2)
+            ], Logo(file="/no/such/logo.png"), (1280, 720), 1.0)
         self.assertFalse(self.view.grab().toImage().isNull())
 
     def test_clearing_forgets_the_overlays(self):
         self.view.set_overlays([TextItem(text="Hello")], Logo(), (1280, 720), 1.0)
         self.view.set_selected_overlay(("text", 0))
         self.view.clear("Loading…")
-        self.assertEqual((self.view.texts, self.view.out_size, self.view.selected), ([], None, None))
+        self.assertEqual(
+            (self.view.texts, self.view.out_size, self.view.selected), ([], None, None))
         self.assertEqual(self.view.overlay_rects(), [])
 
     def test_a_selection_that_no_longer_exists_is_dropped(self):
@@ -583,6 +671,7 @@ class OverlayViewTests(unittest.TestCase):
 
 
 class MainWindowOverlayTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -604,7 +693,9 @@ class MainWindowOverlayTests(unittest.TestCase):
         self.window.resize(1200, 800)
         self.window.show()
         self.window.add_paths([self.video])
-        self.assertTrue(pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)), "files never loaded")
+        self.assertTrue(
+            pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)),
+            "files never loaded")
         self.item = self.window.current
 
     def tearDown(self):
@@ -629,15 +720,18 @@ class MainWindowOverlayTests(unittest.TestCase):
         QTest.mousePress(view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start)
         for dx in (10, 20, 30, 40):
             QTest.mouseMove(view, QPoint(start.x() + dx, start.y() + dx // 2))
-        QTest.mouseRelease(view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
-                           QPoint(start.x() + 40, start.y() + 20))
+        QTest.mouseRelease(
+            view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+            QPoint(start.x() + 40,
+                   start.y() + 20))
         moved = self.item.settings.edit.texts[0]
         self.assertGreater(moved.x, 0.5)
         self.assertGreater(moved.y, 0.5)
         self.assertEqual(self.window.undo_stack.count(), 1)
         self.assertEqual(self.window.undo_stack.undoText(), "Move text")
         self.window.undo_stack.undo()
-        self.assertEqual((self.item.settings.edit.texts[0].x, self.item.settings.edit.texts[0].y), (0.5, 0.5))
+        self.assertEqual(
+            (self.item.settings.edit.texts[0].x, self.item.settings.edit.texts[0].y), (0.5, 0.5))
         self.window.undo_stack.redo()
         self.assertEqual(self.item.settings.edit.texts[0].x, moved.x)
 
@@ -664,10 +758,13 @@ class MainWindowOverlayTests(unittest.TestCase):
         self.assertEqual(self.window.inspector.settings.edit.texts[0].x, 0.2)
 
     def test_clicking_a_text_on_the_preview_selects_it_in_the_list(self):
-        self.set_edit(texts=[TextItem(text="one", y=0.3), TextItem(text="two", y=0.7)], aspect=None)
+        self.set_edit(
+            texts=[TextItem(text="one", y=0.3),
+                   TextItem(text="two", y=0.7)], aspect=None)
         self.window.inspector.captions.select(0)
         view = self.window.view
-        second = next(r for k, i, r in view.overlay_rects() if (k, i) == ("text", 1)).center().toPoint()
+        second = next(r for k, i, r in view.overlay_rects()
+                      if (k, i) == ("text", 1)).center().toPoint()
         QTest.mousePress(view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, second)
         QTest.mouseRelease(view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, second)
         self.assertEqual(self.window.inspector.captions.selected, 1)
@@ -680,12 +777,16 @@ class MainWindowOverlayTests(unittest.TestCase):
         self.assertEqual(self.window.timeline.text_selected, 1)
 
     def test_the_timeline_track_shows_each_texts_time_on_the_source(self):
-        self.set_edit(texts=[TextItem(text="a", start=0.5, end=1.5), TextItem(text="b", start=2.0)], aspect=None)
+        self.set_edit(
+            texts=[TextItem(text="a", start=0.5, end=1.5),
+                   TextItem(text="b", start=2.0)], aspect=None)
         self.assertEqual(self.window.timeline.text_spans, [[(0.5, 1.5)], [(2.0, 4.0)]])
 
     def test_the_timeline_track_follows_cuts_and_speed(self):
         # 1-2 s cut out: the text's first half second is the source's 0.5-1.0 s, then it jumps to 2.0-2.5 s.
-        self.set_edit(texts=[TextItem(text="a", start=0.5, end=1.5)], aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)])
+        self.set_edit(
+            texts=[TextItem(text="a", start=0.5, end=1.5)], aspect=None,
+            keep=[(0.0, 1.0), (2.0, 4.0)])
         self.assertEqual(self.window.timeline.text_spans, [[(0.5, 1.0), (2.0, 2.5)]])
         self.set_edit(speed=2.0)
         # at double speed the same 0.5-1.5 s of the result is 1-3 s of what is kept: all of the second part
@@ -697,41 +798,52 @@ class MainWindowOverlayTests(unittest.TestCase):
 
     def test_use_playhead_sets_the_texts_time_on_the_finished_video(self):
         from video_converter.ui.player import Player
-        self.set_edit(texts=[TextItem(text="a")], aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)], speed=2.0)
+        self.set_edit(
+            texts=[TextItem(text="a")], aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)], speed=2.0)
         self.window.inspector.captions.select(0)
         # source 3.0 s is 1 s into the second kept part: (1.0 + 1.0) / 2 = 1.0 s on the finished video
-        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock, return_value=3.0):
+        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock,
+                               return_value=3.0):
             self.window.text_time_at_playhead("start")
             self.assertEqual(self.item.settings.edit.texts[0].start, 1.0)
-        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock, return_value=3.9):
+        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock,
+                               return_value=3.9):
             self.window.text_time_at_playhead("end")
         self.assertEqual(self.item.settings.edit.texts[0].end, 1.45)
         self.assertEqual(self.window.undo_stack.undoText(), "Text time")
 
     def test_use_playhead_refuses_a_time_that_does_not_make_sense(self):
         from video_converter.ui.player import Player
-        self.set_edit(texts=[TextItem(text="a", start=1.0, end=2.0)], aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)])
+        self.set_edit(
+            texts=[TextItem(text="a", start=1.0, end=2.0)], aspect=None,
+            keep=[(0.0, 1.0), (2.0, 4.0)])
         self.window.inspector.captions.select(0)
-        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock, return_value=1.5):   # cut out
+        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock,
+                               return_value=1.5):  # cut out
             self.window.text_time_at_playhead("end")
         self.assertIn("cut out", self.window.statusBar().currentMessage())
-        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock, return_value=0.5):
-            self.window.text_time_at_playhead("end")                  # before the start
+        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock,
+                               return_value=0.5):
+            self.window.text_time_at_playhead("end")  # before the start
             self.assertIn("after it starts", self.window.statusBar().currentMessage())
             self.window.text_time_at_playhead("start")
         self.assertEqual(self.item.settings.edit.texts[0].start, 0.5)
-        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock, return_value=3.0):
-            self.window.text_time_at_playhead("start")                # past the end of the text
+        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock,
+                               return_value=3.0):
+            self.window.text_time_at_playhead("start")  # past the end of the text
             self.assertIn("before it ends", self.window.statusBar().currentMessage())
         self.assertEqual(self.item.settings.edit.texts[0].start, 0.5)
 
     def test_the_preview_follows_the_playhead_on_the_finished_timeline(self):
-        self.set_edit(texts=[TextItem(text="a", start=1.0, end=2.0)], aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)])
+        self.set_edit(
+            texts=[TextItem(text="a", start=1.0, end=2.0)], aspect=None,
+            keep=[(0.0, 1.0), (2.0, 4.0)])
         self.window._on_position(0.5)
         self.assertFalse(self.window.view._text_shown(0))
         # source 2.5 s is 1.5 s on the finished video: inside the text's 1-2 s
         from video_converter.ui.player import Player
-        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock, return_value=2.5):
+        with mock.patch.object(Player, "position", new_callable=mock.PropertyMock,
+                               return_value=2.5):
             self.window._on_position(2.5)
             self.assertTrue(self.window.view._text_shown(0))
 
@@ -753,13 +865,17 @@ class MainWindowOverlayTests(unittest.TestCase):
         self.assertEqual(self.window.timeline.text_spans, [])
 
     def test_before_after_shows_the_text_the_export_will_have(self):
-        self.set_edit(texts=[TextItem(text="WWWW", size=0.3, outline=0, color="#ffffff", y=0.5)], aspect=None)
+        self.set_edit(
+            texts=[TextItem(text="WWWW", size=0.3, outline=0, color="#ffffff", y=0.5)],
+            aspect=None)
         self.window.compare_button.setChecked(True)
         self.window._compare_toggled(True)
-        self.assertTrue(pump(TIMEOUT, lambda: self.window.view.after_image is not None), "no preview")
+        self.assertTrue(
+            pump(TIMEOUT, lambda: self.window.view.after_image is not None), "no preview")
         image = self.window.view.after_image
-        bright = sum(1 for x in range(0, image.width(), 2) for y in range(0, image.height(), 2)
-                     if QColor(image.pixel(x, y)).lightness() > 200)
+        bright = sum(
+            1 for x in range(0, image.width(), 2) for y in range(0, image.height(), 2)
+            if QColor(image.pixel(x, y)).lightness() > 200)
         self.assertGreater(bright, 100)
 
     def test_apply_to_all_copies_the_logo_but_not_the_texts(self):
@@ -767,14 +883,17 @@ class MainWindowOverlayTests(unittest.TestCase):
         self.assertTrue(pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)))
         first, second = self.window.items
         self.window.select(first)
-        self.set_edit(texts=[TextItem(text="first only")], logo=Logo(file=str(self.logo), size=0.3),
-                      subtitles=Subtitles(file="a.srt", size=0.09))
+        self.set_edit(
+            texts=[TextItem(text="first only")], logo=Logo(file=str(self.logo), size=0.3),
+            subtitles=Subtitles(file="a.srt", size=0.09))
         second.settings.edit.texts = [TextItem(text="second's own")]
         second.settings.edit.subtitles.file = "b.srt"
         self.window.apply_to_all()
         self.assertEqual([t.text for t in second.settings.edit.texts], ["second's own"])
         self.assertEqual(second.settings.edit.logo, Logo(file=str(self.logo), size=0.3))
-        self.assertEqual((second.settings.edit.subtitles.file, second.settings.edit.subtitles.size), ("b.srt", 0.09))
+        self.assertEqual(
+            (second.settings.edit.subtitles.file, second.settings.edit.subtitles.size),
+            ("b.srt", 0.09))
         self.assertEqual([t.text for t in first.settings.edit.texts], ["first only"])
 
     def test_the_list_summary_mentions_text_and_logo(self):
@@ -784,19 +903,24 @@ class MainWindowOverlayTests(unittest.TestCase):
         self.assertIn("logo", summary)
 
     def test_exporting_burns_the_text_in(self):
-        self.set_edit(texts=[TextItem(text="WWWW", size=0.3, outline=0, y=0.5)], aspect=None, use_gpu=False)
+        self.set_edit(
+            texts=[TextItem(text="WWWW", size=0.3, outline=0, y=0.5)], aspect=None, use_gpu=False)
         out_dir = self.tmp / "exports"
         out_dir.mkdir(exist_ok=True)
         self.window._set_output_folder(out_dir)
         self.window.export_current()
         self.assertTrue(pump(60, lambda: not self.window.queue.busy), "the export never finished")
         result = next(out_dir.glob("clip*.mp4"))
-        raw = subprocess.run([FFMPEG, "-v", "error", "-ss", "0.5", "-i", str(result), "-frames:v", "1", "-f", "rawvideo",
-                              "-pix_fmt", "gray", "-"], capture_output=True, check=True).stdout
+        raw = subprocess.run(
+            [
+                FFMPEG, "-v", "error", "-ss", "0.5", "-i",
+                str(result), "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"
+            ], capture_output=True, check=True).stdout
         self.assertGreater(sum(1 for v in raw if v > 200), 300)
 
 
 class TimelineTrackTests(unittest.TestCase):
+
     def setUp(self):
         from video_converter.ui.timeline import Timeline
         self.timeline = Timeline()
@@ -806,11 +930,13 @@ class TimelineTrackTests(unittest.TestCase):
 
     def tearDown(self):
         self.timeline.close()
-        shiboken6.delete(self.timeline)     # free it now: every widget left alive slows each later theme change
+        shiboken6.delete(
+            self.timeline)  # free it now: every widget left alive slows each later theme change
 
     def test_the_track_has_room_and_is_drawn(self):
         from video_converter.ui.timeline import RULER_H, TEXT_H, THUMBS_H, WAVE_H
-        self.assertGreaterEqual(self.timeline.minimumHeight(), RULER_H + THUMBS_H + WAVE_H + TEXT_H)
+        self.assertGreaterEqual(
+            self.timeline.minimumHeight(), RULER_H + THUMBS_H + WAVE_H + TEXT_H)
         self.timeline.setTexts([[(2.0, 4.0)], [(6.0, 8.0), (9.0, 10.0)]], 1)
         self.assertEqual(self.timeline.text_spans, [[(2.0, 4.0)], [(6.0, 8.0), (9.0, 10.0)]])
         self.assertEqual(self.timeline.text_selected, 1)
@@ -819,12 +945,13 @@ class TimelineTrackTests(unittest.TestCase):
 
     def test_the_selected_text_is_drawn_in_another_color(self):
         self.timeline.setTexts([[(2.0, 4.0)], [(6.0, 8.0)]], 1)
-        lane_y = 18 + 46 + 4 + 30 + 4 + 4        # the thin track sits under the waveform
+        lane_y = 18 + 46 + 4 + 30 + 4 + 4  # the thin track sits under the waveform
         image = self.timeline.grab().toImage()
         x1 = int(self.timeline._x(3.0))
         x2 = int(self.timeline._x(7.0))
         self.assertNotEqual(image.pixel(x1, lane_y), image.pixel(x2, lane_y))
-        self.assertNotEqual(image.pixel(x1, lane_y), image.pixel(int(self.timeline._x(5.0)), lane_y))
+        self.assertNotEqual(
+            image.pixel(x1, lane_y), image.pixel(int(self.timeline._x(5.0)), lane_y))
 
     def test_clearing_removes_the_track(self):
         self.timeline.setTexts([[(2.0, 4.0)]], 0)
@@ -835,8 +962,9 @@ class TimelineTrackTests(unittest.TestCase):
         seeks = []
         self.timeline.seekRequested.connect(seeks.append)
         self.timeline.setTexts([[(2.0, 4.0)]], 0)
-        QTest.mouseClick(self.timeline, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
-                         QPoint(int(self.timeline._x(5.0)), 100))
+        QTest.mouseClick(
+            self.timeline, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+            QPoint(int(self.timeline._x(5.0)), 100))
         self.assertAlmostEqual(seeks[-1], 5.0, delta=0.1)
 
 

@@ -16,8 +16,13 @@ from .edit import ADJUSTMENTS, LOOKS, STABILIZE, VideoEdit
 from .geometry import Geometry, _even, plan_geometry
 from .rates import _rate_text, native_rate
 
+
 def orientation_filters(edit: VideoEdit) -> list[str]:
-    filters = {90: ["transpose=1"], 180: ["hflip", "vflip"], 270: ["transpose=2"]}.get(edit.rotate, [])
+    filters = {
+        90: ["transpose=1"],
+        180: ["hflip", "vflip"],
+        270: ["transpose=2"]
+    }.get(edit.rotate, [])
     return filters + (["hflip"] if edit.flip else [])
 
 
@@ -27,6 +32,7 @@ def _num(value: float) -> str:
 
 def picture_filters(edit: VideoEdit) -> list[str]:
     """Denoise, brightness/contrast/saturation/gamma, the color look, then sharpening."""
+
     def value(name: str) -> float:
         low, high, _ = ADJUSTMENTS[name]
         return min(max(getattr(edit, name), low), high)
@@ -34,8 +40,11 @@ def picture_filters(edit: VideoEdit) -> list[str]:
     filters = []
     if value("denoise") > 0:
         filters.append(f"hqdn3d={_num(value('denoise'))}")
-    eq = [f"{name}={_num(value(name))}" for name in ("brightness", "contrast", "saturation", "gamma")
-          if abs(value(name) - ADJUSTMENTS[name][2]) > 1e-6]
+    eq = [
+        f"{name}={_num(value(name))}"
+        for name in ("brightness", "contrast", "saturation", "gamma")
+        if abs(value(name) - ADJUSTMENTS[name][2]) > 1e-6
+    ]
     if eq:
         filters.append("eq=" + ":".join(eq))
     filters += LOOKS.get(edit.look, LOOKS["none"])[1]
@@ -44,8 +53,9 @@ def picture_filters(edit: VideoEdit) -> list[str]:
     return filters
 
 
-def build_filter_graph(geometry: Geometry, edit: VideoEdit, src: str = "[0:v]", out: str = "[v]",
-                       tag: str = "") -> str:
+def build_filter_graph(
+        geometry: Geometry, edit: VideoEdit, src: str = "[0:v]", out: str = "[v]",
+        tag: str = "") -> str:
     """An ffmpeg -filter_complex graph that reframes `src` (rotate, crop or fit, scale) into `out`.
     `tag` keeps its internal labels apart from those of other clips in the same graph."""
     tw, th = geometry.out_width, geometry.out_height
@@ -67,22 +77,23 @@ def build_filter_graph(geometry: Geometry, edit: VideoEdit, src: str = "[0:v]", 
         f"[bg{tag}]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},"
         f"gblur=sigma=6,eq=brightness=-0.08,scale={tw}:{th}[blurred{tag}];"
         f"[fg{tag}]{fit_inside}[front{tag}];"
-        f"[blurred{tag}][front{tag}]overlay=(W-w)/2:(H-h)/2,setsar=1{out}"
-    )
+        f"[blurred{tag}][front{tag}]overlay=(W-w)/2:(H-h)/2,setsar=1{out}")
 
 
 @dataclass
 class ClipGraph:
     """The filters for one input of an export."""
     filters: list[str]
-    duration: Optional[float]      # length in the export, when known
+    duration: Optional[float]  # length in the export, when known
     has_audio: bool
 
 
-def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segment], *,
-               video: bool = True, audio: bool = True, frame: Optional[tuple[int, int]] = None,
-               fps: Optional[float | Fraction] = None, v_out: str = "[v]", a_out: str = "[a]",
-               transforms: Optional[str] = None, picture: bool = True, upright: bool = False) -> ClipGraph:
+def clip_graph(
+        index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segment], *,
+        video: bool = True, audio: bool = True, frame: Optional[tuple[int, int]] = None,
+        fps: Optional[float | Fraction] = None, v_out: str = "[v]", a_out: str = "[a]",
+        transforms: Optional[str] = None, picture: bool = True,
+        upright: bool = False) -> ClipGraph:
     """Filters that take input `index` through cuts, stabilization, speed, reframing, picture
     adjustments, reverse and fades; the sound goes through its cuts, speed, reverse, fades, noise
     reduction and volume. With `picture` off (the loudness pass) only the sound is built, though a
@@ -108,13 +119,15 @@ def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segm
             # The input was opened without ffmpeg's own rotation (see `rotation_args`): turn it here.
             filters.append(f"{source}{','.join(ROTATE_FILTERS[info.display_rotation])}[up{tag}]")
             source = f"[up{tag}]"
-        filters += select_filters(source, timed, rel, audio=False, tag=tag,
-                                 margin=frame_margin(info.fps))
+        filters += select_filters(
+            source, timed, rel, audio=False, tag=tag, margin=frame_margin(info.fps))
         tempo = []
         strength = STABILIZE.get(edit.stabilize)
         if transforms and strength:
             # Right after the cuts, so the frames match the ones the detect pass saw.
-            tempo.append(f"vidstabtransform=input={transforms}:smoothing={strength[1]}:optzoom=1:interpol=bicubic")
+            tempo.append(
+                f"vidstabtransform=input={transforms}:smoothing={strength[1]}:optzoom=1:interpol=bicubic"
+            )
         # A faster clip would otherwise have more frames per second than its source.
         rate = fps or (native_rate(info.fps) if speed != 1.0 and info.fps else None)
         if speed != 1.0:
@@ -137,17 +150,22 @@ def clip_graph(index: int, edit: VideoEdit, info: MediaInfo, segments: list[Segm
         post += fade_filters(edit.fade_in, edit.fade_out, duration, audio=False)
         if frame:
             w, h = frame
-            post += [f"scale={w}:{h}:force_original_aspect_ratio=decrease:force_divisible_by=2",
-                     f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black", "setsar=1", "format=yuv420p"]
+            post += [
+                f"scale={w}:{h}:force_original_aspect_ratio=decrease:force_divisible_by=2",
+                f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black", "setsar=1", "format=yuv420p"
+            ]
         # Text, the logo and subtitles go on last, at the size of the final picture.
-        overlays = overlay_graph(f"[ov{tag}]", v_out, edit.texts, edit.logo, edit.subtitles,
-                                 frame or (geometry.out_width, geometry.out_height), segments, speed, edit.reverse, tag)
+        overlays = overlay_graph(
+            f"[ov{tag}]", v_out, edit.texts, edit.logo, edit.subtitles, frame
+            or (geometry.out_width, geometry.out_height), segments, speed, edit.reverse, tag)
         filters.append(f"{framed}{','.join(post) or 'null'}{f'[ov{tag}]' if overlays else v_out}")
         filters += overlays
     has_audio = audio and info.has_audio and not (video and edit.mute)
     if has_audio:
-        filters.append(voice_filters(f"[{index}:a:0]", a_out, segments, edit.sound, speed, edit.reverse,
-                                     edit.audio_fade_in, edit.audio_fade_out, tag=tag, always=True))
+        filters.append(
+            voice_filters(
+                f"[{index}:a:0]", a_out, segments, edit.sound, speed, edit.reverse,
+                edit.audio_fade_in, edit.audio_fade_out, tag=tag, always=True))
     return ClipGraph(filters, duration, has_audio)
 
 

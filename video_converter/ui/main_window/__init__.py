@@ -11,18 +11,7 @@ from .shortcuts import FRAME_STEP
 from .window import UNDO_LIMIT, MainWindow, Signals
 
 __all__ = [
-    "FILE_FILTER",
-    "FRAME_STEP",
-    "GPU_SEARCH_DELAY_MS",
-    "GPU_SEARCH_LATEST_MS",
-    "INSPECTOR_WIDTH",
-    "UNDO_LIMIT",
-    "CaptionsFileCommand",
-    "MainWindow",
-    "MediaItem",
-    "MediaList",
-    "RemoveFilesCommand",
-    "SettingsCommand",
-    "Signals",
-    "file_filter",
+    "FILE_FILTER", "FRAME_STEP", "GPU_SEARCH_DELAY_MS", "GPU_SEARCH_LATEST_MS", "INSPECTOR_WIDTH",
+    "UNDO_LIMIT", "CaptionsFileCommand", "MainWindow", "MediaItem", "MediaList",
+    "RemoveFilesCommand", "SettingsCommand", "Signals", "file_filter",
 ]

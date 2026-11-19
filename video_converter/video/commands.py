@@ -26,25 +26,29 @@ from .rates import _rate_text, edit_rate, encoder_level, native_rate, output_rat
 # clip). Eight threads for the decoder (it is the 4K frames that are big), 12 for the encoder (x264 and
 # x265 stop getting faster there), 4 for the filters, and a shorter look ahead keep it around 700 MB at
 # the same speed. Smaller pictures are left alone: their frames are small.
-BIG_PICTURE = 2_500_000       # pixels; 1080p is 2.07 million
+BIG_PICTURE = 2_500_000  # pixels; 1080p is 2.07 million
 DECODER_THREADS = 8
 FILTER_THREADS = 4
 ENCODER_THREADS = max(2, min(os.cpu_count() or 4, 12))
-LEAN_LOOKAHEAD = 20           # x264's rc-lookahead for a big picture (it is 40 at the medium preset)
+LEAN_LOOKAHEAD = 20  # x264's rc-lookahead for a big picture (it is 40 at the medium preset)
 
 
 def big_picture(info: Optional[MediaInfo]) -> bool:
     return bool(info and info.width and info.height and info.width * info.height > BIG_PICTURE)
 
 
-def input_args(segments: list[Segment], source: Path, info: Optional[MediaInfo] = None,
-               upright: bool = False) -> list[str]:
+def input_args(
+        segments: list[Segment], source: Path, info: Optional[MediaInfo] = None,
+        upright: bool = False) -> list[str]:
     """Seek straight to the first kept part and stop reading after the last one. With `upright` an
     input whose picture is stored turned (a phone video) is opened as stored; see `rotation_args`.
     A big picture is decoded with a few threads (see BIG_PICTURE)."""
-    return [*(rotation_args(info) if upright and info else []),
-            *(["-threads", str(DECODER_THREADS)] if big_picture(info) else []),
-            *trim_args(segments[0][0], segments[-1][1]), "-i", str(source)]
+    return [
+        *(rotation_args(info) if upright and info else []),
+        *(["-threads", str(DECODER_THREADS)] if big_picture(info) else []),
+        *trim_args(segments[0][0], segments[-1][1]), "-i",
+        str(source)
+    ]
 
 
 @dataclass
@@ -52,11 +56,13 @@ class VideoJob:
     source: Path
     output: Path
     edit: VideoEdit
-    overwrite: bool = True      # False: the output name was chosen as free, and is made another if it gets taken
+    overwrite: bool = True  # False: the output name was chosen as free, and is made another if it gets taken
 
 
 _HEAD = ["-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
-_HEAD_INFO = ["-hide_banner", "-nostdin", "-loglevel", "info", "-y"]       # loudnorm prints its result at this level
+_HEAD_INFO = [
+    "-hide_banner", "-nostdin", "-loglevel", "info", "-y"
+]  # loudnorm prints its result at this level
 _TAIL = ["-progress", "pipe:1", "-nostats"]
 _X264 = ["-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p"]
 _FASTSTART = ["-movflags", "+faststart"]
@@ -69,28 +75,35 @@ _AAC = ["-c:a", "aac", "-b:a", "192k"]
 # What every phone plays: AAC LC at 48 kHz in stereo (more channels are mixed down).
 _AAC_PHONE = [*_AAC, "-ar", "48000", "-ac", "2"]
 _X265 = ["-c:v", "libx265", "-preset", "medium", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"]
-_VP9 = ["-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", "-row-mt", "1", "-deadline", "good", "-cpu-used", "4"]
+_VP9 = [
+    "-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", "-row-mt", "1", "-deadline", "good", "-cpu-used",
+    "4"
+]
 # The same quality number asks more of x265 and VP9, which both count a little differently from x264.
 _CRF_OFFSET = {"h264": 0, "hevc": 5, "vp9": 9}
-PASSLOG = "passlog"       # the first pass's notes for the second, in ffmpeg's working folder
+PASSLOG = "passlog"  # the first pass's notes for the second, in ffmpeg's working folder
 
 
 def audio_codec_args(edit: VideoEdit, phone: bool = False, kbps: int = 0) -> list[str]:
     """How to encode the sound for `edit`'s format. `phone` is a steady-frame-rate export, whose sound
     is AAC at 48 kHz in stereo; `kbps` (more than 0) sets the bitrate, for an export that has to fit a file size."""
-    mono = 0 < kbps < MIN_STEREO_KBPS       # the least a file size leaves for the sound is a mono voice
+    mono = 0 < kbps < MIN_STEREO_KBPS  # the least a file size leaves for the sound is a mono voice
     if edit.output_format.audio == "opus":
-        return ["-c:a", "libopus", "-b:a", f"{kbps or 128}k", "-ar", "48000", *(["-ac", "1"] if mono else [])]
+        return [
+            "-c:a", "libopus", "-b:a", f"{kbps or 128}k", "-ar", "48000",
+            *(["-ac", "1"] if mono else [])
+        ]
     args = ["-c:a", "aac", "-b:a", f"{kbps or 192}k"]
     if mono:
         return [*args, "-ar", "48000", "-ac", "1"]
     return [*args, "-ar", "48000", "-ac", "2"] if phone else args
 
 
-def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[float | Fraction] = None,
-                     level: Optional[str] = None, video_format: str = DEFAULT_VIDEO_FORMAT,
-                     fit: Optional[SizeFit] = None, first_pass: bool = False, lean: bool = False,
-                     changing_rate: Optional[tuple[float, float]] = None) -> list[str]:
+def video_codec_args(
+        crf: int, encoder: Optional[str] = None, fps: Optional[float | Fraction] = None,
+        level: Optional[str] = None, video_format: str = DEFAULT_VIDEO_FORMAT,
+        fit: Optional[SizeFit] = None, first_pass: bool = False, lean: bool = False,
+        changing_rate: Optional[tuple[float, float]] = None) -> list[str]:
     """How to encode the picture at quality `crf`: with the hardware `encoder`, or on the CPU (x264, x265
     or VP9, by `video_format`). `fps` is the frame rate of the result, when known; it is always passed on
     to the encoder, which otherwise works one out from the filtered picture's time base (often 90000) and
@@ -110,7 +123,7 @@ def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[floa
     fmt = OUTPUT_FORMATS.get(video_format, OUTPUT_FORMATS[DEFAULT_VIDEO_FORMAT])
     codec = fmt.codec
     if encoder and encoder_codec(encoder) != codec:
-        encoder = None          # an H.264 card can't make H.265
+        encoder = None  # an H.264 card can't make H.265
     kbps = fit.kbps if fit else None
     # The encoders spread a bitrate over frames at the frame rate they are told, and a picture that has
     # been through the filters doesn't tell them (x265, VP9 and the graphics cards then aim far too low):
@@ -120,23 +133,37 @@ def video_codec_args(crf: int, encoder: Optional[str] = None, fps: Optional[floa
     if encoder:
         card_rate = fps or (native_rate(changing_rate[0]) if changing_rate else DEFAULT_FPS)
         # Only H.264 gets a level here: the cards refuse an H.265 one ("Invalid Level") for a changing rate.
-        args = encoder_args(encoder, crf, float(card_rate), level if codec == "h264" else None, kbps)
+        args = encoder_args(
+            encoder, crf, float(card_rate), level if codec == "h264" else None, kbps)
         return [*args, *((rate or _KEEP_TIMES) if "-r" not in args else []), *_FASTSTART]
     number = "1" if first_pass else "2"
     bitrate = [*rate, "-b:v", f"{kbps}k"]
     if codec == "hevc":
-        params = [*([f"pass={number}", f"stats={PASSLOG}.log"] if kbps else []),
-                  *([f"level-idc={level}"] if level and not fps else []),
-                  *([f"fps={_rate_text(native_rate(changing_rate[1]))}"] if changing_rate and not known else [])]
-        args = [*_X265, "-threads", str(ENCODER_THREADS),
-                *([*bitrate] if kbps else [*rate, "-crf", str(crf + _CRF_OFFSET[codec])]),
-                *(["-x265-params", ":".join(params)] if params else [])]
+        params = [
+            *([f"pass={number}", f"stats={PASSLOG}.log"] if kbps else []),
+            *([f"level-idc={level}"] if level and not fps else []), *(
+                [f"fps={_rate_text(native_rate(changing_rate[1]))}"]
+                if changing_rate and not known else [])
+        ]
+        args = [
+            *_X265, "-threads",
+            str(ENCODER_THREADS),
+            *([*bitrate] if kbps else [*rate, "-crf", str(crf + _CRF_OFFSET[codec])]),
+            *(["-x265-params", ":".join(params)] if params else [])
+        ]
     elif codec == "vp9":
-        args = [*_VP9, *([*bitrate, "-pass", number, "-passlogfile", PASSLOG] if kbps
-                         else [*rate, "-crf", str(crf + _CRF_OFFSET[codec]), "-b:v", "0"])]
+        args = [
+            *_VP9, *(
+                [*bitrate, "-pass", number, "-passlogfile", PASSLOG] if kbps else
+                [*rate, "-crf", str(crf + _CRF_OFFSET[codec]), "-b:v", "0"])
+        ]
     else:
-        args = [*_X264, "-threads", str(ENCODER_THREADS),
-                *([*bitrate, "-pass", number, "-passlogfile", PASSLOG] if kbps else [*rate, "-crf", str(crf)])]
+        args = [
+            *_X264, "-threads",
+            str(ENCODER_THREADS), *(
+                [*bitrate, "-pass", number, "-passlogfile", PASSLOG]
+                if kbps else [*rate, "-crf", str(crf)])
+        ]
         if lean:
             args += ["-x264-params", f"rc-lookahead={LEAN_LOOKAHEAD}"]
         if level:
@@ -152,12 +179,13 @@ def music_path(edit: VideoEdit, video: bool = True) -> Optional[str]:
     that removes the sound has no music either: Mute wins over everything."""
     if not edit.music or (video and edit.mute):
         return None
-    return str(Path(edit.music).resolve())      # ffmpeg may run in another folder
+    return str(Path(edit.music).resolve())  # ffmpeg may run in another folder
 
 
-def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None,
-                  encoder: Optional[str] = None, loudness: Optional[Loudness] = None,
-                  fit: Optional[SizeFit] = None, first_pass: bool = False) -> list[str]:
+def video_command(
+        ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None,
+        encoder: Optional[str] = None, loudness: Optional[Loudness] = None,
+        fit: Optional[SizeFit] = None, first_pass: bool = False) -> list[str]:
     """The export command. `loudness` is what the first loudness pass measured (see `measure_command`);
     with it, and `edit.normalize`, the sound is evened out.
 
@@ -174,18 +202,24 @@ def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optio
     music = None if first_pass else music_path(edit)
     has_voice = info.has_audio and not edit.mute
     # The sound goes on to the final mix when there is music or a loudness to apply to it.
-    mastered = (has_voice or bool(music)) and (bool(music) or (edit.normalize and loudness is not None))
-    graph = clip_graph(0, edit, info, segments, audio=not first_pass, fps=rate, transforms=transforms,
-                       a_out="[voice]" if mastered else "[a]")
+    mastered = (has_voice
+                or bool(music)) and (bool(music) or (edit.normalize and loudness is not None))
+    graph = clip_graph(
+        0, edit, info, segments, audio=not first_pass, fps=rate, transforms=transforms,
+        a_out="[voice]" if mastered else "[a]")
     filters = list(graph.filters)
     if music and graph.duration is None:
         raise music_length_error()
     if mastered and not first_pass:
-        filters += master_filters(edit.sound, "[voice]" if graph.has_audio else None, 1 if music else None,
-                                  graph.duration, "[a]", loudness)
-    cmd = [ffmpeg, *_HEAD, *(["-filter_complex_threads", str(FILTER_THREADS)] if big_picture(info) else []),
-           *input_args(segments, job.source, info), *(music_args(music) if music else []),
-           "-filter_complex", ";".join(filters), "-map", "[v]"]
+        filters += master_filters(
+            edit.sound, "[voice]" if graph.has_audio else None, 1 if music else None,
+            graph.duration, "[a]", loudness)
+    cmd = [
+        ffmpeg, *_HEAD,
+        *(["-filter_complex_threads", str(FILTER_THREADS)] if big_picture(info) else []),
+        *input_args(segments, job.source, info), *(music_args(music) if music else []),
+        "-filter_complex", ";".join(filters), "-map", "[v]"
+    ]
     if graph.has_audio or music:
         cmd += ["-map", "[a]", *audio_codec_args(edit, bool(rate), fit.audio_kbps if fit else 0)]
     else:
@@ -194,22 +228,25 @@ def video_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optio
     # picture for the frame rate, and the file comes out flagged as H.264 level 6.2 (H.265 6.1).
     out_rate = output_rate(edit, info)
     geometry = plan_geometry(info.width, info.height, edit)
-    level = encoder_level(edit.output_format.codec, geometry.out_width, geometry.out_height, out_rate, info)
+    level = encoder_level(
+        edit.output_format.codec, geometry.out_width, geometry.out_height, out_rate, info)
     # A file size is planned at the rate the picture has on average, even a changing one, so it is told so.
     told = out_rate or (info.fps if fit and info.fps else None)
     changing = (info.fps, info.max_fps or info.fps) if not told and info.fps else None
-    cmd += video_codec_args(edit.crf, encoder, told, level, edit.video_format, fit, first_pass,
-                            lean=big_picture(info), changing_rate=changing)
+    cmd += video_codec_args(
+        edit.crf, encoder, told, level, edit.video_format, fit, first_pass, lean=big_picture(info),
+        changing_rate=changing)
     if first_pass:
         return [*cmd, "-f", "null", *_TAIL, "-"]
     return [*cmd, "-map_metadata", "0", *_TAIL, str(job.output.resolve())]
 
 
-GIF_PALETTE = "palette.png"      # the colors of the GIF, made by its first pass in ffmpeg's working folder
+GIF_PALETTE = "palette.png"  # the colors of the GIF, made by its first pass in ffmpeg's working folder
 
 
-def gif_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None,
-                palette: bool = False) -> list[str]:
+def gif_command(
+        ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None,
+        palette: bool = False) -> list[str]:
     """The export command for a GIF, which takes two: the first (`palette`) picks the best 256 colors for
     the whole clip, and the second uses them. The picture goes through the same cuts, speed, reframing and
     adjustments as any export, then is made no wider than `edit.gif_width` at no more than `edit.gif_fps`
@@ -225,11 +262,16 @@ def gif_command(ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optiona
     if palette:
         # A second copy of the picture goes nowhere, but gives the progress bar something to count.
         filters += ["[g]split=2[a][b]", "[a]palettegen=stats_mode=diff[p]"]
-        return [*cmd, "-filter_complex", ";".join(filters), *_TAIL, "-map", "[p]", "-frames:v", "1", "-update", "1",
-                GIF_PALETTE, "-map", "[b]", "-f", "null", "-"]
+        return [
+            *cmd, "-filter_complex", ";".join(filters), *_TAIL, "-map", "[p]", "-frames:v", "1",
+            "-update", "1", GIF_PALETTE, "-map", "[b]", "-f", "null", "-"
+        ]
     filters.append("[g][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle[out]")
-    return [*cmd, "-i", GIF_PALETTE, "-filter_complex", ";".join(filters), "-map", "[out]", "-an", "-loop", "0",
-            *_TAIL, str(job.output.resolve())]
+    return [
+        *cmd, "-i", GIF_PALETTE, "-filter_complex", ";".join(filters), "-map", "[out]", "-an",
+        "-loop", "0", *_TAIL,
+        str(job.output.resolve())
+    ]
 
 
 def measure_command(ffmpeg: str, job: VideoJob, info: MediaInfo) -> list[str]:
@@ -243,18 +285,26 @@ def measure_command(ffmpeg: str, job: VideoJob, info: MediaInfo) -> list[str]:
     graph = clip_graph(0, edit, info, segments, picture=False, a_out="[voice]")
     if music and graph.duration is None:
         raise music_length_error()
-    filters = graph.filters + master_filters(edit.sound, "[voice]" if graph.has_audio else None,
-                                             1 if music else None, graph.duration, "[a]", measure=True)
-    return [ffmpeg, *_HEAD_INFO, *input_args(segments, job.source), *(music_args(music) if music else []),
-            "-filter_complex", ";".join(filters), "-map", "[a]", "-f", "null", *_TAIL, "-"]
+    filters = graph.filters + master_filters(
+        edit.sound, "[voice]" if graph.has_audio else None, 1 if music else None, graph.duration,
+        "[a]", measure=True)
+    return [
+        ffmpeg, *_HEAD_INFO, *input_args(segments, job.source),
+        *(music_args(music) if music else []), "-filter_complex", ";".join(filters), "-map", "[a]",
+        "-f", "null", *_TAIL, "-"
+    ]
 
 
-def detect_command(ffmpeg: str, source: Path, edit: VideoEdit, segments: list[Segment], transforms: str,
-                   fps: Optional[float] = None) -> list[str]:
+def detect_command(
+        ffmpeg: str, source: Path, edit: VideoEdit, segments: list[Segment], transforms: str,
+        fps: Optional[float] = None) -> list[str]:
     """The stabilizer's first pass: measure the shake of the kept frames into `transforms`.
     `segments` and `fps` are the export's own, so both passes see the same frames."""
     shakiness = STABILIZE[edit.stabilize][0]
-    graph = select_filters("[0:v:0]", "[t]", relative(segments), audio=False, margin=frame_margin(fps))
+    graph = select_filters(
+        "[0:v:0]", "[t]", relative(segments), audio=False, margin=frame_margin(fps))
     graph.append(f"[t]vidstabdetect=shakiness={shakiness}:accuracy=15:result={transforms}[d]")
-    return [ffmpeg, *_HEAD, *input_args(segments, source), "-filter_complex", ";".join(graph),
-            "-map", "[d]", "-f", "null", *_TAIL, "-"]
+    return [
+        ffmpeg, *_HEAD, *input_args(segments, source), "-filter_complex", ";".join(graph), "-map",
+        "[d]", "-f", "null", *_TAIL, "-"
+    ]

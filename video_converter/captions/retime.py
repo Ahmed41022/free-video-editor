@@ -18,6 +18,7 @@ from .model import Subtitles
 from .scratch import _scratch_file
 from .text import clean_text, mark_right_to_left
 
+
 class SpanMapper:
     """Moves spans of source time onto the export's timeline, for a fixed set of kept `segments`, `speed`
     and `reverse`. Built once, it finds the segments a span touches by bisection, so mapping thousands of
@@ -30,24 +31,27 @@ class SpanMapper:
         kept = []
         for a, b in segments:
             kept.append((a, b))
-            if b is None:                       # an open end is the last part
+            if b is None:  # an open end is the last part
                 break
         self.segments = kept
         self.starts = [a for a, _ in kept]
         self.ends = [math.inf if b is None else b for _, b in kept]
-        self.before: list[float] = []           # how much kept time lies before each segment
+        self.before: list[float] = []  # how much kept time lies before each segment
         done = 0.0
         for a, b in kept:
             self.before.append(done)
             done += (b - a) if b is not None else 0.0
         # Bisection needs the parts in order and apart (which a real edit always has).
-        self.ordered = all(self.ends[i] <= self.starts[i + 1] for i in range(len(kept) - 1)) and all(
-            self.starts[i] <= self.starts[i + 1] for i in range(len(kept) - 1))
+        self.ordered = all(self.ends[i] <= self.starts[i + 1]
+                           for i in range(len(kept) - 1)) and all(
+                               self.starts[i] <= self.starts[i + 1] for i in range(len(kept) - 1))
 
     def __call__(self, start: float, end: float) -> list[tuple[float, float]]:
         if self.ordered:
-            first = bisect.bisect_right(self.ends, start)       # the first segment that ends after the span starts
-            last = bisect.bisect_left(self.starts, end)         # the segments before this one start before the span ends
+            first = bisect.bisect_right(
+                self.ends, start)  # the first segment that ends after the span starts
+            last = bisect.bisect_left(
+                self.starts, end)  # the segments before this one start before the span ends
             indexes = range(first, last)
         else:
             indexes = range(len(self.segments))
@@ -56,7 +60,8 @@ class SpanMapper:
             a = self.starts[i]
             high, low = min(end, self.ends[i]), max(start, a)
             if high - low > 1e-6:
-                lo, hi = (self.before[i] + low - a) / self.speed, (self.before[i] + high - a) / self.speed
+                lo, hi = (self.before[i] + low -
+                          a) / self.speed, (self.before[i] + high - a) / self.speed
                 if self.reverse and self.total is not None:
                     lo, hi = self.total - hi, self.total - lo
                 pieces.append((lo, hi))
@@ -70,8 +75,9 @@ class SpanMapper:
         return [(lo, hi) for lo, hi in joined if hi - lo >= 0.02]
 
 
-def map_span(start: float, end: float, segments: list[Segment], speed: float = 1.0, reverse: bool = False,
-             ) -> list[tuple[float, float]]:
+def map_span(
+    start: float, end: float, segments: list[Segment], speed: float = 1.0, reverse: bool = False,
+) -> list[tuple[float, float]]:
     """Where the source time span start..end lands on the export's timeline: one piece for each kept
     part it overlaps (so a cue that runs across a cut shows before and after it), nothing if it was cut
     out. Pieces that meet are joined."""
@@ -83,7 +89,7 @@ def _ass_seconds(text: str) -> Optional[float]:
     if not found:
         return None
     hours, minutes, seconds, fraction = found.groups()
-    return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(fraction) / 10 ** len(fraction)
+    return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(fraction) / 10**len(fraction)
 
 
 def _ass_time(seconds: float) -> str:
@@ -103,7 +109,8 @@ def retime_ass(text: str, mapper) -> tuple[str, int]:
             in_events = stripped.lower() == "[events]"
         if in_events and stripped.lower().startswith("format:"):
             columns = [c.strip().lower() for c in stripped.split(":", 1)[1].split(",")]
-        if not (in_events and stripped.lower().startswith("dialogue:") and "start" in columns and "end" in columns):
+        if not (in_events and stripped.lower().startswith("dialogue:") and "start" in columns
+                and "end" in columns):
             out.append(line)
             continue
         fields = line.split(":", 1)[1].lstrip().split(",", len(columns) - 1)
@@ -168,7 +175,8 @@ def _fix_ass_fonts(text: str) -> str:
             section = stripped.lower()
         elif section.endswith("styles]") and stripped.lower().startswith("format:"):
             columns = [c.strip().lower() for c in stripped.split(":", 1)[1].split(",")]
-        elif section.endswith("styles]") and stripped.lower().startswith("style:") and "fontname" in columns:
+        elif section.endswith("styles]") and stripped.lower().startswith(
+                "style:") and "fontname" in columns:
             fields = line.split(":", 1)[1].lstrip().split(",", len(columns) - 1)
             if len(fields) == len(columns):
                 at = columns.index("fontname")
@@ -181,15 +189,18 @@ def _fix_ass_fonts(text: str) -> str:
     return "\n".join(out)
 
 
-def retimed_subtitles(subtitles: Subtitles, segments: list[Segment], speed: float = 1.0,
-                      reverse: bool = False) -> tuple[Path, str, int]:
+def retimed_subtitles(
+        subtitles: Subtitles, segments: list[Segment], speed: float = 1.0,
+        reverse: bool = False) -> tuple[Path, str, int]:
     """The subtitle file rewritten for the export: (the new file, "srt" or "ass", the height of
     its script, which the font size is relative to). `segments` are the kept parts of the source."""
     path = Path(subtitles.file)
     try:
         text = read_text(path)
     except OSError:
-        raise ConversionError(tr("The subtitle file can't be read: {name}", name=path.name or subtitles.file)) from None
+        raise ConversionError(
+            tr("The subtitle file can't be read: {name}", name=path.name
+               or subtitles.file)) from None
     kind = subtitle_kind(path, text)
     mapper = SpanMapper(segments, speed, reverse)
 

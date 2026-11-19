@@ -27,8 +27,9 @@ log = logging.getLogger(__name__)
 
 DEFAULT_FONT = "Arial"
 # Tried in this order when the chosen font is missing or can't show the text.
-FALLBACK_FONTS = ("Arial", "Segoe UI", "Tahoma", "Microsoft Sans Serif", "Times New Roman",
-                  "Microsoft YaHei", "Malgun Gothic", "Yu Gothic", "Segoe UI Symbol", "Segoe UI Emoji")
+FALLBACK_FONTS = (
+    "Arial", "Segoe UI", "Tahoma", "Microsoft Sans Serif", "Times New Roman", "Microsoft YaHei",
+    "Malgun Gothic", "Yu Gothic", "Segoe UI Symbol", "Segoe UI Emoji")
 
 _FONT_EXTENSIONS = {".ttf", ".otf", ".ttc"}
 _REGISTRY_KEY = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
@@ -82,7 +83,8 @@ def _build_index() -> dict[str, dict[tuple[bool, bool], str]]:
     folder = windows_fonts_dir()
     index: dict[str, dict[tuple[bool, bool], str]] = {}
     for name, file in _registry_entries():
-        path = Path(file) if Path(file).is_absolute() else (folder / file if folder else Path(file))
+        path = Path(file) if Path(file).is_absolute() else (
+            folder / file if folder else Path(file))
         if path.suffix.lower() not in _FONT_EXTENSIONS or not path.is_file():
             continue
         # "(TrueType)" says how the font is stored; a collection lists several families: "MS Gothic & MS UI Gothic".
@@ -93,9 +95,11 @@ def _build_index() -> dict[str, dict[tuple[bool, bool], str]]:
     if not index and folder:
         # No registry (or an odd one): the common fonts by their usual file names.
         for family, files in {"arial": ("arial.ttf", "arialbd.ttf", "ariali.ttf", "arialbi.ttf"),
-                              "segoe ui": ("segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "segoeuiz.ttf"),
+                              "segoe ui":
+                              ("segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "segoeuiz.ttf"),
                               "tahoma": ("tahoma.ttf", "tahomabd.ttf", None, None)}.items():
-            for style, file in zip(((False, False), (True, False), (False, True), (True, True)), files):
+            for style, file in zip(((False, False), (True, False), (False, True), (True, True)),
+                                   files):
                 if file and (folder / file).is_file():
                     index.setdefault(family, {})[style] = str(folder / file)
     return index
@@ -173,8 +177,9 @@ def safe_font_name(name: object) -> str:
 
 def _is_arabic(ch: str) -> bool:
     code = ord(ch)
-    return (0x0600 <= code <= 0x06FF or 0x0750 <= code <= 0x077F or 0x08A0 <= code <= 0x08FF
-            or 0xFB50 <= code <= 0xFDFF or 0xFE70 <= code <= 0xFEFE)
+    return (
+        0x0600 <= code <= 0x06FF or 0x0750 <= code <= 0x077F or 0x08A0 <= code <= 0x08FF
+        or 0xFB50 <= code <= 0xFDFF or 0xFE70 <= code <= 0xFEFE)
 
 
 def is_right_to_left(ch: str) -> bool:
@@ -184,7 +189,10 @@ def is_right_to_left(ch: str) -> bool:
 def needed_glyphs(text: str) -> set[int]:
     """The character codes a font has to have a glyph for to draw `text` through libass: its letters, and
     for Arabic the lam-alef ligature forms and the joiner too."""
-    codes = {ord(ch) for ch in text if not ch.isspace() and unicodedata.category(ch) not in ("Cf", "Cc")}
+    codes = {
+        ord(ch)
+        for ch in text if not ch.isspace() and unicodedata.category(ch) not in ("Cf", "Cc")
+    }
     if any(_is_arabic(ch) for ch in text):
         codes.update(_ARABIC_NEEDS)
     return codes
@@ -210,7 +218,7 @@ def subtitle_font(family: str, bold: bool, text: str) -> str:
     if installed and font_covers(family, bold, codes):
         return family
     if not installed and not rtl:
-        return family                       # a font we know nothing about: libass has its own fallback for it
+        return family  # a font we know nothing about: libass has its own fallback for it
     best, best_count = family, -1
     for name in (family, *SUBTITLE_FALLBACKS, *FALLBACK_FONTS):
         path = font_file(name, bold)
@@ -227,15 +235,16 @@ def subtitle_font(family: str, bold: bool, text: str) -> str:
 
 # ----- reading a font file -------------------------------------------------------
 
+
 @dataclass
 class Font:
     """The measurements of one font file."""
     path: str
     units_per_em: int
     ascent: int
-    descent: int            # negative, below the baseline
+    descent: int  # negative, below the baseline
     line_gap: int
-    _cmap: list                     # [(format, data)]
+    _cmap: list  # [(format, data)]
     _advances: list[int]
     _glyph_count: int
 
@@ -271,7 +280,7 @@ def _lookup(kind: int, data, code: int) -> int:
     if kind == 4:
         ends, starts, deltas, offsets, glyphs = data
         lo, hi = 0, len(ends) - 1
-        while lo < hi:      # the first segment that ends at or after the code
+        while lo < hi:  # the first segment that ends at or after the code
             mid = (lo + hi) // 2
             if ends[mid] < code:
                 lo = mid + 1
@@ -312,15 +321,20 @@ def _parse_cmap(blob: bytes) -> list:
                 ends = struct.unpack(f">{n}H", blob[base:base + seg_x2])
                 starts = struct.unpack(f">{n}H", blob[base + seg_x2 + 2:base + 2 * seg_x2 + 2])
                 deltas = struct.unpack(f">{n}H", blob[base + 2 * seg_x2 + 2:base + 3 * seg_x2 + 2])
-                offsets = struct.unpack(f">{n}H", blob[base + 3 * seg_x2 + 2:base + 4 * seg_x2 + 2])
+                offsets = struct.unpack(
+                    f">{n}H", blob[base + 3 * seg_x2 + 2:base + 4 * seg_x2 + 2])
                 length = struct.unpack(">H", blob[offset + 2:offset + 4])[0]
                 glyph_start = base + 4 * seg_x2 + 2
                 glyph_count = max((offset + length - glyph_start) // 2, 0)
-                glyphs = struct.unpack(f">{glyph_count}H", blob[glyph_start:glyph_start + 2 * glyph_count])
+                glyphs = struct.unpack(
+                    f">{glyph_count}H", blob[glyph_start:glyph_start + 2 * glyph_count])
                 found.append((4, (ends, starts, deltas, offsets, glyphs)))
             elif kind == 12:
                 n = struct.unpack(">L", blob[offset + 12:offset + 16])[0]
-                groups = [struct.unpack(">LLL", blob[offset + 16 + 12 * g:offset + 28 + 12 * g]) for g in range(n)]
+                groups = [
+                    struct.unpack(">LLL", blob[offset + 16 + 12 * g:offset + 28 + 12 * g])
+                    for g in range(n)
+                ]
                 found.append((12, groups))
         except struct.error:
             continue
@@ -335,7 +349,7 @@ def load_font(path: str) -> Optional[Font]:
         with open(path, "rb") as handle:
             head = handle.read(12)
             base = 0
-            if head[:4] == b"ttcf":                         # a collection: the first font in it
+            if head[:4] == b"ttcf":  # a collection: the first font in it
                 handle.seek(12)
                 base = struct.unpack(">L", handle.read(4))[0]
                 handle.seek(base)
@@ -356,10 +370,15 @@ def load_font(path: str) -> Optional[Font]:
             metrics = struct.unpack(">H", hhea[34:36])[0]
             glyph_count = struct.unpack(">H", table(b"maxp")[4:6])[0]
             hmtx = table(b"hmtx")
-            advances = list(struct.unpack(f">{2 * metrics}H", hmtx[:4 * metrics])[::2])     # each entry: advance, bearing
+            advances = list(
+                struct.unpack(f">{2 * metrics}H",
+                              hmtx[:4 * metrics])[::2])  # each entry: advance, bearing
             if len(advances) < glyph_count:
-                advances += [advances[-1]] * (glyph_count - len(advances))     # the rest repeat the last advance
-            return Font(path, units, ascent, descent, gap, _parse_cmap(table(b"cmap")), advances, glyph_count)
+                advances += [advances[-1]] * (
+                    glyph_count - len(advances))  # the rest repeat the last advance
+            return Font(
+                path, units, ascent, descent, gap, _parse_cmap(table(b"cmap")), advances,
+                glyph_count)
     except (OSError, KeyError, struct.error, ValueError) as exc:
         log.warning("Couldn't read the font %s: %s", path, exc)
         return None
@@ -374,7 +393,7 @@ def wrap_text(text: str, font: Optional[Font], size: float, max_width: float) ->
         return text
     lines = []
     for paragraph in text.split("\n"):
-        if not paragraph.strip():           # a blank line (a single space keeps its height) stays as it is
+        if not paragraph.strip():  # a blank line (a single space keeps its height) stays as it is
             lines.append(paragraph)
             continue
         current = ""

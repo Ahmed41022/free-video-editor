@@ -10,7 +10,8 @@ from unittest import mock
 from video_converter.cli import run as cli
 from video_converter.core import MediaInfo
 
-BIG = MediaInfo(duration=600.0, width=1920, height=1080, has_audio=True, fps=30.0)     # about 50 GB reversed
+BIG = MediaInfo(
+    duration=600.0, width=1920, height=1080, has_audio=True, fps=30.0)  # about 50 GB reversed
 SMALL = MediaInfo(duration=2.0, width=320, height=180, has_audio=True, fps=15.0)
 
 
@@ -26,6 +27,7 @@ def run(*args):
 
 
 class OptionCheckTests(unittest.TestCase):
+
     def test_zoom_outside_1_to_3_is_refused_with_a_message(self):
         for value in ("0.5", "3.1", "10", "-1", "nan"):
             with self.subTest(zoom=value):
@@ -48,7 +50,8 @@ class OptionCheckTests(unittest.TestCase):
     def test_the_limits_themselves_are_fine(self):
         # Parsing gets past the options and stops at the missing ffmpeg instead.
         with mock.patch.object(cli, "find_ffmpeg", return_value=None):
-            for args in (("--zoom", "1"), ("--zoom", "3.0"), ("--position", "0", "1"), ("--position", "1", "0")):
+            for args in (("--zoom", "1"), ("--zoom", "3.0"), ("--position", "0", "1"),
+                         ("--position", "1", "0")):
                 with self.subTest(args=args):
                     code, _, err = run("clip.mp4", "--video", "phone", *args)
                     self.assertEqual(code, 2)
@@ -56,11 +59,12 @@ class OptionCheckTests(unittest.TestCase):
 
 
 class ReverseWarningTests(unittest.TestCase):
+
     def run_with(self, info, *args, join=False):
         """Run the CLI on clip.mp4 (and b.mp4) with probing and exporting faked."""
         with tempfile.TemporaryDirectory() as tmp:
             files = []
-            for name in ("clip.mp4", "b.mp4") if join else ("clip.mp4",):
+            for name in ("clip.mp4", "b.mp4") if join else ("clip.mp4", ):
                 (Path(tmp) / name).write_bytes(b"x")
                 files.append(Path(tmp) / name)
             with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
@@ -79,7 +83,8 @@ class ReverseWarningTests(unittest.TestCase):
         export.assert_called_once()
 
     def test_a_small_reverse_or_no_reverse_says_nothing(self):
-        for info, args in ((SMALL, ("--video", "original", "--reverse")), (BIG, ("--video", "original"))):
+        for info, args in ((SMALL, ("--video", "original", "--reverse")), (BIG, ("--video",
+                                                                                 "original"))):
             with self.subTest(args=args):
                 code, err, export, _, _ = self.run_with(info, *args)
                 self.assertEqual((code, err), (0, ""))
@@ -92,7 +97,8 @@ class ReverseWarningTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("warning", err)
         mp3.assert_called_once()
-        self.assertEqual(self.run_with(MediaInfo(duration=600.0, has_audio=True), "--reverse")[1], "")
+        self.assertEqual(
+            self.run_with(MediaInfo(duration=600.0, has_audio=True), "--reverse")[1], "")
 
     def test_a_join_warns_for_the_clip_that_is_too_big(self):
         code, err, _, _, joined = self.run_with(BIG, "--video", "original", "--reverse", join=True)

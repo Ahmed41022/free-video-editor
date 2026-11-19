@@ -37,12 +37,14 @@ def thumbnail_timeout(duration: Optional[float]) -> float:
     return THUMBNAIL_BASE_TIMEOUT + THUMBNAIL_PER_SECOND * (duration or 0.0)
 
 
-def probe_file(ffmpeg: str, source: Path, registry: Optional[ProcessRegistry] = None,
-               timeout: float = PROBE_TIMEOUT) -> MediaInfo:
+def probe_file(
+        ffmpeg: str, source: Path, registry: Optional[ProcessRegistry] = None,
+        timeout: float = PROBE_TIMEOUT) -> MediaInfo:
     """The details of `source` (what `core.probe_media` reads), but the run can be stopped through `registry`
     and is given up on after `timeout` seconds, with `ReadTimeout`."""
     try:
-        result = run_tracked([ffmpeg, "-hide_banner", "-i", str(source)], timeout, registry, text=True)
+        result = run_tracked(
+            [ffmpeg, "-hide_banner", "-i", str(source)], timeout, registry, text=True)
     except subprocess.TimeoutExpired:
         raise ReadTimeout() from None
     return parse_media_info(result.stderr or "")
@@ -62,14 +64,8 @@ THUMBNAILS_PER_RUN = 6
 
 
 def extract_thumbnails(
-    ffmpeg: str,
-    source: Path,
-    out_dir: Path,
-    duration: float,
-    count: int = 12,
-    height: int = 72,
-    registry: Optional[ProcessRegistry] = None,
-    timeout: Optional[float] = None,
+    ffmpeg: str, source: Path, out_dir: Path, duration: float, count: int = 12, height: int = 72,
+    registry: Optional[ProcessRegistry] = None, timeout: Optional[float] = None,
 ) -> list[Path]:
     """Save `count` JPEG thumbnails spread over the video; returns the files that worked.
 
@@ -80,7 +76,10 @@ def extract_thumbnails(
     """
     timeout = thumbnail_timeout(duration) if timeout is None else timeout
     out_dir.mkdir(parents=True, exist_ok=True)
-    jobs = [(at, out_dir / f"thumb_{index:03d}.jpg") for index, at in enumerate(thumbnail_times(duration, count))]
+    jobs = [
+        (at, out_dir / f"thumb_{index:03d}.jpg")
+        for index, at in enumerate(thumbnail_times(duration, count))
+    ]
     for start in range(0, len(jobs), THUMBNAILS_PER_RUN):
         batch = jobs[start:start + THUMBNAILS_PER_RUN]
         cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
@@ -89,9 +88,12 @@ def extract_thumbnails(
             # frame threading would hold many full-size frames per input for no gain.
             cmd += ["-threads", "1", "-ss", f"{at:.3f}", "-i", str(source)]
         for n, (_, target) in enumerate(batch):
-            target.unlink(missing_ok=True)      # what exists afterwards was written by this run
-            cmd += ["-map", f"{n}:v:0", "-frames:v", "1",
-                    "-vf", f"scale=-2:{height}", "-q:v", "4", "-update", "1", str(target)]
+            target.unlink(missing_ok=True)  # what exists afterwards was written by this run
+            cmd += [
+                "-map", f"{n}:v:0", "-frames:v", "1", "-vf", f"scale=-2:{height}", "-q:v", "4",
+                "-update", "1",
+                str(target)
+            ]
         try:
             # A failed seek makes ffmpeg exit with an error but the other files are still good.
             run_tracked(cmd, timeout, registry)
@@ -101,15 +103,20 @@ def extract_thumbnails(
     return [target for _, target in jobs if target.is_file() and target.stat().st_size > 0]
 
 
-def extract_still(ffmpeg: str, source: Path, target: Path, at: float = 0.0, long_side: int = 960,
-                  registry: Optional[ProcessRegistry] = None, timeout: float = STILL_TIMEOUT) -> bool:
+def extract_still(
+        ffmpeg: str, source: Path, target: Path, at: float = 0.0, long_side: int = 960,
+        registry: Optional[ProcessRegistry] = None, timeout: float = STILL_TIMEOUT) -> bool:
     """Save one upright frame of `source` as a PNG no more than `long_side` pixels on its longer side (a
     placeholder picture to show while a smooth preview is made). Returns whether the file was written."""
     target.parent.mkdir(parents=True, exist_ok=True)
     target.unlink(missing_ok=True)
     scale = f"scale='if(gt(iw,ih),min({long_side},iw),-2)':'if(gt(iw,ih),-2,min({long_side},ih))'"
-    cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-ss", f"{max(at, 0.0):.3f}",
-           "-i", str(source), "-map", "0:v:0", "-frames:v", "1", "-vf", scale, "-update", "1", str(target)]
+    cmd = [
+        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-ss",
+        f"{max(at, 0.0):.3f}", "-i",
+        str(source), "-map", "0:v:0", "-frames:v", "1", "-vf", scale, "-update", "1",
+        str(target)
+    ]
     try:
         run_tracked(cmd, timeout, registry)
     except subprocess.TimeoutExpired:
@@ -136,20 +143,25 @@ def peaks(samples: "array[int] | list[int]", buckets: int) -> list[float]:
     return levels
 
 
-def extract_waveform(ffmpeg: str, source: Path, duration: Optional[float], buckets: int = 600,
-                     registry: Optional[ProcessRegistry] = None, timeout: Optional[float] = None) -> list[float]:
+def extract_waveform(
+        ffmpeg: str, source: Path, duration: Optional[float], buckets: int = 600,
+        registry: Optional[ProcessRegistry] = None,
+        timeout: Optional[float] = None) -> list[float]:
     """Peak levels (0..1) of the first audio track; an empty list if there's no audio. Raises
     `subprocess.TimeoutExpired` if reading it takes longer than `timeout` seconds (by default 60 s plus
     a fifth of the video's length)."""
     rate = waveform_sample_rate(duration, buckets)
     result = run_tracked(
-        [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-i", str(source),
-         "-map", "0:a:0", "-ac", "1", "-ar", str(rate), "-f", "s16le", "-acodec", "pcm_s16le", "-"],
+        [
+            ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-i",
+            str(source), "-map", "0:a:0", "-ac", "1", "-ar",
+            str(rate), "-f", "s16le", "-acodec", "pcm_s16le", "-"
+        ],
         waveform_timeout(duration) if timeout is None else timeout, registry,
     )
     if result.returncode != 0 or not result.stdout:
         return []
-    data = result.stdout[: len(result.stdout) // 2 * 2]
+    data = result.stdout[:len(result.stdout) // 2 * 2]
     samples = array("h")
     samples.frombytes(data)
     return peaks(samples, buckets)

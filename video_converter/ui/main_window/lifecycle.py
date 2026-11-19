@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from ...i18n import tr
 
+
 class LifecycleMixin:
     """Dropped files, other copies of the app, and closing."""
 
@@ -42,20 +43,23 @@ class LifecycleMixin:
 
     def closeEvent(self, event) -> None:
         if self.queue.busy and not self._restarting:
-            answer = QMessageBox.question(self, tr("Exports still running"),
-                                          tr("Some exports haven't finished. Stop them and quit?"))
+            answer = QMessageBox.question(
+                self, tr("Exports still running"),
+                tr("Some exports haven't finished. Stop them and quit?"))
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
         self._save_preferences()
         QApplication.instance().removeEventFilter(self)
         self.queue.shutdown()
-        self.player.load(None)          # lets go of the preview copy's file
+        self.player.load(None)  # lets go of the preview copy's file
         self.closed = True
         if self.instance is not None:
-            self.instance.close()       # free the name at once, so a restart's new copy doesn't hand its files to this one
+            self.instance.close(
+            )  # free the name at once, so a restart's new copy doesn't hand its files to this one
         self.loader.shutdown(wait=False, cancel_futures=True)
-        self.procs.kill_all()           # the ffmpeg runs reading files would otherwise keep going for a long time
+        self.procs.kill_all(
+        )  # the ffmpeg runs reading files would otherwise keep going for a long time
         self.proxies.shutdown()
         self._remove_tmpdir()
         event.accept()

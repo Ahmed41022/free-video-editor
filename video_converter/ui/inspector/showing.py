@@ -10,6 +10,7 @@ from ...project import OUTPUT_VIDEO, PRESETS, ClipSettings
 from ...video import LOOKS
 from .choices import FIT_DATA, SHAPES, SHAPE_HINTS
 
+
 class ShowingMixin:
     """What the panel shows: the file's settings, notes and warnings."""
 
@@ -52,13 +53,15 @@ class ShowingMixin:
         self._has_picture = has_picture
         video_button = self.output_group.button(0)
         video_button.setEnabled(has_picture)
-        video_button.setToolTip("" if has_picture else tr("This file has no picture, so it can only be saved as MP3"))
+        video_button.setToolTip(
+            "" if has_picture else tr("This file has no picture, so it can only be saved as MP3"))
 
     def set_has_sound(self, has_sound: bool) -> None:
         """Remove silences needs a sound track to listen to."""
         self.silence_button.setEnabled(has_sound)
-        self.silence_button.setToolTip(tr("Find the pauses in the sound and cut them out") if has_sound
-                                       else tr("This file has no sound, so there are no silences to remove"))
+        self.silence_button.setToolTip(
+            tr("Find the pauses in the sound and cut them out") if has_sound else tr(
+                "This file has no sound, so there are no silences to remove"))
 
     def set_reverse_warning(self, text: str) -> None:
         """Show (or, with "", hide) the note about how much memory playing the clip backwards needs."""
@@ -104,7 +107,8 @@ class ShowingMixin:
             index = next(i for i, (_, aspect) in enumerate(SHAPES) if aspect == edit.aspect) \
                 if any(aspect == edit.aspect for _, aspect in SHAPES) else 0
             self.shape_group.button(index).setChecked(True)
-            self.shape_hint.setText(tr(SHAPE_HINTS[edit.aspect]) if edit.aspect in SHAPE_HINTS else "")
+            self.shape_hint.setText(
+                tr(SHAPE_HINTS[edit.aspect]) if edit.aspect in SHAPE_HINTS else "")
             self.fit_box.setCurrentIndex(max(self.fit_box.findData(edit.fit), 0))
             self.fit_box.setEnabled(edit.aspect is not None)
             if not self.zoom_slider.isSliderDown():
@@ -147,19 +151,26 @@ class ShowingMixin:
         self.format_hint.setVisible(bool(fmt.hint))
         self._gif = fmt.codec == "gif"
         self._fits = edit.target_mb > 0 and not self._gif
-        self.crf_box.setCurrentIndex(max(self.crf_box.findData(FIT_DATA if edit.target_mb > 0 else edit.crf), 0))
+        self.crf_box.setCurrentIndex(
+            max(self.crf_box.findData(FIT_DATA if edit.target_mb > 0 else edit.crf), 0))
         preset = self.limit_box.findData(edit.target_mb)
         self.limit_box.setCurrentIndex(preset if preset >= 0 else self.limit_box.count() - 1)
         if edit.target_mb > 0 and preset < 0:
-            self.limit_spin.setValue(edit.target_mb)       # a preset leaves the box as it was, for Custom… to start from
+            self.limit_spin.setValue(
+                edit.target_mb)  # a preset leaves the box as it was, for Custom… to start from
         for box, value in ((self.gif_fps_box, edit.gif_fps), (self.gif_width_box, edit.gif_width)):
-            if box.findData(value) < 0:        # a value from a saved preset that the list doesn't offer
+            if box.findData(value) < 0:  # a value from a saved preset that the list doesn't offer
                 box.addItem(f"{value} {'fps' if box is self.gif_fps_box else 'px'}", value)
             box.setCurrentIndex(box.findData(value))
         custom = self.limit_box.currentData() is None
         visible = {
-            "rate": not self._gif, "quality": not self._gif, "limit": self._fits, "custom": self._fits and custom,
-            "gif_fps": self._gif, "gif_width": self._gif, "gpu": fmt.codec in ("h264", "hevc"),
+            "rate": not self._gif,
+            "quality": not self._gif,
+            "limit": self._fits,
+            "custom": self._fits and custom,
+            "gif_fps": self._gif,
+            "gif_width": self._gif,
+            "gpu": fmt.codec in ("h264", "hevc"),
         }
         for name, shown in visible.items():
             for widget in self.quality_rows[name]:
@@ -176,9 +187,12 @@ class ShowingMixin:
                 s.edit.target_mb = s.edit.target_mb or DEFAULT_TARGET_MB
             else:
                 s.edit.crf, s.edit.target_mb = data, 0.0
+
         self._edit(change, tr("File size") if data == FIT_DATA else tr("Quality"))
 
     def _limit_chosen(self) -> None:
         megabytes = self.limit_box.currentData()
-        self._edit(lambda s: setattr(s.edit, "target_mb", megabytes if megabytes else round(self.limit_spin.value(), 1)),
-                   tr("File size"))
+        self._edit(
+            lambda s: setattr(
+                s.edit, "target_mb", megabytes
+                if megabytes else round(self.limit_spin.value(), 1)), tr("File size"))

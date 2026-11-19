@@ -16,8 +16,9 @@ _COMMON_LETTERS = {
     "CYRILLIC": set("оеаинтсрвлкмдпуя"),
     "GREEK": set("αοιενταςσρκπυμηλ"),
 }
-_HEBREW_FINAL = set("ךםןףץ")                  # these only ever end a word
-_TURKISH_BYTES = bytes([0xD0, 0xF0, 0xDD, 0xFD, 0xDE, 0xFE])        # Ğ ğ İ ı Ş ş in Windows-1254 (Ð ð Ý ý Þ þ in 1252)
+_HEBREW_FINAL = set("ךםןףץ")  # these only ever end a word
+_TURKISH_BYTES = bytes(
+    [0xD0, 0xF0, 0xDD, 0xFD, 0xDE, 0xFE])  # Ğ ğ İ ı Ş ş in Windows-1254 (Ð ð Ý ý Þ þ in 1252)
 
 
 def _script(ch: str) -> str:
@@ -50,17 +51,20 @@ def code_page_score(text: str) -> float:
     else:
         same = [ch for ch in high if _script(ch) == script]
         common = _COMMON_LETTERS.get(script)
-        plausible = 0.5 if common is None else min(1.0, sum(ch.lower() in common for ch in same) / len(same) / 0.55)
+        plausible = 0.5 if common is None else min(
+            1.0,
+            sum(ch.lower() in common for ch in same) / len(same) / 0.55)
         words = [w for w in re.split(r"\W+", text) if w]
         # A word of Latin and Arabic (or Cyrillic...) letters together ("cafי") means the wrong code page.
         with_script = [w for w in words if any(_script(ch) == script for ch in w)]
         mixed = sum(1 for w in with_script if any(ch.isascii() and ch.isalpha() for ch in w))
         plausible *= 1.0 - mixed / max(len(with_script), 1)
-        if script in ("CYRILLIC", "GREEK"):         # a capital in the middle of a word means the wrong code page
+        if script in ("CYRILLIC",
+                      "GREEK"):  # a capital in the middle of a word means the wrong code page
             inner = [ch for w in words for ch in w[1:] if _script(ch) == script]
             if inner:
                 plausible *= 1.0 - sum(ch.isupper() for ch in inner) / len(inner)
-        elif script == "HEBREW":                    # final letters only end words
+        elif script == "HEBREW":  # final letters only end words
             misplaced = sum(1 for w in words for ch in w[:-1] if ch in _HEBREW_FINAL)
             plausible *= 1.0 - min(1.0, 4.0 * misplaced / max(len(same), 1))
     return purity * plausible - 10.0 * odd / max(len(text), 1)
@@ -104,7 +108,7 @@ def decode_text(data: bytes) -> tuple[str, str]:
         try:
             turkish = data.decode("cp1254")
             if code_page_score(turkish) >= best[0] - 1e-9:
-                return turkish, "cp1254"       # Ğ ş ı... are there and nothing else tells Icelandic from Turkish
+                return turkish, "cp1254"  # Ğ ş ı... are there and nothing else tells Icelandic from Turkish
         except UnicodeDecodeError:
             pass
     return best[2], best[1]

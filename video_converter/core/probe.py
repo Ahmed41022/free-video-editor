@@ -25,16 +25,18 @@ STANDARD_RATES = (24000 / 1001, 24.0, 25.0, 30000 / 1001, 30.0, 50.0, 60000 / 10
 @dataclass
 class MediaInfo:
     duration: Optional[float]
-    width: Optional[int] = None    # as displayed, i.e. after any rotation metadata
+    width: Optional[int] = None  # as displayed, i.e. after any rotation metadata
     height: Optional[int] = None
     has_audio: bool = False
     # Clockwise turn (0, 90, 180, 270) that rotation metadata asks players to apply to
     # the stored frames. ffmpeg applies it automatically; a raw decoder may not.
     display_rotation: int = 0
-    fps: Optional[float] = None    # frames per second of the first video stream (the average)
+    fps: Optional[float] = None  # frames per second of the first video stream (the average)
     bitrate: Optional[int] = None  # whole file, in kilobits per second, when ffmpeg says
-    max_fps: Optional[float] = None    # the highest rate the stream declares ("tbr"), when ffmpeg says
-    cover_stream: Optional[int] = None     # index of the cover picture of a music file (an "attached pic"), if any
+    max_fps: Optional[
+        float] = None  # the highest rate the stream declares ("tbr"), when ffmpeg says
+    cover_stream: Optional[
+        int] = None  # index of the cover picture of a music file (an "attached pic"), if any
 
     @property
     def has_video(self) -> bool:
@@ -54,13 +56,8 @@ class MediaInfo:
 
 def _ffmpeg_info_text(ffmpeg: str, source: Path) -> str:
     result = subprocess.run(
-        [ffmpeg, "-hide_banner", "-i", str(source)],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        stdin=subprocess.DEVNULL,
-        creationflags=_NO_WINDOW,
+        [ffmpeg, "-hide_banner", "-i", str(source)], capture_output=True, text=True,
+        encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
     )
     return result.stderr
 
@@ -81,8 +78,10 @@ def parse_media_info(text: str) -> MediaInfo:
     cover = _COVER_STREAM_RE.search(text)
     if cover:
         info.cover_stream = int(cover.group(1))
-    video = next((m for m in _VIDEO_STREAM_RE.finditer(text)
-                  if "(attached pic)" not in text[m.start():].split("\n", 1)[0]), None)
+    video = next(
+        (
+            m for m in _VIDEO_STREAM_RE.finditer(text)
+            if "(attached pic)" not in text[m.start():].split("\n", 1)[0]), None)
     if video:
         width, height = int(video.group(1)), int(video.group(2))
         # ffmpeg applies rotation metadata automatically, so a phone video stored

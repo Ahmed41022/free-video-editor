@@ -13,13 +13,13 @@ from ..i18n import tr
 from ..timing import MIN_PART, Range, normalize_keep, removed_parts, split_points
 from . import theme
 
-MARGIN = 12          # space left and right of the track, so handles at the ends stay grabbable
+MARGIN = 12  # space left and right of the track, so handles at the ends stay grabbable
 RULER_H = 18
 THUMBS_H = 46
 WAVE_H = 30
-TEXT_H = 8           # the thin track that shows when each text is on screen
-HANDLE_GRAB = 7      # pixels either side of a handle that start dragging it
-SNAP_EDGE = 0.05     # seconds; trims this close to the ends mean "no trim"
+TEXT_H = 8  # the thin track that shows when each text is on screen
+HANDLE_GRAB = 7  # pixels either side of a handle that start dragging it
+SNAP_EDGE = 0.05  # seconds; trims this close to the ends mean "no trim"
 _EPS = 1e-6
 
 
@@ -35,7 +35,8 @@ def x_to_time(x: float, duration: float, left: float, width: float) -> float:
     return max(0.0, min((x - left) / width, 1.0)) * duration
 
 
-def normalize_trim(start: Optional[float], end: Optional[float], duration: float) -> tuple[Optional[float], Optional[float]]:
+def normalize_trim(start: Optional[float], end: Optional[float],
+                   duration: float) -> tuple[Optional[float], Optional[float]]:
     """Trims at (or within SNAP_EDGE of) the very start or end are stored as "no trim"."""
     if start is not None and start <= SNAP_EDGE:
         start = None
@@ -44,7 +45,9 @@ def normalize_trim(start: Optional[float], end: Optional[float], duration: float
     return start, end
 
 
-def ruler_label_left(x: float, text_width: float, widget_width: float, gap: float = 3, edge: float = 2) -> float:
+def ruler_label_left(
+        x: float, text_width: float, widget_width: float, gap: float = 3,
+        edge: float = 2) -> float:
     """Where a ruler label starts: just right of its tick, but slid left when that would run it off the widget,
     so the last label is not cut off."""
     return max(min(x + gap, widget_width - edge - text_width), 0.0)
@@ -96,9 +99,9 @@ def move_edge(keep: list[Range], index: int, side: str, t: float, duration: floa
 
 class Timeline(QWidget):
     seekRequested = Signal(float)
-    trimChanged = Signal(object, object)   # start, end (None = untrimmed); emitted while dragging
+    trimChanged = Signal(object, object)  # start, end (None = untrimmed); emitted while dragging
     trimEditFinished = Signal()
-    keepChanged = Signal(object)           # kept ranges; emitted while dragging a cut's edge
+    keepChanged = Signal(object)  # kept ranges; emitted while dragging a cut's edge
     keepEditFinished = Signal()
     menuRequested = Signal(float, QPoint)  # right-click: source time, global position
 
@@ -108,19 +111,22 @@ class Timeline(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setLayoutDirection(Qt.LayoutDirection.LeftToRight)      # time runs left to right in every language
+        self.setLayoutDirection(
+            Qt.LayoutDirection.LeftToRight)  # time runs left to right in every language
         self.duration = 0.0
         self.position = 0.0
         self.start: Optional[float] = None
         self.end: Optional[float] = None
         self.keep: list[Range] = []
         self.thumbnails: list[QPixmap] = []
-        self._thumb_cache: dict[tuple[int, int], QPixmap] = {}       # (picture, width) -> the picture scaled to fit
+        self._thumb_cache: dict[tuple[int, int],
+                                QPixmap] = {}  # (picture, width) -> the picture scaled to fit
         self.waveform: list[float] = []
         self.waveform_loading = False
-        self.text_spans: list[list[Range]] = []     # for each text, the parts of the source it is shown over
+        self.text_spans: list[list[Range]] = [
+        ]  # for each text, the parts of the source it is shown over
         self.text_selected = -1
-        self._drag: Optional[str] = None   # "in", "out", "cut" or "playhead"
+        self._drag: Optional[str] = None  # "in", "out", "cut" or "playhead"
         self._edge: Optional[tuple[int, str]] = None
 
     # ----- data ---------------------------------------------------------------
@@ -171,10 +177,12 @@ class Timeline(QWidget):
         key = (pix.cacheKey(), width)
         scaled = self._thumb_cache.get(key)
         if scaled is None:
-            if len(self._thumb_cache) > 4 * max(len(self.thumbnails), 1):      # sizes from a resize that is long past
+            if len(self._thumb_cache) > 4 * max(len(self.thumbnails),
+                                                1):  # sizes from a resize that is long past
                 self._thumb_cache.clear()
             scaled = self._thumb_cache[key] = pix.scaled(
-                width, THUMBS_H, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                width, THUMBS_H, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation)
         return scaled
 
     def setWaveform(self, levels: list[float], loading: bool = False) -> None:
@@ -287,7 +295,8 @@ class Timeline(QWidget):
                 self.keepChanged.emit(list(keep))
             # Show the frame that now starts (or, for an "end" edge, ends) the kept part.
             a, b = keep[index]
-            self.seekRequested.emit(a if side == "start" else b if side == "split" else max(b - 0.04, 0.0))
+            self.seekRequested.emit(
+                a if side == "start" else b if side == "split" else max(b - 0.04, 0.0))
         elif self._drag == "playhead":
             self.position = t
             self.seekRequested.emit(t)
@@ -306,7 +315,9 @@ class Timeline(QWidget):
 
         p.setPen(QColor(c["muted"]))
         if self.duration <= 0:
-            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("The timeline appears when you select a video"))
+            p.drawText(
+                self.rect(), Qt.AlignmentFlag.AlignCenter,
+                tr("The timeline appears when you select a video"))
             return
 
         # ruler
@@ -318,8 +329,9 @@ class Timeline(QWidget):
             p.drawLine(QPointF(x, RULER_H - 5), QPointF(x, RULER_H - 1))
             label = format_time(t)
             label_left = ruler_label_left(x, metrics.horizontalAdvance(label), self.width())
-            p.drawText(QRectF(label_left, 0, 80, RULER_H - 3), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                       label)
+            p.drawText(
+                QRectF(label_left, 0, 80, RULER_H - 3),
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, label)
             t += step
 
         # thumbnails

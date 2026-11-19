@@ -13,6 +13,7 @@ from ..silence_dialog import SilenceDialog
 from .commands import SettingsCommand
 from .items import MediaItem
 
+
 class EditingMixin:
     """Edits of the selected file's settings."""
 
@@ -20,7 +21,7 @@ class EditingMixin:
         """Set a file's settings and refresh whatever shows them (used by undo/redo too)."""
         item.settings = settings.copy()
         if item.info is not None and item.info.has_audio and not item.info.has_video:
-            item.settings.output = OUTPUT_AUDIO      # a sound-only file has no picture to export, whatever an old undo step says
+            item.settings.output = OUTPUT_AUDIO  # a sound-only file has no picture to export, whatever an old undo step says
         if item.list_item is not None:
             self._show_item_text(item)
         if item is self.current:
@@ -30,7 +31,8 @@ class EditingMixin:
         item = self.current
         if item is None or new == item.settings and final and not self.merge_open:
             return
-        self.undo_stack.push(SettingsCommand(self, item, item.settings, new, label, mergeable=True))
+        self.undo_stack.push(
+            SettingsCommand(self, item, item.settings, new, label, mergeable=True))
         self.merge_open = not final
 
     def _edit_finished(self) -> None:
@@ -121,12 +123,14 @@ class EditingMixin:
         keep = item.settings.edit.keep
         if action == "split":
             new_keep, label = split_at(keep, t, duration), tr("Split")
-            problem = (tr("This moment is cut out.") if part_index(keep, t, duration) is None
-                       else tr("Too close to the start or end of a part to split there."))
+            problem = (
+                tr("This moment is cut out.") if part_index(keep, t, duration) is None else
+                tr("Too close to the start or end of a part to split there."))
         elif action == "remove":
             new_keep, label = remove_part_at(keep, t, duration), tr("Cut out part")
-            problem = (tr("This moment is already cut out.") if part_index(keep, t, duration) is None
-                       else tr("Split the video first (S), then remove the part you don't want."))
+            problem = (
+                tr("This moment is already cut out.") if part_index(keep, t, duration) is None else
+                tr("Split the video first (S), then remove the part you don't want."))
         elif action == "restore":
             new_keep, label, problem = restore_part_at(keep, t, duration), tr("Put back part"), ""
         else:
@@ -145,10 +149,12 @@ class EditingMixin:
         if item is None or item.info is None or not item.info.duration:
             return
         if not item.info.has_audio:
-            self.statusBar().showMessage(tr("This file has no sound, so there are no silences to remove."), 4000)
+            self.statusBar().showMessage(
+                tr("This file has no sound, so there are no silences to remove."), 4000)
             return
         edit = item.settings.edit
-        dialog = SilenceDialog(self.ffmpeg, item.path, item.info.duration, edit.keep, edit.start, edit.end, self)
+        dialog = SilenceDialog(
+            self.ffmpeg, item.path, item.info.duration, edit.keep, edit.start, edit.end, self)
         accepted = dialog.exec() == SilenceDialog.DialogCode.Accepted
         dialog.deleteLater()
         if accepted and item is self.current:
@@ -183,12 +189,14 @@ class EditingMixin:
         start, end = new.edit.start, new.edit.end
         if which == "start":
             if end is not None and t >= end:
-                self.statusBar().showMessage(tr("The start has to be before the end of the trim."), 4000)
+                self.statusBar().showMessage(
+                    tr("The start has to be before the end of the trim."), 4000)
                 return
             new.edit.start = t if t > 0.05 else None
         else:
             if t <= (start or 0.0):
-                self.statusBar().showMessage(tr("The end has to be after the start of the trim."), 4000)
+                self.statusBar().showMessage(
+                    tr("The end has to be after the start of the trim."), 4000)
                 return
             new.edit.end = t if t < item.info.duration - 0.05 else None
         self.push_settings(new, tr("Trim"))
@@ -196,7 +204,8 @@ class EditingMixin:
     def apply_to_all(self) -> None:
         source = self.current
         if source is None or len(self.items) < 2:
-            self.statusBar().showMessage(tr("Add more files to copy these settings to them."), 4000)
+            self.statusBar().showMessage(
+                tr("Add more files to copy these settings to them."), 4000)
             return
         self.undo_stack.beginMacro(tr("Apply to all files"))
         for item in self.items:
@@ -204,11 +213,14 @@ class EditingMixin:
                 new = apply_to(item.settings, source.settings)
                 if item.info is not None and not item.info.has_video:
                     new.output = OUTPUT_AUDIO
-                self.undo_stack.push(SettingsCommand(self, item, item.settings, new, tr("Apply to all"), False,
-                                                     reveal=False))
+                self.undo_stack.push(
+                    SettingsCommand(
+                        self, item, item.settings, new, tr("Apply to all"), False, reveal=False))
         self.undo_stack.endMacro()
-        self.statusBar().showMessage(ntr(len(self.items) - 1, "Copied the settings to {n} other file.",
-                                         "Copied the settings to {n} other files."), 4000)
+        self.statusBar().showMessage(
+            ntr(
+                len(self.items) - 1, "Copied the settings to {n} other file.",
+                "Copied the settings to {n} other files."), 4000)
 
     def save_preset(self) -> None:
         if self.current is None:
@@ -217,8 +229,9 @@ class EditingMixin:
         name = name.strip()
         if ok and name:
             if name in self.user_presets and QMessageBox.question(
-                    self, tr("Save preset"), tr("A preset called “{name}” already exists. Replace it?", name=name),
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    self, tr("Save preset"), tr(
+                        "A preset called “{name}” already exists. Replace it?",
+                        name=name), QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
                 return
             self.user_presets[name] = self.current.settings.to_dict()

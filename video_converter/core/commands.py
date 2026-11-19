@@ -39,9 +39,10 @@ def _graph_flag(ffmpeg: str) -> str:
     if ffmpeg not in _graph_flags:
         flag = "-/filter_complex"
         try:
-            text = subprocess.run([ffmpeg, "-version"], capture_output=True, text=True, encoding="utf-8",
-                                  errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
-                                  timeout=15).stdout
+            text = subprocess.run(
+                [ffmpeg, "-version"], capture_output=True, text=True, encoding="utf-8",
+                errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
+                timeout=15).stdout
             match = re.search(r"version n?(\d+)\.", text)
             if match and int(match.group(1)) < 7:
                 flag = "-filter_complex_script"
@@ -52,8 +53,9 @@ def _graph_flag(ffmpeg: str) -> str:
 
 
 def has_long_graph(cmd: list[str]) -> bool:
-    return any(arg == "-filter_complex" and i + 1 < len(cmd) and len(cmd[i + 1]) > GRAPH_FILE_MIN
-               for i, arg in enumerate(cmd))
+    return any(
+        arg == "-filter_complex" and i + 1 < len(cmd) and len(cmd[i + 1]) > GRAPH_FILE_MIN
+        for i, arg in enumerate(cmd))
 
 
 def with_graph_files(cmd: list[str], folder: Path) -> list[str]:

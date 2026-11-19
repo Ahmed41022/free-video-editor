@@ -22,12 +22,36 @@ log = logging.getLogger(__name__)
 # file two or three times as big for the same look. Between and beyond the anchors the numbers follow a
 # straight line. AMD's are what they always were (not measured: there is no AMD card to try them on).
 QUALITY_ANCHORS: dict[str, dict[int, int]] = {
-    "h264_nvenc": {18: 27, 23: 31, 28: 37},
-    "hevc_nvenc": {18: 29, 23: 34, 28: 40},
-    "h264_qsv": {18: 19, 23: 26, 28: 31},
-    "hevc_qsv": {18: 26, 23: 30, 28: 34},
-    "h264_amf": {18: 23, 23: 28, 28: 33},
-    "hevc_amf": {18: 23, 23: 28, 28: 33},
+    "h264_nvenc": {
+        18: 27,
+        23: 31,
+        28: 37
+    },
+    "hevc_nvenc": {
+        18: 29,
+        23: 34,
+        28: 40
+    },
+    "h264_qsv": {
+        18: 19,
+        23: 26,
+        28: 31
+    },
+    "hevc_qsv": {
+        18: 26,
+        23: 30,
+        28: 34
+    },
+    "h264_amf": {
+        18: 23,
+        23: 28,
+        28: 33
+    },
+    "hevc_amf": {
+        18: 23,
+        23: 28,
+        28: 33
+    },
 }
 
 
@@ -39,7 +63,8 @@ def card_quality(encoder: str, crf: int) -> int:
     elif crf >= anchors[-1][0]:
         value = anchors[-1][1] + (crf - anchors[-1][0])
     else:
-        (x0, y0), (x1, y1) = next(pair for pair in zip(anchors, anchors[1:]) if pair[0][0] <= crf <= pair[1][0])
+        (x0, y0), (x1, y1) = next(
+            pair for pair in zip(anchors, anchors[1:]) if pair[0][0] <= crf <= pair[1][0])
         value = y0 + (y1 - y0) * (crf - x0) / (x1 - x0)
     return max(round(value), 0)
 
@@ -51,19 +76,26 @@ def card_quality(encoder: str, crf: int) -> int:
 # quality, with a second look at every frame (multipass) and adaptive quantization, which spends the
 # bits where the eye sees them: without those it is far behind x264.
 def _nvenc(name: str) -> Callable[[int, float], list[str]]:
-    return lambda crf, fps: ["-c:v", name, "-preset", "p5", "-rc", "vbr", "-cq", str(card_quality(name, crf)),
-                             "-b:v", "0", "-multipass", "fullres", "-spatial-aq", "1", "-temporal-aq", "1",
-                             "-pix_fmt", "yuv420p"]
+    return lambda crf, fps: [
+        "-c:v", name, "-preset", "p5", "-rc", "vbr", "-cq",
+        str(card_quality(name, crf)), "-b:v", "0", "-multipass", "fullres", "-spatial-aq", "1",
+        "-temporal-aq", "1", "-pix_fmt", "yuv420p"
+    ]
 
 
 def _qsv(name: str) -> Callable[[int, float], list[str]]:
-    return lambda crf, fps: ["-c:v", name, "-preset", "medium", "-global_quality", str(card_quality(name, crf)),
-                             "-r", f"{fps:.6g}", "-pix_fmt", "nv12"]
+    return lambda crf, fps: [
+        "-c:v", name, "-preset", "medium", "-global_quality",
+        str(card_quality(name, crf)), "-r", f"{fps:.6g}", "-pix_fmt", "nv12"
+    ]
 
 
 def _amf(name: str) -> Callable[[int, float], list[str]]:
-    return lambda crf, fps: ["-c:v", name, "-quality", "balanced", "-rc", "cqp", "-qp_i", str(card_quality(name, crf)),
-                             "-qp_p", str(card_quality(name, crf)), "-pix_fmt", "yuv420p"]
+    return lambda crf, fps: [
+        "-c:v", name, "-quality", "balanced", "-rc", "cqp", "-qp_i",
+        str(card_quality(name, crf)), "-qp_p",
+        str(card_quality(name, crf)), "-pix_fmt", "yuv420p"
+    ]
 
 
 ENCODERS: dict[str, Callable[[int, float], list[str]]] = {
@@ -90,8 +122,8 @@ LABELS = {
     "h264_amf": N_("AMD graphics card"),
 }
 
-PROBE_SECONDS = 15        # a graphics card that wakes up slowly still gets a fair chance
-CPU_FALLBACK_NOTE = N_("Exported on the CPU because the graphics card failed")     # show it with tr()
+PROBE_SECONDS = 15  # a graphics card that wakes up slowly still gets a fair chance
+CPU_FALLBACK_NOTE = N_("Exported on the CPU because the graphics card failed")  # show it with tr()
 
 
 def encoder_codec(encoder: str) -> str:
@@ -114,8 +146,9 @@ def _bitrate_args(encoder: str, kbps: int) -> list[str]:
     return ["-b:v", *limit]
 
 
-def encoder_args(encoder: str, crf: int, fps: float, level: Optional[str] = None,
-                 kbps: Optional[int] = None) -> list[str]:
+def encoder_args(
+        encoder: str, crf: int, fps: float, level: Optional[str] = None,
+        kbps: Optional[int] = None) -> list[str]:
     """The ffmpeg video options for `encoder` at quality `crf`, for a video at `fps` frames a second.
     With a `level` such as "4.2" the video is H.264 High profile at that level (a phone-safe export);
     all three encoders take the level as its number, 42. With `kbps` the picture gets that bitrate
@@ -123,7 +156,7 @@ def encoder_args(encoder: str, crf: int, fps: float, level: Optional[str] = None
     args = (ENCODERS[encoder] if encoder in ENCODERS else HEVC_ENCODERS[encoder])(crf, fps)
     if kbps:
         kept, skip = [], False
-        for arg in args:            # each quality option comes with its value
+        for arg in args:  # each quality option comes with its value
             if skip:
                 skip = False
             elif arg in _QUALITY_OPTIONS:
@@ -139,18 +172,21 @@ def encoder_args(encoder: str, crf: int, fps: float, level: Optional[str] = None
 def _encoder_works(ffmpeg: str, encoder: str) -> bool:
     """Whether ffmpeg can really encode with `encoder` here. Being listed by `-encoders` proves
     nothing: the program is built with all of them, but the PC needs the matching hardware and driver."""
-    cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
-           "color=c=gray:s=256x144:d=0.2:r=25", *encoder_args(encoder, 23, 25.0), "-f", "null", "-"]
+    cmd = [
+        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
+        "color=c=gray:s=256x144:d=0.2:r=25", *encoder_args(encoder, 23, 25.0), "-f", "null", "-"
+    ]
     try:
-        result = subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
-                                timeout=PROBE_SECONDS)
+        result = subprocess.run(
+            cmd, capture_output=True, stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
+            timeout=PROBE_SECONDS)
     except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0
 
 
 _lock = threading.Lock()
-_found: dict[str, tuple[str, ...]] = {}       # ffmpeg path -> working encoders, best first
+_found: dict[str, tuple[str, ...]] = {}  # ffmpeg path -> working encoders, best first
 
 
 def detect_encoders(ffmpeg: str, codec: str = "h264") -> tuple[str, ...]:
@@ -164,8 +200,9 @@ def detect_encoders(ffmpeg: str, codec: str = "h264") -> tuple[str, ...]:
         with ThreadPoolExecutor(max_workers=len(names), thread_name_prefix="gpu-probe") as pool:
             works = list(pool.map(lambda name: _encoder_works(ffmpeg, name), names))
         _found[key] = tuple(name for name, ok in zip(names, works) if ok)
-        log.info("Hardware %sencoders that work: %s", "" if codec == "h264" else "H.265 ",
-                 ", ".join(_found[key]) or "none")
+        log.info(
+            "Hardware %sencoders that work: %s", "" if codec == "h264" else "H.265 ",
+            ", ".join(_found[key]) or "none")
         return _found[key]
 
 
@@ -194,10 +231,12 @@ def gpu_name(encoder: str) -> str:
     label = LABELS.get(encoder) or LABELS.get(encoder.replace("hevc", "h264"), N_("graphics card"))
     if encoder.endswith("_nvenc"):
         try:
-            result = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                                    capture_output=True, text=True, encoding="utf-8", errors="replace",
-                                    stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, timeout=5)
-            name = result.stdout.strip().splitlines()[0].strip() if result.returncode == 0 and result.stdout.strip() else ""
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True,
+                text=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+                creationflags=_NO_WINDOW, timeout=5)
+            name = result.stdout.strip().splitlines()[0].strip(
+            ) if result.returncode == 0 and result.stdout.strip() else ""
         except (OSError, subprocess.SubprocessError):
             name = ""
         if name:

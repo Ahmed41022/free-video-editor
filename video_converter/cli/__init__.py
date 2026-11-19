@@ -20,7 +20,4 @@ from __future__ import annotations
 
 from .run import main, run_cli
 
-__all__ = [
-    "main",
-    "run_cli",
-]
+__all__ = ["main", "run_cli", ]

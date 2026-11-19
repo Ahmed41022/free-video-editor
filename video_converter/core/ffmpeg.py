@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+
 def find_ffmpeg() -> Optional[str]:
     """Return a path to an ffmpeg executable, or None if none can be found.
 
@@ -21,7 +22,8 @@ def find_ffmpeg() -> Optional[str]:
 
     bundle_dir = getattr(sys, "_MEIPASS", None)  # set by PyInstaller
     if bundle_dir:
-        bundled = Path(bundle_dir) / "ffmpeg" / ("ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
+        bundled = Path(bundle_dir) / "ffmpeg" / (
+            "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
         if bundled.is_file():
             return str(bundled)
 

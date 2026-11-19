@@ -28,8 +28,8 @@ log = logging.getLogger(__name__)
 # code -> the language's own name, as shown in the View > Language menu.
 LANGUAGES = {"en": "English", "ar": "العربية"}
 RTL_LANGUAGES = frozenset({"ar"})
-SYSTEM = "system"             # the setting's value for "Same as Windows"
-SETTING_KEY = "language"      # where the choice is kept in the app's QSettings
+SYSTEM = "system"  # the setting's value for "Same as Windows"
+SETTING_KEY = "language"  # where the choice is kept in the app's QSettings
 LOCALES_DIR = Path(__file__).resolve().parent / "locales"
 
 _language = "en"
@@ -51,7 +51,10 @@ def load_table(code: str) -> dict[str, object]:
     except (OSError, ValueError):
         log.warning("No usable translations in %s", path)
         return {}
-    return {key: value for key, value in data.items() if not key.startswith("@")} if isinstance(data, dict) else {}
+    return {
+        key: value
+        for key, value in data.items() if not key.startswith("@")
+    } if isinstance(data, dict) else {}
 
 
 def set_language(code: str) -> str:
@@ -75,7 +78,7 @@ def is_rtl(code: Optional[str] = None) -> bool:
 def tr(text: str, /, **fmt) -> str:
     """`text` in the current language, with `{name}` placeholders filled from `fmt`."""
     value = _table.get(text, text)
-    if isinstance(value, dict):          # a plural entry used without a count
+    if isinstance(value, dict):  # a plural entry used without a count
         value = value.get("other", text)
     if not isinstance(value, str):
         value = text
@@ -135,7 +138,8 @@ def ntr(count: int, one: str, other: str, /, **fmt) -> str:
     ("zero", "one", "two", "few", "many", "other"; a missing one falls back to "other")."""
     entry = _table.get(one)
     if isinstance(entry, dict):
-        form = entry.get(plural_category(count)) or entry.get("other") or (one if count == 1 else other)
+        form = entry.get(
+            plural_category(count)) or entry.get("other") or (one if count == 1 else other)
     elif isinstance(entry, str):
         form = entry
     else:
@@ -144,6 +148,7 @@ def ntr(count: int, one: str, other: str, /, **fmt) -> str:
 
 
 # ----- which language to use -----------------------------------------------------------
+
 
 def system_ui_language() -> str:
     """The primary language code of Windows' display language ("ar", "en", ...), or "" when it is unknown."""

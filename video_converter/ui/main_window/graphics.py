@@ -23,7 +23,8 @@ class GraphicsMixin:
             return
         self._gpu_started = True
         self._gpu_timer.stop()
-        if os.environ.get("VIDEO_EDITOR_NO_GPU_SEARCH") == "1":      # set by the tests: never touch the card
+        if os.environ.get(
+                "VIDEO_EDITOR_NO_GPU_SEARCH") == "1":  # set by the tests: never touch the card
             self.signals.gpuReady.emit(((), None))
             return
         threading.Thread(target=self._find_gpu, name="gpu-search", daemon=True).start()
@@ -33,7 +34,7 @@ class GraphicsMixin:
         try:
             found = gpu.detect_encoders(self.ffmpeg)
             name = gpu.gpu_name(found[0]) if found else None
-        except Exception:      # never let this stop the app
+        except Exception:  # never let this stop the app
             found, name = (), None
         self.signals.gpuReady.emit((found, name))
 

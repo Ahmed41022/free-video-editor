@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 from ... import APP_NAME, updates
 from ...i18n import tr
 
+
 class UpdatesMixin:
     """Checking for a newer version."""
 
@@ -56,13 +57,18 @@ class UpdatesMixin:
         except (TypeError, ValueError):
             last = 0.0
         # The check works on a copy of the settings: only this thread touches the real ones.
-        copy = updates.MemoryStore({updates.ENABLED_KEY: True, updates.LAST_CHECK_KEY: last,
-                                    updates.SKIPPED_KEY: skipped})
+        copy = updates.MemoryStore(
+            {
+                updates.ENABLED_KEY: True,
+                updates.LAST_CHECK_KEY: last,
+                updates.SKIPPED_KEY: skipped
+            })
 
         def work() -> None:
             release = updates.check_for_update(copy, fetch)
             made = copy.values[updates.LAST_CHECK_KEY]
             self.signals.updateChecked.emit(made if made != last else None, release)
+
         threading.Thread(target=work, name="update-check", daemon=True).start()
 
     def _on_update_checked(self, made, release) -> None:
@@ -72,7 +78,8 @@ class UpdatesMixin:
             self.store.setValue(updates.LAST_CHECK_KEY, made)
         if release is not None and self.check_updates:
             self.update_release = release
-            self.update_label.setText(tr("{app} {version} is available", app=APP_NAME, version=release.version))
+            self.update_label.setText(
+                tr("{app} {version} is available", app=APP_NAME, version=release.version))
             self.update_banner.show()
 
     def _download_update(self) -> None:

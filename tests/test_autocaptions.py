@@ -42,27 +42,34 @@ def assert_well_formed(test: unittest.TestCase, cues: list) -> None:
         test.assertLessEqual(cue.end - cue.start, ac.MAX_DURATION + 1e-6, cue.text)
         test.assertGreater(cue.end, cue.start)
         if i:
-            test.assertLessEqual(cues[i - 1].end, cue.start + 1e-6, f"{cues[i - 1]} overlaps {cue}")
+            test.assertLessEqual(
+                cues[i - 1].end, cue.start + 1e-6, f"{cues[i - 1]} overlaps {cue}")
 
 
-ENGLISH = ("Hello everyone and welcome back to the channel. Today we are going to talk about something really "
-           "interesting, which is how to edit videos quickly and easily without any complicated software. "
-           "Let's get started.")
-ARABIC = ("مرحبا بكم في قناتنا اليوم سوف نتحدث عن موضوع مهم جدا وهو كيف نقوم بتحرير مقاطع الفيديو بسرعة "
-          "وسهولة، ثم نبدأ بالشرح خطوة بخطوة. شكرا لكم على المتابعة.")
+ENGLISH = (
+    "Hello everyone and welcome back to the channel. Today we are going to talk about something really "
+    "interesting, which is how to edit videos quickly and easily without any complicated software. "
+    "Let's get started.")
+ARABIC = (
+    "مرحبا بكم في قناتنا اليوم سوف نتحدث عن موضوع مهم جدا وهو كيف نقوم بتحرير مقاطع الفيديو بسرعة "
+    "وسهولة، ثم نبدأ بالشرح خطوة بخطوة. شكرا لكم على المتابعة.")
 
 
 class WrapTests(unittest.TestCase):
+
     def test_short_text_stays_on_one_line(self):
         self.assertEqual(ac.wrap_lines("Hello there"), ["Hello there"])
         self.assertEqual(ac.wrap_lines("x" * 42), ["x" * 42])
 
     def test_longer_text_is_split_into_two_even_lines_of_at_most_42(self):
-        lines = ac.wrap_lines("The quick brown fox jumps over the lazy dog and keeps on running far away")
+        lines = ac.wrap_lines(
+            "The quick brown fox jumps over the lazy dog and keeps on running far away")
         self.assertEqual(len(lines), 2)
         self.assertTrue(all(len(line) <= 42 for line in lines))
         self.assertLess(abs(len(lines[0]) - len(lines[1])), 14)
-        self.assertEqual(" ".join(lines), "The quick brown fox jumps over the lazy dog and keeps on running far away")
+        self.assertEqual(
+            " ".join(lines),
+            "The quick brown fox jumps over the lazy dog and keeps on running far away")
 
     def test_a_break_after_a_comma_is_preferred_when_it_costs_little(self):
         lines = ac.wrap_lines("When we got home late at night, everybody was already sound asleep")
@@ -90,6 +97,7 @@ class WrapTests(unittest.TestCase):
 
 
 class BuildCuesTests(unittest.TestCase):
+
     def test_a_talk_becomes_short_readable_cues_that_end_at_sentences(self):
         cues = ac.build_cues(words(ENGLISH))
         assert_well_formed(self, cues)
@@ -114,7 +122,8 @@ class BuildCuesTests(unittest.TestCase):
         self.assertEqual(len(cues), 1)
 
     def test_speech_with_no_punctuation_still_obeys_the_limits(self):
-        cues = ac.build_cues(words("and then we went on and on and on talking " * 12, per_word=0.4, gap=0.0))
+        cues = ac.build_cues(
+            words("and then we went on and on and on talking " * 12, per_word=0.4, gap=0.0))
         assert_well_formed(self, cues)
         self.assertGreater(len(cues), 5)
 
@@ -129,8 +138,11 @@ class BuildCuesTests(unittest.TestCase):
         self.assertEqual((cues[0].start, cues[0].end), (3.0, 4.0))
 
     def test_a_short_cue_is_not_stretched_into_the_next_one(self):
-        pieces = [ac.Piece(0.0, 0.5, " Okay that works for me."), ac.Piece(0.55, 1.0, " Great"),
-                  ac.Piece(1.0, 1.4, " see you.")]
+        pieces = [
+            ac.Piece(0.0, 0.5, " Okay that works for me."),
+            ac.Piece(0.55, 1.0, " Great"),
+            ac.Piece(1.0, 1.4, " see you.")
+        ]
         cues = ac.build_cues(pieces)
         assert_well_formed(self, cues)
         self.assertEqual(len(cues), 2)
@@ -146,7 +158,8 @@ class BuildCuesTests(unittest.TestCase):
     def test_times_are_moved_by_the_offset_of_the_trim(self):
         plain = ac.build_cues(words("Hello there. General Kenobi."))
         moved = ac.build_cues(words("Hello there. General Kenobi."), offset=12.5)
-        self.assertEqual([(c.start + 12.5, c.end + 12.5) for c in plain], [(c.start, c.end) for c in moved])
+        self.assertEqual(
+            [(c.start + 12.5, c.end + 12.5) for c in plain], [(c.start, c.end) for c in moved])
 
     def test_cues_past_the_end_of_the_listened_part_are_dropped_and_clipped(self):
         cues = ac.build_cues(words("Hello there. General Kenobi."), offset=0, limit=1.0)
@@ -171,6 +184,7 @@ class BuildCuesTests(unittest.TestCase):
 
 
 class SegmentTests(unittest.TestCase):
+
     def segment(self, start, end, text, words=None):
         return SimpleNamespace(start=start, end=end, text=text, words=words)
 
@@ -178,9 +192,12 @@ class SegmentTests(unittest.TestCase):
         return SimpleNamespace(start=start, end=end, word=text, probability=0.9)
 
     def test_words_with_their_times_are_used_when_there_are_any(self):
-        seg = self.segment(1.0, 2.0, " Hi there", [self.word(1.0, 1.4, " Hi"), self.word(1.5, 2.0, " there")])
+        seg = self.segment(
+            1.0, 2.0, " Hi there",
+            [self.word(1.0, 1.4, " Hi"), self.word(1.5, 2.0, " there")])
         pieces = ac.pieces_from_segments([seg])
-        self.assertEqual([(p.start, p.end, p.text) for p in pieces], [(1.0, 1.4, " Hi"), (1.5, 2.0, " there")])
+        self.assertEqual(
+            [(p.start, p.end, p.text) for p in pieces], [(1.0, 1.4, " Hi"), (1.5, 2.0, " there")])
 
     def test_a_segment_without_word_times_is_spread_over_its_time(self):
         pieces = ac.pieces_from_segments([self.segment(10.0, 13.0, " one two three four")])
@@ -202,11 +219,16 @@ class SegmentTests(unittest.TestCase):
 
 
 class SrtTests(unittest.TestCase):
+
     def test_the_file_reads_back_the_same_with_the_existing_parser(self):
-        cues = [Cue(0.5, 2.25, "Hello there"), Cue(3.0, 5.123, "Second line\nof two"),
-                Cue(3661.5, 3665.0, "مرحبا بكم\nفي قناتنا")]
+        cues = [
+            Cue(0.5, 2.25, "Hello there"),
+            Cue(3.0, 5.123, "Second line\nof two"),
+            Cue(3661.5, 3665.0, "مرحبا بكم\nفي قناتنا")
+        ]
         back = parse_cues(format_srt(cues))
-        self.assertEqual([(c.start, c.end, c.text) for c in back], [(c.start, c.end, c.text) for c in cues])
+        self.assertEqual(
+            [(c.start, c.end, c.text) for c in back], [(c.start, c.end, c.text) for c in cues])
 
     def test_the_cues_are_numbered_from_one(self):
         text = format_srt([Cue(0, 1, "a"), Cue(1, 2, "b")])
@@ -236,7 +258,10 @@ class SrtTests(unittest.TestCase):
 
     def test_the_output_folder_is_made_if_needed(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = ac.save_captions([Cue(0, 1, "a")], Path(tmp) / "talk.mp4", Path(tmp) / "new" / "folder")
+            path = ac.save_captions(
+                [Cue(0, 1, "a")],
+                Path(tmp) / "talk.mp4",
+                Path(tmp) / "new" / "folder")
             self.assertEqual(path, Path(tmp) / "new" / "folder" / "talk.srt")
             self.assertTrue(path.is_file())
 
@@ -257,7 +282,12 @@ class TimeMappingTests(unittest.TestCase):
             write_srt(cues, path)
             out, kind, _ = retimed_subtitles(Subtitles(file=str(path)), segments, speed, reverse)
             self.assertEqual(kind, "srt")
-            return [(round(c.start, 3), round(c.end, 3), c.text.replace("\u202b", "").replace("\u202c", "")) for c in parse_cues(read_text(out))]
+            return [
+                (
+                    round(c.start, 3), round(c.end, 3), c.text.replace("\u202b",
+                                                                       "").replace("\u202c", ""))
+                for c in parse_cues(read_text(out))
+            ]
 
     def test_cues_made_from_a_trim_land_on_the_right_second_of_the_export(self):
         # The trim started at 10 s of the source; the model's times are counted from there.
@@ -270,11 +300,11 @@ class TimeMappingTests(unittest.TestCase):
         cues = [Cue(1.0, 2.0, "before"), Cue(3.5, 4.5, "cut out"), Cue(6.0, 8.0, "after")]
         out = self.retime(cues, [(0.0, 3.0), (5.0, 10.0)])
         self.assertEqual([c[2] for c in out], ["before", "after"])
-        self.assertEqual(out[1][:2], (4.0, 6.0))                 # 6 s of the source is 4 s into the export
+        self.assertEqual(out[1][:2], (4.0, 6.0))  # 6 s of the source is 4 s into the export
 
     def test_a_cue_across_a_cut_shows_before_and_after_it(self):
         out = self.retime([Cue(2.0, 6.0, "long")], [(0.0, 3.0), (5.0, 10.0)])
-        self.assertEqual(out, [(2.0, 4.0, "long")])         # the two pieces meet, so they are one cue
+        self.assertEqual(out, [(2.0, 4.0, "long")])  # the two pieces meet, so they are one cue
 
     def test_speed_shortens_the_times(self):
         out = self.retime([Cue(2.0, 4.0, "fast")], [(0.0, 10.0)], speed=2.0)
@@ -298,11 +328,13 @@ class TimeMappingTests(unittest.TestCase):
             write_srt([Cue(1.0, 3.0, "مرحبا بكم\nفي قناتنا")], path)
             out, _, _ = retimed_subtitles(Subtitles(file=str(path)), [(0.0, 10.0)])
             body = read_text(out).split("\n")[2:4]
-        self.assertTrue(all(line.startswith("\u202b") and line.endswith("\u202c") for line in body), body)
+        self.assertTrue(
+            all(line.startswith("\u202b") and line.endswith("\u202c") for line in body), body)
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is needed")
 class PipelineTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -318,8 +350,10 @@ class PipelineTests(unittest.TestCase):
     @classmethod
     def make(cls, name, sound):
         path = cls.tmp / name
-        cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-               "color=c=0x203040:s=160x90:d=10:r=10"]
+        cmd = [
+            FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+            "color=c=0x203040:s=160x90:d=10:r=10"
+        ]
         if sound:
             cmd += ["-f", "lavfi", "-i", sound, "-t", "10", "-c:a", "aac"]
         cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)]
@@ -336,11 +370,16 @@ class PipelineTests(unittest.TestCase):
 
     def fake_model(self, segments=None, language="en"):
         if segments is None:
-            segments = [SimpleNamespace(start=0.5, end=3.0, text=" Hello there.", words=[
-                SimpleNamespace(start=0.5, end=1.0, word=" Hello", probability=1.0),
-                SimpleNamespace(start=1.2, end=2.0, word=" there.", probability=1.0)])]
+            segments = [
+                SimpleNamespace(
+                    start=0.5, end=3.0, text=" Hello there.", words=[
+                        SimpleNamespace(start=0.5, end=1.0, word=" Hello", probability=1.0),
+                        SimpleNamespace(start=1.2, end=2.0, word=" there.", probability=1.0)
+                    ])
+            ]
         model = mock.Mock()
-        model.transcribe.side_effect = lambda audio, **kwargs: (iter(segments), SimpleNamespace(language=language))
+        model.transcribe.side_effect = lambda audio, **kwargs: (
+            iter(segments), SimpleNamespace(language=language))
         return model
 
     def run_captions(self, source=None, loader=None, model=None, **options):
@@ -352,22 +391,25 @@ class PipelineTests(unittest.TestCase):
             return model
 
         progress = []
-        result = ac.make_captions(FFMPEG, source or self.talk, ac.CaptionOptions(model="fast", **options), 10.0,
-                                  root=self.models, on_progress=lambda *a: progress.append(a), cancel_event=None,
-                                  loader=loader or load, opener=self.server)
+        result = ac.make_captions(
+            FFMPEG, source or self.talk, ac.CaptionOptions(model="fast", **options), 10.0,
+            root=self.models, on_progress=lambda *a: progress.append(a), cancel_event=None,
+            loader=loader or load, opener=self.server)
         self.progress, self.model_object = progress, model
         return result
 
     def test_cues_come_back_in_source_time_with_the_language(self):
         result = self.run_captions()
         self.assertEqual(result.language, "en")
-        self.assertEqual([(c.start, c.end, c.text) for c in result.cues], [(0.5, 2.0, "Hello there.")])
+        self.assertEqual(
+            [(c.start, c.end, c.text) for c in result.cues], [(0.5, 2.0, "Hello there.")])
 
     def test_a_trim_moves_the_cues_to_where_the_speech_is_in_the_source(self):
         result = self.run_captions(start=4.0, end=9.0)
         self.assertAlmostEqual(result.cues[0].start, 4.5, places=3)
         audio = self.model_object.transcribe.call_args.args[0]
-        self.assertAlmostEqual(len(audio) / 16000, 5.0, delta=0.1)       # only the trimmed part was listened to
+        self.assertAlmostEqual(
+            len(audio) / 16000, 5.0, delta=0.1)  # only the trimmed part was listened to
 
     def test_the_model_is_asked_for_vad_word_times_and_the_chosen_language(self):
         self.run_captions(language="ar")
@@ -410,15 +452,19 @@ class PipelineTests(unittest.TestCase):
 
     def test_a_model_that_fails_its_check_is_never_loaded(self):
         folder = sm.download_model(self.model, self.models, open_=self.server)
-        (folder / "model.bin").write_bytes(FILES["model.bin"][::-1])          # same size, other content
-        self.server.tamper = {"model.bin": FILES["model.bin"][::-1]}           # and the server only has the bad one
+        (folder / "model.bin").write_bytes(FILES["model.bin"][::-1])  # same size, other content
+        self.server.tamper = {
+            "model.bin": FILES["model.bin"][::-1]
+        }  # and the server only has the bad one
         with self.assertRaises(ConversionError):
             self.run_captions()
         self.assertEqual(self.loaded, [])
 
     def test_progress_while_listening_follows_the_segment_times(self):
-        segments = [SimpleNamespace(start=0.0, end=5.0, text=" a b", words=None),
-                    SimpleNamespace(start=5.0, end=10.0, text=" c d", words=None)]
+        segments = [
+            SimpleNamespace(start=0.0, end=5.0, text=" a b", words=None),
+            SimpleNamespace(start=5.0, end=10.0, text=" c d", words=None)
+        ]
         self.run_captions(model=self.fake_model(segments))
         listening = [round(p[1], 2) for p in self.progress if p[0] == ac.LISTENING]
         self.assertEqual(listening, [0.0, 0.5, 1.0, 1.0])
@@ -430,7 +476,7 @@ class PipelineTests(unittest.TestCase):
     def test_a_video_with_no_sound_track_says_so(self):
         with self.assertRaisesRegex(ConversionError, "no sound"):
             self.run_captions(source=self.mute)
-        self.assertEqual(self.server.requests, [])         # nothing was downloaded for it
+        self.assertEqual(self.server.requests, [])  # nothing was downloaded for it
 
     def test_digital_silence_needs_neither_the_model_nor_a_download(self):
         result = self.run_captions(source=self.silent)
@@ -447,18 +493,22 @@ class PipelineTests(unittest.TestCase):
             yield SimpleNamespace(start=1, end=2, text=" b", words=None)
 
         model = mock.Mock()
-        model.transcribe.side_effect = lambda audio, **kwargs: (segments(), SimpleNamespace(language="en"))
+        model.transcribe.side_effect = lambda audio, **kwargs: (
+            segments(), SimpleNamespace(language="en"))
         with self.assertRaises(ConversionCancelled):
-            ac.make_captions(FFMPEG, self.talk, ac.CaptionOptions(model="fast"), 10.0, root=self.models,
-                             cancel_event=cancel, loader=lambda folder: model, opener=self.server)
+            ac.make_captions(
+                FFMPEG, self.talk, ac.CaptionOptions(model="fast"), 10.0, root=self.models,
+                cancel_event=cancel, loader=lambda folder: model, opener=self.server)
 
     def test_cancelling_during_the_download_stops_it_and_keeps_the_part(self):
         cancel = threading.Event()
         with mock.patch.object(sm, "CHUNK", 1000):
             with self.assertRaises(ConversionCancelled):
-                ac.make_captions(FFMPEG, self.talk, ac.CaptionOptions(model="fast"), 10.0, root=self.models,
-                                 on_progress=lambda phase, f, t: cancel.set() if phase == ac.DOWNLOADING else None,
-                                 cancel_event=cancel, loader=lambda folder: self.fake_model(), opener=self.server)
+                ac.make_captions(
+                    FFMPEG, self.talk, ac.CaptionOptions(model="fast"), 10.0, root=self.models,
+                    on_progress=lambda phase, f, t: cancel.set()
+                    if phase == ac.DOWNLOADING else None, cancel_event=cancel,
+                    loader=lambda folder: self.fake_model(), opener=self.server)
         self.assertTrue(any((self.models / "tiny.downloading").glob("*.part")))
 
     def test_a_problem_inside_the_speech_engine_becomes_a_plain_error(self):
@@ -468,6 +518,7 @@ class PipelineTests(unittest.TestCase):
             self.run_captions(model=model)
 
     def test_a_model_that_cannot_load_gives_a_plain_error(self):
+
         def broken(folder):
             raise ConversionError("Couldn't load the speech model: bad file")
 
@@ -478,7 +529,8 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(ConversionError, "accuracy"):
             ac.make_captions(FFMPEG, self.talk, ac.CaptionOptions(model="huge"), 10.0)
         with self.assertRaisesRegex(ConversionError, "language"):
-            ac.make_captions(FFMPEG, self.talk, ac.CaptionOptions(model="fast", language="xx"), 10.0)
+            ac.make_captions(
+                FFMPEG, self.talk, ac.CaptionOptions(model="fast", language="xx"), 10.0)
 
     def test_an_empty_trim_is_refused(self):
         with self.assertRaisesRegex(ConversionError, "empty"):
@@ -490,8 +542,11 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(set(Path(tempfile.gettempdir()).glob("fve-speech-*")) - before, set())
 
     def test_the_whole_chain_cuts_into_sensible_cues_and_survives_a_cut_in_the_edit(self):
-        words_ = [SimpleNamespace(start=0.4 * i, end=0.4 * i + 0.3, word=f" w{i}" + ("." if i % 5 == 4 else ""),
-                                  probability=1.0) for i in range(15)]
+        words_ = [
+            SimpleNamespace(
+                start=0.4 * i, end=0.4 * i + 0.3, word=f" w{i}" + ("." if i % 5 == 4 else ""),
+                probability=1.0) for i in range(15)
+        ]
         segment = SimpleNamespace(start=0.0, end=6.0, text="", words=words_)
         result = self.run_captions(model=self.fake_model([segment]))
         assert_well_formed(self, result.cues)
@@ -503,7 +558,8 @@ class PipelineTests(unittest.TestCase):
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is needed")
 @unittest.skipUnless(ENGINE, "the speech engine (faster-whisper) is not installed")
-@unittest.skipUnless(sm.is_downloaded(sm.MODELS["fast"]), "the Fast speech model hasn't been downloaded on this PC")
+@unittest.skipUnless(
+    sm.is_downloaded(sm.MODELS["fast"]), "the Fast speech model hasn't been downloaded on this PC")
 class RealModelTests(unittest.TestCase):
     """Runs the real Fast model on made-up sound. There is no speech in it to check the words of, so this
     only shows that the whole chain runs and ends gracefully."""
@@ -519,24 +575,31 @@ class RealModelTests(unittest.TestCase):
 
     def make(self, name, sound):
         path = self.tmp / name
-        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", sound, "-t", "4",
-                        str(path)], check=True)
+        subprocess.run(
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", sound,
+                "-t", "4",
+                str(path)
+            ], check=True)
         return path
 
     def test_a_tone_runs_through_the_real_model_without_a_crash(self):
-        result = ac.make_captions(FFMPEG, self.make("tone.wav", "sine=frequency=440:duration=4"),
-                                  ac.CaptionOptions(model="fast"), 4.0)
+        result = ac.make_captions(
+            FFMPEG, self.make("tone.wav", "sine=frequency=440:duration=4"),
+            ac.CaptionOptions(model="fast"), 4.0)
         self.assertIsInstance(result.cues, list)
         assert_well_formed(self, result.cues)
 
     def test_noise_runs_through_the_real_model_without_a_crash(self):
-        result = ac.make_captions(FFMPEG, self.make("noise.wav", "anoisesrc=d=4:c=pink:a=0.2"),
-                                  ac.CaptionOptions(model="fast", language="en"), 4.0)
+        result = ac.make_captions(
+            FFMPEG, self.make("noise.wav", "anoisesrc=d=4:c=pink:a=0.2"),
+            ac.CaptionOptions(model="fast", language="en"), 4.0)
         self.assertIsInstance(result.cues, list)
         assert_well_formed(self, result.cues)
 
 
 class SelfTestTests(unittest.TestCase):
+
     @unittest.skipUnless(ENGINE, "the speech engine (faster-whisper) is not installed")
     def test_the_engine_and_its_voice_detector_load(self):
         self.assertTrue(ac.self_test().startswith("ok:"))
@@ -559,11 +622,11 @@ class SelfTestTests(unittest.TestCase):
             from video_converter.ui import app
         except ImportError:
             self.skipTest("PySide6 is not installed")
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(ac, "self_test", side_effect=ImportError("nope")):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+                ac, "self_test", side_effect=ImportError("nope")):
             report = Path(tmp) / "result.txt"
             self.assertEqual(app.captions_self_test(str(report)), 1)
             self.assertIn("FAILED", report.read_text(encoding="utf-8"))
-
 
 
 class ModelRepairTests(unittest.TestCase):
@@ -580,8 +643,8 @@ class ModelRepairTests(unittest.TestCase):
         folder = sm.download_model(self.model, self.root, open_=self.server)
         data = bytearray((folder / name).read_bytes())
         data[3] ^= 0x5A
-        (folder / name).write_bytes(bytes(data))                  # same size, other content
-        self.assertTrue(sm.is_downloaded(self.model, self.root))        # the quick check can't tell
+        (folder / name).write_bytes(bytes(data))  # same size, other content
+        self.assertTrue(sm.is_downloaded(self.model, self.root))  # the quick check can't tell
         with self.assertRaises(ConversionError):
             sm.verify_model(self.model, self.root)
         self.server.requests.clear()
@@ -590,7 +653,8 @@ class ModelRepairTests(unittest.TestCase):
     def test_a_damaged_model_of_the_right_size_is_fetched_again_and_then_verifies(self):
         folder = self.damage()
         seen = []
-        result = ac.ensure_model(self.model, self.root, lambda *a: seen.append(a[0]), opener=self.server)
+        result = ac.ensure_model(
+            self.model, self.root, lambda *a: seen.append(a[0]), opener=self.server)
         self.assertEqual(result, folder)
         self.assertEqual(sm.verify_model(self.model, self.root), folder)
         self.assertIn(ac.DOWNLOADING, seen)
@@ -641,7 +705,9 @@ class SaveFallbackTests(unittest.TestCase):
         real = ac.write_srt
 
         def write(cues, path):
-            if self.video_folder in (Path(path).parent, *Path(path).parent.parents):       # anything under the read-only folder
+            if self.video_folder in (
+                    Path(path).parent,
+                    *Path(path).parent.parents):  # anything under the read-only folder
                 raise PermissionError(13, "Access is denied")
             real(cues, path)
 
@@ -651,28 +717,33 @@ class SaveFallbackTests(unittest.TestCase):
 
     def test_a_folder_that_refuses_the_file_does_not_lose_the_captions(self):
         with self.assertRaises(ConversionError):
-            ac.save_captions(self.CUES, self.video)                     # the plain save still fails, as it should
+            ac.save_captions(self.CUES, self.video)  # the plain save still fails, as it should
         path, moved = ac.save_captions_anywhere(self.CUES, self.video, fallbacks=[self.fallback])
         self.assertTrue(moved)
         self.assertEqual(path, self.fallback / "talk.srt")
-        self.assertEqual([(c.start, c.end, c.text) for c in parse_cues(read_text(path))],
-                         [(c.start, c.end, c.text) for c in self.CUES])
+        self.assertEqual(
+            [(c.start, c.end, c.text) for c in parse_cues(read_text(path))],
+            [(c.start, c.end, c.text) for c in self.CUES])
 
     def test_the_first_fallback_that_works_is_used(self):
         blocked = self.video_folder / "inner"
-        path, moved = ac.save_captions_anywhere(self.CUES, self.video, fallbacks=[blocked, self.fallback])
+        path, moved = ac.save_captions_anywhere(
+            self.CUES, self.video, fallbacks=[blocked, self.fallback])
         self.assertEqual((path.parent, moved), (self.fallback, True))
 
     def test_nothing_changes_when_the_folder_works(self):
         free = self.tmp / "free"
         free.mkdir()
-        path, moved = ac.save_captions_anywhere(self.CUES, free / "talk.mp4", fallbacks=[self.fallback])
+        path, moved = ac.save_captions_anywhere(
+            self.CUES, free / "talk.mp4", fallbacks=[self.fallback])
         self.assertEqual((path, moved), (free / "talk.srt", False))
         self.assertFalse(self.fallback.exists())
 
     def test_when_nowhere_works_the_first_problem_is_reported(self):
         with self.assertRaisesRegex(ConversionError, "Access is denied"):
-            ac.save_captions_anywhere(self.CUES, self.video, fallbacks=[self.video_folder / "a", self.video_folder / "b"])
+            ac.save_captions_anywhere(
+                self.CUES, self.video,
+                fallbacks=[self.video_folder / "a", self.video_folder / "b"])
 
     def test_the_default_fallbacks_are_documents_then_the_temporary_folder(self):
         home = self.tmp / "home"
@@ -691,6 +762,7 @@ class SaveFallbackTests(unittest.TestCase):
 
 
 class CancelTests(unittest.TestCase):
+
     @staticmethod
     def segments(count, consumed, cancel=None, cancel_at=None):
         """A generator that does its 'work' as each segment is asked for and notes it in `consumed`."""
@@ -702,7 +774,8 @@ class CancelTests(unittest.TestCase):
 
     def model(self, factory):
         model = mock.Mock()
-        model.transcribe.side_effect = lambda audio, **kw: (factory(), SimpleNamespace(language="en"))
+        model.transcribe.side_effect = lambda audio, **kw: (
+            factory(), SimpleNamespace(language="en"))
         return model
 
     def test_a_cancel_before_the_start_never_calls_the_engine(self):
@@ -713,11 +786,12 @@ class CancelTests(unittest.TestCase):
             ac.transcribe(model, [0.0], cancel_event=cancel)
         model.transcribe.assert_not_called()
 
-    def test_a_cancel_that_comes_while_the_speech_is_being_looked_for_stops_before_the_first_segment(self):
+    def test_a_cancel_that_comes_while_the_speech_is_being_looked_for_stops_before_the_first_segment(
+            self):
         cancel, consumed = threading.Event(), []
 
         def transcribe(audio, **kwargs):
-            cancel.set()                        # the voice detector / language detection was running
+            cancel.set()  # the voice detector / language detection was running
             return self.segments(5, consumed), SimpleNamespace(language="en")
 
         model = mock.Mock()
@@ -731,11 +805,12 @@ class CancelTests(unittest.TestCase):
         model = self.model(lambda: self.segments(50, consumed, cancel, cancel_at=2))
         with self.assertRaises(ConversionCancelled):
             ac.transcribe(model, [0.0], cancel_event=cancel)
-        self.assertEqual(consumed, [0, 1, 2])           # nothing more was asked of the engine
+        self.assertEqual(consumed, [0, 1, 2])  # nothing more was asked of the engine
 
     def test_without_a_cancel_every_segment_is_read(self):
         consumed = []
-        pieces, language = ac.transcribe(self.model(lambda: self.segments(4, consumed)), [0.0], seconds=4.0)
+        pieces, language = ac.transcribe(
+            self.model(lambda: self.segments(4, consumed)), [0.0], seconds=4.0)
         self.assertEqual(consumed, [0, 1, 2, 3])
         self.assertEqual(language, "en")
         self.assertEqual(len(pieces), 4)
@@ -761,8 +836,10 @@ class CancelTests(unittest.TestCase):
                     cancel.set()
 
             with self.assertRaises(ConversionCancelled):
-                ac.make_captions(FFMPEG, source, ac.CaptionOptions(model="fast"), 1.0, root=root, on_progress=progress,
-                                 cancel_event=cancel, loader=lambda folder: loaded.append(folder))
+                ac.make_captions(
+                    FFMPEG, source, ac.CaptionOptions(model="fast"), 1.0, root=root,
+                    on_progress=progress, cancel_event=cancel,
+                    loader=lambda folder: loaded.append(folder))
         self.assertEqual(loaded, [])
 
 
@@ -772,7 +849,7 @@ class WavMemoryTests(unittest.TestCase):
     def make_wav(self, folder: Path, seconds: int) -> Path:
         import wave
         path = folder / "long.wav"
-        block = bytes(range(256)) * 250                       # 64000 bytes = 2 s of 16 kHz 16-bit mono
+        block = bytes(range(256)) * 250  # 64000 bytes = 2 s of 16 kHz 16-bit mono
         with wave.open(str(path), "wb") as out:
             out.setnchannels(1)
             out.setsampwidth(2)
@@ -793,9 +870,10 @@ class WavMemoryTests(unittest.TestCase):
                 peak = tracemalloc.get_traced_memory()[1]
             finally:
                 tracemalloc.stop()
-            self.assertEqual(audio.shape, (20 * 60 * self.RATE,))
+            self.assertEqual(audio.shape, (20 * 60 * self.RATE, ))
             self.assertEqual(str(audio.dtype), "float32")
-            self.assertLess(peak, 2.2 * size, f"peak {peak / size:.2f} x the WAV")            # it was about 4.9 x
+            self.assertLess(
+                peak, 2.2 * size, f"peak {peak / size:.2f} x the WAV")  # it was about 4.9 x
 
     def test_the_samples_are_converted_exactly(self):
         import wave
@@ -806,7 +884,8 @@ class WavMemoryTests(unittest.TestCase):
                 out.setnchannels(1)
                 out.setsampwidth(2)
                 out.setframerate(self.RATE)
-                out.writeframes(b"".join(int(s).to_bytes(2, "little", signed=True) for s in samples))
+                out.writeframes(
+                    b"".join(int(s).to_bytes(2, "little", signed=True) for s in samples))
             audio = ac.read_wav(path)
         self.assertEqual([float(x) for x in audio], [s / 32768.0 for s in samples])
 
@@ -831,7 +910,7 @@ class WavMemoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = self.make_wav(Path(tmp), 4)
             data = path.read_bytes()
-            path.write_bytes(data[:len(data) // 2])            # cut off in the middle
+            path.write_bytes(data[:len(data) // 2])  # cut off in the middle
             audio = ac.read_wav(path)
         self.assertGreater(len(audio), 0)
         self.assertLess(len(audio), 4 * self.RATE)

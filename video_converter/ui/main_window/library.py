@@ -24,9 +24,9 @@ from .items import MediaItem
 
 log = logging.getLogger(__name__)
 
-
 FILE_FILTER = "Videos and audio ({});;All files (*.*)".format(
-    " ".join(f"*{ext}" for ext in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS))      # the English one; see file_filter()
+    " ".join(f"*{ext}"
+             for ext in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS))  # the English one; see file_filter()
 
 
 def file_filter() -> str:
@@ -40,14 +40,15 @@ class LibraryMixin:
 
     def choose_files(self) -> None:
         last = self._saved_text("lastDir")
-        names, _ = QFileDialog.getOpenFileNames(self, tr("Add videos or audio"), last, file_filter())
+        names, _ = QFileDialog.getOpenFileNames(
+            self, tr("Add videos or audio"), last, file_filter())
         if names:
             self.store.setValue("lastDir", str(Path(names[0]).parent))
             self.add_paths([Path(n) for n in names])
 
     def choose_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, tr("Add a folder of videos or audio"),
-                                                  self._saved_text("lastDir"))
+        folder = QFileDialog.getExistingDirectory(
+            self, tr("Add a folder of videos or audio"), self._saved_text("lastDir"))
         if folder:
             self.store.setValue("lastDir", folder)
             self.add_paths([Path(folder)])
@@ -55,13 +56,16 @@ class LibraryMixin:
     def add_paths(self, paths: list[Path]) -> int:
         """Add files (and the videos and audio files inside any folders). Returns how many were new."""
         files: list[Path] = []
-        skipped: list[Path] = []          # files dropped or chosen that are not a video or audio file
+        skipped: list[Path] = []  # files dropped or chosen that are not a video or audio file
         for path in paths:
             if path.is_dir():
                 files.extend(sorted(p for p in path.iterdir() if p.is_file() and is_media_file(p)))
             elif path.is_file():
                 (files if is_media_file(path) else skipped).append(path)
-        known = {item.resolved for item in self.items}      # each item resolves its path once, not on every add
+        known = {
+            item.resolved
+            for item in self.items
+        }  # each item resolves its path once, not on every add
         added = 0
         for path in files:
             item = MediaItem(path)
@@ -115,9 +119,13 @@ class LibraryMixin:
     def remove_selected(self) -> None:
         """Take the selected files (or the current one) out of the list. It is an undoable step, so the history
         of the other files is kept and Undo brings the files back."""
-        rows = sorted({self.media_list.row(selected) for selected in self.media_list.selectedItems()})
-        entries = [(row, item) for row in (rows or [self.media_list.currentRow()])
-                   if (item := self._item_at(row)) is not None]
+        rows = sorted(
+            {self.media_list.row(selected)
+             for selected in self.media_list.selectedItems()})
+        entries = [
+            (row, item) for row in (rows or [self.media_list.currentRow()])
+            if (item := self._item_at(row)) is not None
+        ]
         if entries:
             self.undo_stack.push(RemoveFilesCommand(self, entries, tr("Remove from list")))
 
@@ -154,15 +162,16 @@ class LibraryMixin:
         menu = QMenu(self)
         menu.addAction(tr("Export"), self.export_current)
         many = len(self.media_list.selectedItems()) > 1
-        join = menu.addAction(tr("Join the selected files into one") if many else tr("Join all files into one"),
-                              self.join_clips)
+        join = menu.addAction(
+            tr("Join the selected files into one") if many else tr("Join all files into one"),
+            self.join_clips)
         join.setEnabled(len(self.items) > 1)
         menu.addAction(tr("Remove from list"), self.remove_selected)
         menu.exec(self.media_list.mapToGlobal(point))
 
     def _item_text(self, item: MediaItem) -> str:
         if item.error:
-            return f"{isolate(item.path.name)}\n{item.error}"      # no summary of settings it can't be exported with
+            return f"{isolate(item.path.name)}\n{item.error}"  # no summary of settings it can't be exported with
         if item.loading or item.info is None:
             meta = tr("Loading…")
         else:
@@ -184,30 +193,32 @@ class LibraryMixin:
     def _load_item(self, item: MediaItem) -> None:
         """Background thread: read the file's details, thumbnails and waveform. However it goes, the window is told
         (with an error to show when the file couldn't be read), so a file is never left on "Loading…"."""
-        if self.closed or item not in self.items:       # the window closed, or the file was removed while it waited
+        if self.closed or item not in self.items:  # the window closed, or the file was removed while it waited
             return
         info, thumbs, wave = MediaInfo(duration=None), [], []
         try:
             info = probe_file(self.ffmpeg, item.path, self.procs)
             if info.has_video and info.duration:
-                thumbs = self._optionally(extract_thumbnails, self.ffmpeg, item.path, self._thumb_folder(item),
-                                          info.duration, registry=self.procs) or []
+                thumbs = self._optionally(
+                    extract_thumbnails, self.ffmpeg, item.path, self._thumb_folder(item),
+                    info.duration, registry=self.procs) or []
             if info.has_audio:
-                wave = self._optionally(extract_waveform, self.ffmpeg, item.path, info.duration,
-                                        registry=self.procs) or []
-        except ConversionCancelled:         # the window is closing
+                wave = self._optionally(
+                    extract_waveform, self.ffmpeg, item.path, info.duration,
+                    registry=self.procs) or []
+        except ConversionCancelled:  # the window is closing
             self._remove_tmpdir_if_closed()
             return
         except ReadTimeout as exc:
             info, thumbs, wave = MediaInfo(duration=None), [], []
             item.error = str(exc)
-        except Exception as exc:            # whatever it was, the file must not stay on "Loading…"
+        except Exception as exc:  # whatever it was, the file must not stay on "Loading…"
             log.error("Couldn't read %s", item.path, exc_info=True)
             info, thumbs, wave = MediaInfo(duration=None), [], []
             item.error = tr("Can't read this file ({error})", error=exc)
         try:
             if self.closed or item not in self.items:
-                self._remove_folder(self._thumb_folder(item))       # removed while it was being read
+                self._remove_folder(self._thumb_folder(item))  # removed while it was being read
             else:
                 self.signals.loaded.emit(item, info, thumbs, wave)
         finally:
@@ -221,20 +232,23 @@ class LibraryMixin:
         except ConversionCancelled:
             raise
         except Exception as exc:
-            log.info("%s for %s didn't work (%s: %s)", getattr(read, "__name__", "reading"), args[1],
-                        type(exc).__name__, exc)
+            log.info(
+                "%s for %s didn't work (%s: %s)", getattr(read, "__name__", "reading"), args[1],
+                type(exc).__name__, exc)
             return None
 
     def _remove_folder(self, folder: Path) -> None:
         shutil.rmtree(folder, ignore_errors=True)
 
-    def _on_loaded(self, item: MediaItem, info: MediaInfo, thumbs: list[Path], wave: list[float]) -> None:
+    def _on_loaded(
+            self, item: MediaItem, info: MediaInfo, thumbs: list[Path], wave: list[float]) -> None:
         if self.closed or item not in self.items:
             self._remove_folder(self._thumb_folder(item))
             return
         item.info, item.loading = info, False
         if not self._gpu_started:
-            self._gpu_timer.start(GPU_SEARCH_DELAY_MS)       # a few seconds from now, not while playback begins
+            self._gpu_timer.start(
+                GPU_SEARCH_DELAY_MS)  # a few seconds from now, not while playback begins
         if not item.error and not info.has_video and not info.has_audio:
             item.error = tr("Not a video or audio file")
         if not info.has_video and info.has_audio:
@@ -246,5 +260,6 @@ class LibraryMixin:
                 item.list_item.setIcon(item.thumbs[len(item.thumbs) // 2])
             self._show_item_text(item)
         if item is self.current:
-            self._begin_playback(item)       # the file's details are known now: the right file to play can be chosen
+            self._begin_playback(
+                item)  # the file's details are known now: the right file to play can be chosen
             self.select(item, reload=False)

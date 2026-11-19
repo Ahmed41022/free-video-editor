@@ -20,13 +20,10 @@ log = logging.getLogger(__name__)
 
 
 def run_ffmpeg(
-    cmd: list[str],
-    output: Path,
-    duration: Optional[float],
-    on_progress: Optional[Callable[[float], None]] = None,
-    cancel_event: Optional[threading.Event] = None,
-    cwd: Optional[Path] = None,
-    report: Optional[list[str]] = None,
+    cmd: list[str], output: Path, duration: Optional[float],
+    on_progress: Optional[Callable[[float],
+                                   None]] = None, cancel_event: Optional[threading.Event] = None,
+    cwd: Optional[Path] = None, report: Optional[list[str]] = None,
 ) -> Path:
     """Run an ffmpeg command that ends with `-progress pipe:1 -nostats <output>`.
 
@@ -41,30 +38,25 @@ def run_ffmpeg(
     log.info("ffmpeg: %s", subprocess.list2cmdline(cmd))
     with graph_files(cmd) as run_cmd:
         proc = start_process(
-            run_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            stdin=subprocess.DEVNULL,
-            creationflags=_NO_WINDOW,
-            cwd=cwd,
+            run_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+            errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, cwd=cwd,
         )
-        job: Optional[ProcessJob] = proc.fve_job       # type: ignore[attr-defined]
+        job: Optional[ProcessJob] = proc.fve_job  # type: ignore[attr-defined]
         try:
             return _watch(proc, output, duration, on_progress, cancel_event, report)
         finally:
             if job is not None:
-                job.close()         # anything still running in it ends here
+                job.close()  # anything still running in it ends here
 
 
-def _watch(proc: subprocess.Popen, output: Path, duration: Optional[float],
-           on_progress: Optional[Callable[[float], None]], cancel_event: Optional[threading.Event],
-           report: Optional[list[str]]) -> Path:
+def _watch(
+        proc: subprocess.Popen, output: Path, duration: Optional[float],
+        on_progress: Optional[Callable[[float], None]], cancel_event: Optional[threading.Event],
+        report: Optional[list[str]]) -> Path:
     """Follow a started ffmpeg to its end: progress, cancelling, and what it printed if it failed."""
     # Drain stderr on a separate thread so a chatty ffmpeg can't block on a full pipe.
     errors: deque[str] = deque(maxlen=20)
+
     def read_errors() -> None:
         for line in proc.stderr:
             errors.append(line)
@@ -112,12 +104,15 @@ def _watch(proc: subprocess.Popen, output: Path, duration: Optional[float],
         raise ConversionCancelled()
     if proc.returncode != 0:
         remove_file(output)
-        message = "".join(errors).strip() or tr("ffmpeg exited with code {code}", code=proc.returncode)
-        log.error("ffmpeg exited with code %s. Last lines of its output: %s", proc.returncode, message)
+        message = "".join(errors).strip() or tr(
+            "ffmpeg exited with code {code}", code=proc.returncode)
+        log.error(
+            "ffmpeg exited with code %s. Last lines of its output: %s", proc.returncode, message)
         if "matches no streams" in message:
             message = tr("This file has no audio track.")
         elif "No such filter" in message and "vidstab" in message:
-            message = tr("This copy of ffmpeg can't stabilize video (it was built without libvidstab).")
+            message = tr(
+                "This copy of ffmpeg can't stabilize video (it was built without libvidstab).")
         raise ConversionError(message)
 
     if on_progress:

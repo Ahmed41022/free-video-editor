@@ -18,13 +18,13 @@ from .procs import DaemonPool
 
 log = logging.getLogger(__name__)
 
-BIG_PIXELS = 1920 * 1080       # a video with more pixels than a 1080p one gets a preview copy...
-BIG_KBPS = 20_000              # ...and so does one with more than about 20 megabits per second
-HIGH_FPS = 35                  # a picture of at least HIGH_FPS_PIXELS that runs faster than this gets a copy too...
-HIGH_FPS_PIXELS = 1280 * 720 - 1     # (about 720p: game recordings at 60 or 120 fps cost the player far too much)
-PROXY_FPS = 30                 # ...which is made at no more than this many frames per second
-PROXY_LONG_SIDE = 960          # the copy's longer side, in pixels
-KEYFRAME_SECONDS = 1           # a keyframe this often, so jumping around the timeline is quick
+BIG_PIXELS = 1920 * 1080  # a video with more pixels than a 1080p one gets a preview copy...
+BIG_KBPS = 20_000  # ...and so does one with more than about 20 megabits per second
+HIGH_FPS = 35  # a picture of at least HIGH_FPS_PIXELS that runs faster than this gets a copy too...
+HIGH_FPS_PIXELS = 1280 * 720 - 1  # (about 720p: game recordings at 60 or 120 fps cost the player far too much)
+PROXY_FPS = 30  # ...which is made at no more than this many frames per second
+PROXY_LONG_SIDE = 960  # the copy's longer side, in pixels
+KEYFRAME_SECONDS = 1  # a keyframe this often, so jumping around the timeline is quick
 
 
 def frame_rate_of(info: MediaInfo) -> float:
@@ -41,8 +41,9 @@ def needs_proxy(info: Optional[MediaInfo]) -> bool:
     if info is None or not info.has_video or not info.duration:
         return False
     pixels = info.width * info.height
-    return (pixels > BIG_PIXELS or (info.bitrate or 0) > BIG_KBPS
-            or (pixels > HIGH_FPS_PIXELS and frame_rate_of(info) > HIGH_FPS))
+    return (
+        pixels > BIG_PIXELS or (info.bitrate or 0) > BIG_KBPS
+        or (pixels > HIGH_FPS_PIXELS and frame_rate_of(info) > HIGH_FPS))
 
 
 def proxy_size(width: int, height: int) -> tuple[int, int]:
@@ -59,13 +60,13 @@ def proxy_command(ffmpeg: str, source: Path, output: Path, info: MediaInfo) -> l
     # Cap the rate before shrinking, so the scaler only sees the frames that are kept.
     slow_down = f"fps={PROXY_FPS}," if frame_rate_of(info) > PROXY_FPS + 0.5 else ""
     return [
-        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", str(source),
-        "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
-        "-vf", f"{slow_down}scale={width}:{height}:flags=fast_bilinear,setsar=1",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p",
-        "-force_key_frames", f"expr:gte(t,n_forced*{KEYFRAME_SECONDS})",
-        "-c:a", "aac", "-b:a", "96k", "-ac", "2",
-        "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(output),
+        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i",
+        str(source), "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn", "-vf",
+        f"{slow_down}scale={width}:{height}:flags=fast_bilinear,setsar=1", "-c:v", "libx264",
+        "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p", "-force_key_frames",
+        f"expr:gte(t,n_forced*{KEYFRAME_SECONDS})", "-c:a", "aac", "-b:a", "96k", "-ac", "2",
+        "-movflags", "+faststart", "-progress", "pipe:1", "-nostats",
+        str(output),
     ]
 
 
@@ -76,11 +77,13 @@ class ProxyMaker:
     (`path` is None and `error` says why when a copy couldn't be made). A copy that is cancelled
     reports nothing and leaves no file behind."""
 
-    def __init__(self, ffmpeg: str, folder: Path,
-                 on_progress: Callable[[Hashable, float], None], on_done: Callable[[Hashable, Optional[Path], str], None]):
+    def __init__(
+            self, ffmpeg: str, folder: Path, on_progress: Callable[[Hashable, float], None],
+            on_done: Callable[[Hashable, Optional[Path], str], None]):
         self.ffmpeg, self.folder = ffmpeg, folder
         self.on_progress, self.on_done = on_progress, on_done
-        self._pool = DaemonPool(1, "preview-copy")      # daemon threads: a copy still running never holds up quitting
+        self._pool = DaemonPool(
+            1, "preview-copy")  # daemon threads: a copy still running never holds up quitting
         self._lock = threading.Lock()
         self._jobs: dict[Hashable, tuple[Future, threading.Event]] = {}
         self._closed = False
@@ -94,7 +97,8 @@ class ProxyMaker:
             self._counter += 1
             event = threading.Event()
             target = self.folder / f"preview-{self._counter}.mp4"
-            self._jobs[key] = (self._pool.submit(self._make, key, source, info, target, event), event)
+            self._jobs[key] = (
+                self._pool.submit(self._make, key, source, info, target, event), event)
             return True
 
     def active(self, key: Hashable) -> bool:
@@ -112,8 +116,10 @@ class ProxyMaker:
     def cancel_waiting(self, keep: Optional[Hashable] = None) -> list[Hashable]:
         """Cancel the copies that haven't started yet, except `keep`'s. Returns whose they were."""
         with self._lock:
-            waiting = [key for key, (future, _) in self._jobs.items() if key != keep and not future.running()
-                       and not future.done()]
+            waiting = [
+                key for key, (future, _) in self._jobs.items()
+                if key != keep and not future.running() and not future.done()
+            ]
         for key in waiting:
             self.cancel(key)
         return waiting
@@ -130,12 +136,15 @@ class ProxyMaker:
             self._closed = True
         self.cancel_all()
         done = threading.Event()
-        threading.Thread(target=lambda: (self._pool.shutdown(wait=True), done.set()), daemon=True).start()
+        threading.Thread(target=lambda: (self._pool.shutdown(wait=True), done.set()),
+                         daemon=True).start()
         done.wait(timeout)
 
     # ----- worker -------------------------------------------------------------
 
-    def _make(self, key: Hashable, source: Path, info: MediaInfo, target: Path, cancel: threading.Event) -> None:
+    def _make(
+            self, key: Hashable, source: Path, info: MediaInfo, target: Path,
+            cancel: threading.Event) -> None:
         if cancel.is_set():
             return
         part = target.with_name(target.stem + ".part.mp4")
@@ -147,7 +156,9 @@ class ProxyMaker:
         try:
             self.folder.mkdir(parents=True, exist_ok=True)
             log.info("Making a smooth preview of %s (%sx%s)", source.name, info.width, info.height)
-            run_ffmpeg(proxy_command(self.ffmpeg, source, part, info), part, info.duration, progress, cancel)
+            run_ffmpeg(
+                proxy_command(self.ffmpeg, source, part, info), part, info.duration, progress,
+                cancel)
             if cancel.is_set():
                 remove_file(part)
                 return

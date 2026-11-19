@@ -8,6 +8,7 @@ from ..core import parse_time
 from ..timing import FADE_MAX, SPEED_MAX, SPEED_MIN
 from ..video import ADJUSTMENTS
 
+
 def _time(text: str) -> float:
     try:
         value = parse_time(text)
@@ -47,6 +48,7 @@ def _seconds(text: str) -> float:
 
 def _between(name: str, low: float, high: float):
     """An argument type: a number from `low` to `high`, refused with a clear message otherwise."""
+
     def parse(text: str) -> float:
         try:
             value = float(text)
@@ -55,11 +57,13 @@ def _between(name: str, low: float, high: float):
         if not low <= value <= high:
             raise argparse.ArgumentTypeError(f"{name} must be between {low:g} and {high:g}")
         return value
+
     return parse
 
 
 def _whole(name: str, low: int, high: int):
     """An argument type: a whole number from `low` to `high`."""
+
     def parse(text: str) -> int:
         try:
             value = int(text)
@@ -68,6 +72,7 @@ def _whole(name: str, low: int, high: int):
         if not low <= value <= high:
             raise argparse.ArgumentTypeError(f"{name} must be between {low} and {high}")
         return value
+
     return parse
 
 

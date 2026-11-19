@@ -27,8 +27,9 @@ class FileLock:
     other FileLock on the same file) is inside its own block. While waiting, `cancel` (a threading.Event) can
     end the wait early by raising `LockTimeout`."""
 
-    def __init__(self, path: Path, timeout: Optional[float] = None, cancel: Optional[threading.Event] = None,
-                 poll: float = 0.2):
+    def __init__(
+            self, path: Path, timeout: Optional[float] = None,
+            cancel: Optional[threading.Event] = None, poll: float = 0.2):
         self.path, self.timeout, self.cancel, self.poll = Path(path), timeout, cancel, poll
         self._file = None
 
@@ -48,8 +49,9 @@ class FileLock:
         self._file = open(self.path, "a+b")
         deadline = None if self.timeout is None else time.monotonic() + self.timeout
         while not self._try():
-            if (deadline is not None and time.monotonic() >= deadline) or (self.cancel is not None
-                                                                            and self.cancel.is_set()):
+            if (deadline is not None
+                    and time.monotonic() >= deadline) or (self.cancel is not None
+                                                          and self.cancel.is_set()):
                 self._file.close()
                 self._file = None
                 raise LockTimeout(str(self.path))

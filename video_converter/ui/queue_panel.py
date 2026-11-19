@@ -8,8 +8,8 @@ from typing import Optional
 from PySide6.QtCore import QObject, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QScrollArea, QToolButton, QVBoxLayout,
-    QWidget,
+    QFrame, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QScrollArea, QToolButton,
+    QVBoxLayout, QWidget,
 )
 
 from .. import diagnostics, i18n
@@ -35,19 +35,30 @@ def status_text(job: Job) -> str:
             parts.append(tr("the graphics card failed, trying the CPU"))
         return join_parts(parts)
     if job.state is JobState.FAILED:
-        return tr("Failed: {error}", error=job.error.splitlines()[-1] if job.error else tr("unknown error"))
+        return tr(
+            "Failed: {error}",
+            error=job.error.splitlines()[-1] if job.error else tr("unknown error"))
     if job.state is JobState.DONE and job.output:
-        return join_parts([tr("Saved as {name}", name=isolate(job.output.name)), *([job.note] if job.note else [])])
+        return join_parts(
+            [
+                tr("Saved as {name}", name=isolate(job.output.name)),
+                *([job.note] if job.note else [])
+            ])
     return job.state.label
 
 
 def details_box(job: Job, parent: Optional[QWidget] = None) -> QMessageBox:
     """A box telling what went wrong with a failed export and where the log is (not shown yet)."""
-    box = QMessageBox(QMessageBox.Icon.Warning, tr("Export failed"),
-                      tr("{title} couldn't be exported.", title=job.title), QMessageBox.StandardButton.Close, parent)
-    box.setInformativeText(job.error.strip().splitlines()[-1] if job.error.strip() else tr("The reason isn't known."))
-    box.setDetailedText(f"{job.error.strip() or tr('No further details.')}\n\n" + tr(
-        "The log file, which has the full ffmpeg command and output, is here:\n{path}", path=diagnostics.log_path()))
+    box = QMessageBox(
+        QMessageBox.Icon.Warning, tr("Export failed"),
+        tr("{title} couldn't be exported.", title=job.title), QMessageBox.StandardButton.Close,
+        parent)
+    box.setInformativeText(
+        job.error.strip().splitlines()[-1] if job.error.strip() else tr("The reason isn't known."))
+    box.setDetailedText(
+        f"{job.error.strip() or tr('No further details.')}\n\n" + tr(
+            "The log file, which has the full ffmpeg command and output, is here:\n{path}",
+            path=diagnostics.log_path()))
     box.addButton(tr("Open the log folder"), QMessageBox.ButtonRole.ActionRole).clicked.connect(
         lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(diagnostics.log_path().parent))))
     return box
@@ -99,8 +110,10 @@ class JobRow(QFrame):
         for button in (self.details_button, self.open_button, self.cancel_button):
             actions_row.addWidget(button)
         actions_row.addStretch(1)
-        actions.setFixedWidth(max(self.details_button.sizeHint().width(),
-                                  self.open_button.sizeHint().width() + self.cancel_button.sizeHint().width() + 4))
+        actions.setFixedWidth(
+            max(
+                self.details_button.sizeHint().width(),
+                self.open_button.sizeHint().width() + self.cancel_button.sizeHint().width() + 4))
         layout.addWidget(actions)
         self.output: Optional[Path] = None
         self.update_job(job)
@@ -124,6 +137,7 @@ class JobRow(QFrame):
 
 
 class QueuePanel(QFrame):
+
     def __init__(self, queue: JobQueue, bridge: QueueBridge, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("panel")

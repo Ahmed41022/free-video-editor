@@ -16,7 +16,13 @@ CLI_QUALITY = {
 }
 assert set(CLI_QUALITY.values()) == set(QUALITY_PRESETS)
 
-CLI_SHAPES = {"phone": (9, 16), "square": (1, 1), "portrait": (4, 5), "widescreen": (16, 9), "original": None}
+CLI_SHAPES = {
+    "phone": (9, 16),
+    "square": (1, 1),
+    "portrait": (4, 5),
+    "widescreen": (16, 9),
+    "original": None
+}
 CLI_SIZES = {"up1080": UP_TO_1080, "1080": 1080, "720": 720, "480": 480}
 CLI_FPS = {"source": None, "60": 60, "30": 30}
 CLI_VIDEO_QUALITY = {"high": "High", "balanced": "Balanced", "small": "Smaller file"}

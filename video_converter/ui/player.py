@@ -9,7 +9,8 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QPointF, QRectF, QSizeF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
-    QColor, QFont, QFontMetricsF, QImage, QMouseEvent, QPainter, QPainterPath, QPen, QTransform, QWheelEvent,
+    QColor, QFont, QFontMetricsF, QImage, QMouseEvent, QPainter, QPainterPath, QPen, QTransform,
+    QWheelEvent,
 )
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QtVideo, QVideoFrame, QVideoSink
 from PySide6.QtWidgets import QSizePolicy, QWidget
@@ -27,11 +28,11 @@ log = logging.getLogger(__name__)
 force_software_decoding()
 
 ZOOM_MIN, ZOOM_MAX = 1.0, 3.0
-WHEEL_MERGE_MS = 600      # wheel turns this close together are one zoom, and one undo step
-PAINT_PATIENCE = 0.25      # seconds a new frame may wait for the previous one to be drawn before it is shown anyway
-SETTLE_MS = 40             # after frames were skipped, show the newest one this long after the last arrived
-SWAP_BACKSTOP_MS = 1000    # a swap whose new source was never seen loading is finished after this long
-MIN_FRAME_SIDE = 480      # frames are never shrunk below this many pixels on their longer side
+WHEEL_MERGE_MS = 600  # wheel turns this close together are one zoom, and one undo step
+PAINT_PATIENCE = 0.25  # seconds a new frame may wait for the previous one to be drawn before it is shown anyway
+SETTLE_MS = 40  # after frames were skipped, show the newest one this long after the last arrived
+SWAP_BACKSTOP_MS = 1000  # a swap whose new source was never seen loading is finished after this long
+MIN_FRAME_SIDE = 480  # frames are never shrunk below this many pixels on their longer side
 
 
 def orient_image(image: QImage, rotate_cw: int, mirror: bool) -> QImage:
@@ -57,7 +58,7 @@ class Player(QObject):
     """Wraps QMediaPlayer: decodes frames to QImages, keeps playback inside the trim range and
     skips the parts that are cut out."""
 
-    frameReady = Signal(QImage, bool)       # image, whether Qt already applied rotation metadata
+    frameReady = Signal(QImage, bool)  # image, whether Qt already applied rotation metadata
     positionChanged = Signal(float)
     durationChanged = Signal(float)
     playingChanged = Signal(bool)
@@ -74,22 +75,25 @@ class Player(QObject):
         self.media.positionChanged.connect(self._on_position)
         self.media.durationChanged.connect(lambda ms: self.durationChanged.emit(ms / 1000))
         self.media.playbackStateChanged.connect(
-            lambda state: self.playingChanged.emit(state == QMediaPlayer.PlaybackState.PlayingState))
+            lambda state: self.playingChanged.emit(
+                state == QMediaPlayer.PlaybackState.PlayingState))
         self.media.errorOccurred.connect(lambda _e, message: self.errorOccurred.emit(message))
         self.media.mediaStatusChanged.connect(self._on_status)
-        self.segments: list[Segment] = []      # what the export keeps; [] = everything
+        self.segments: list[Segment] = []  # what the export keeps; [] = everything
         self.source: Optional[Path] = None
         # Frames of a preview copy are already upright (ffmpeg turned them when making it), whatever
         # rotation the original file asks for.
         self.upright = False
-        self._resume: Optional[tuple[int, bool, bool]] = None    # position (ms), playing, upright: set while swapping
+        self._resume: Optional[tuple[
+            int, bool, bool]] = None  # position (ms), playing, upright: set while swapping
         self._new_source_loading = False
-        self._pending_seek: Optional[int] = None       # a position (ms) asked for before the file finished loading
+        self._pending_seek: Optional[
+            int] = None  # a position (ms) asked for before the file finished loading
         # How big a picture the view can use, in pixels on the longer side (None = no limit): bigger frames are
         # shrunk as they arrive, which saves the work of rotating and drawing pixels nobody sees.
         self.frame_limit: Optional[Callable[[], int]] = None
-        self.dropped = 0                        # frames skipped because the previous one wasn't drawn yet
-        self._awaiting_paint = False            # a frame was handed to the view and hasn't been drawn
+        self.dropped = 0  # frames skipped because the previous one wasn't drawn yet
+        self._awaiting_paint = False  # a frame was handed to the view and hasn't been drawn
         self._last_delivery = 0.0
         self._converting = False
         self._settle = QTimer(self)
@@ -133,7 +137,7 @@ class Player(QObject):
         ready, or the original again), playing if it was playing."""
         if path == self.source:
             return
-        if self._resume is not None:        # swapped again before the last one finished
+        if self._resume is not None:  # swapped again before the last one finished
             self._resume = (self._resume[0], self._resume[1], upright)
         else:
             self._resume = (self.media.position(), self.playing, upright)
@@ -143,8 +147,8 @@ class Player(QObject):
         self._swap_watch.start()
 
     def _on_status(self, status: QMediaPlayer.MediaStatus) -> None:
-        if (self._pending_seek is not None and self._resume is None
-                and status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia)):
+        if (self._pending_seek is not None and self._resume is None and status
+                in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia)):
             ms, self._pending_seek = self._pending_seek, None
             self.media.setPosition(ms)
         if self._resume is None:
@@ -171,7 +175,8 @@ class Player(QObject):
         (so `_on_status` can't tell it from the old one). A moment later the status can be trusted."""
         if self._resume is None:
             return
-        if self.media.mediaStatus() in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
+        if self.media.mediaStatus() in (QMediaPlayer.MediaStatus.LoadedMedia,
+                                        QMediaPlayer.MediaStatus.BufferedMedia):
             self._finish_swap()
         else:
             self._swap_watch.start()
@@ -197,10 +202,10 @@ class Player(QObject):
         if self.playing:
             self.media.pause()
             return
-        if self.source is None:         # nothing is loaded (a smooth preview is still being made)
+        if self.source is None:  # nothing is loaded (a smooth preview is still being made)
             return
         resume = self.next_play_position(self.position)
-        if resume is None:          # past the end: start over
+        if resume is None:  # past the end: start over
             resume = self.segments[0][0]
         if abs(resume - self.position) > 0.01:
             self.seek(resume)
@@ -211,12 +216,12 @@ class Player(QObject):
 
     def seek(self, seconds: float) -> None:
         ms = int(max(seconds, 0.0) * 1000)
-        if self._resume is not None:        # still swapping: that is where to carry on from
+        if self._resume is not None:  # still swapping: that is where to carry on from
             self._resume = (ms, self._resume[1], self._resume[2])
             return
-        if self.source is not None and self.media.mediaStatus() in (QMediaPlayer.MediaStatus.NoMedia,
-                                                                      QMediaPlayer.MediaStatus.LoadingMedia):
-            self._pending_seek = ms         # Qt drops a position set before the file is loaded: apply it then
+        if self.source is not None and self.media.mediaStatus() in (
+                QMediaPlayer.MediaStatus.NoMedia, QMediaPlayer.MediaStatus.LoadingMedia):
+            self._pending_seek = ms  # Qt drops a position set before the file is loaded: apply it then
             return
         self.media.setPosition(ms)
 
@@ -227,7 +232,7 @@ class Player(QObject):
         self.audio.setMuted(muted)
 
     def _on_position(self, ms: int) -> None:
-        if self._resume is not None:        # the new source starts at 0 for a moment; not a real position
+        if self._resume is not None:  # the new source starts at 0 for a moment; not a real position
             return
         seconds = ms / 1000
         if self.playing and self.segments:
@@ -238,7 +243,7 @@ class Player(QObject):
                 if end is not None:
                     self.seek(end)
             elif resume - seconds > 0.01:
-                self.seek(resume)       # jump over a cut
+                self.seek(resume)  # jump over a cut
         self.positionChanged.emit(seconds)
 
     def frame_painted(self) -> None:
@@ -276,8 +281,9 @@ class Player(QObject):
             # toImage() applies the rotation Qt knows about, which it reports either on the
             # frame or (Qt 6.12) on the frame's surface format.
             none = QtVideo.Rotation.None_
-            oriented = self.upright or frame.rotation() != none or frame.surfaceFormat().rotation() != none
-        except Exception:       # a frame that can't be read is skipped; the next one may be fine
+            oriented = self.upright or frame.rotation() != none or frame.surfaceFormat().rotation(
+            ) != none
+        except Exception:  # a frame that can't be read is skipped; the next one may be fine
             log.error("Couldn't read a video frame", exc_info=True)
             return
         finally:
@@ -297,30 +303,33 @@ class Player(QObject):
             return image
         if max(image.width(), image.height()) <= limit:
             return image
-        return image.scaled(limit, limit, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
+        return image.scaled(
+            limit, limit, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation)
 
 
 class VideoView(QWidget):
     """Shows the current frame oriented like the export, with a draggable,
     resizable crop box. In "after" mode it shows a rendered preview instead."""
 
-    cropMoved = Signal(float, float)       # new pos_x, pos_y (0..1)
+    cropMoved = Signal(float, float)  # new pos_x, pos_y (0..1)
     zoomChanged = Signal(float)
     cropEditFinished = Signal()
-    overlayPicked = Signal(str, int)               # "text" and its index, or "logo" and 0: pressed on it
-    overlayMoved = Signal(str, int, float, float)  # kind, index, new x, y (shares of the output frame)
+    overlayPicked = Signal(str, int)  # "text" and its index, or "logo" and 0: pressed on it
+    overlayMoved = Signal(
+        str, int, float, float)  # kind, index, new x, y (shares of the output frame)
     overlayEditFinished = Signal()
-    framePainted = Signal()                        # the picture was drawn: the player may hand over the next frame
+    framePainted = Signal()  # the picture was drawn: the player may hand over the next frame
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(320, 200)
         self.setMouseTracking(True)
-        self.setLayoutDirection(Qt.LayoutDirection.LeftToRight)      # the picture is never mirrored
+        self.setLayoutDirection(Qt.LayoutDirection.LeftToRight)  # the picture is never mirrored
         self.raw: Optional[QImage] = None
         self.raw_is_oriented = False
-        self.display_rotation = 0        # from file metadata
+        self.display_rotation = 0  # from file metadata
         self.user_rotate = 0
         self.mirror = False
         self.after_image: Optional[QImage] = None
@@ -334,13 +343,15 @@ class VideoView(QWidget):
         # Text and logo drawn over the output frame, which they can be dragged around.
         self.texts: list[TextItem] = []
         self.logo = Logo()
-        self.out_size: Optional[tuple[int, int]] = None     # the export's width and height
-        self.overlay_time: Optional[float] = None           # the playhead on the export's timeline; None = cut out
-        self.selected: Optional[tuple[str, int]] = None     # ("text", index) or ("logo", 0)
-        self.canvas = False         # show the whole output frame even when it is bigger than the picture
+        self.out_size: Optional[tuple[int, int]] = None  # the export's width and height
+        self.overlay_time: Optional[
+            float] = None  # the playhead on the export's timeline; None = cut out
+        self.selected: Optional[tuple[str, int]] = None  # ("text", index) or ("logo", 0)
+        self.canvas = False  # show the whole output frame even when it is bigger than the picture
         self._logo_cache: Optional[tuple[str, int, QImage]] = None
         self._overlay_drag: Optional[tuple[str, int, QPointF, float, float]] = None
-        self._wheel_done = QTimer(self, singleShot=True, interval=WHEEL_MERGE_MS, timeout=self.cropEditFinished.emit)
+        self._wheel_done = QTimer(
+            self, singleShot=True, interval=WHEEL_MERGE_MS, timeout=self.cropEditFinished.emit)
 
     # ----- state --------------------------------------------------------------
 
@@ -358,7 +369,8 @@ class VideoView(QWidget):
         self.update()
 
     def set_orientation(self, display_rotation: int, user_rotate: int, mirror: bool) -> None:
-        if (display_rotation, user_rotate, mirror) != (self.display_rotation, self.user_rotate, self.mirror):
+        if (display_rotation, user_rotate, mirror) != (self.display_rotation, self.user_rotate,
+                                                       self.mirror):
             self.display_rotation, self.user_rotate, self.mirror = display_rotation, user_rotate, mirror
             self._image = None
             self.update()
@@ -390,7 +402,8 @@ class VideoView(QWidget):
                 return QRectF()
             size = QSizeF(image.width(), image.height())
             if self.canvas and self.out_size:
-                bounds = fit_rect(QSizeF(*self.out_size), bounds)       # the picture sits inside the output frame
+                bounds = fit_rect(
+                    QSizeF(*self.out_size), bounds)  # the picture sits inside the output frame
         return fit_rect(size, bounds)
 
     def crop_rect(self) -> Optional[QRectF]:
@@ -403,12 +416,14 @@ class VideoView(QWidget):
 
     # ----- text and logo --------------------------------------------------------
 
-    def set_overlays(self, texts: list[TextItem], logo: Logo, out_size: Optional[tuple[int, int]],
-                     time: Optional[float], canvas: bool = False) -> None:
+    def set_overlays(
+            self, texts: list[TextItem], logo: Logo, out_size: Optional[tuple[int, int]],
+            time: Optional[float], canvas: bool = False) -> None:
         """Show these texts and this logo over the output frame (`out_size` is the export's width and
         height). `time` is the playhead on the export's timeline, which decides which texts show;
         `canvas` shows the whole output frame, as the export will have it, around a picture that doesn't fill it."""
-        self.texts, self.logo, self.out_size, self.overlay_time, self.canvas = list(texts), logo, out_size, time, canvas
+        self.texts, self.logo, self.out_size, self.overlay_time, self.canvas = list(
+            texts), logo, out_size, time, canvas
         if self.selected and (self.selected[0] == "text" and self.selected[1] >= len(texts)
                               or self.selected[0] == "logo" and not logo.file):
             self.selected = None
@@ -439,14 +454,19 @@ class VideoView(QWidget):
         item = self.texts[index]
         if self.overlay_time is None:
             return False
-        return item.start <= self.overlay_time and (item.end is None or self.overlay_time <= item.end)
+        return item.start <= self.overlay_time and (
+            item.end is None or self.overlay_time <= item.end)
 
     def _text_rect(self, item: TextItem, out: QRectF) -> QRectF:
         """The box a text takes up in widget coordinates, kept inside the frame like ffmpeg keeps it."""
         scale = out.height() / self.out_size[1]
         width, height = (v * scale for v in text_box(item, self.out_size))
-        left = min(max(out.left() + item.x * out.width() - width / 2, out.left()), max(out.right() - width, out.left()))
-        top = min(max(out.top() + item.y * out.height() - height / 2, out.top()), max(out.bottom() - height, out.top()))
+        left = min(
+            max(out.left() + item.x * out.width() - width / 2, out.left()),
+            max(out.right() - width, out.left()))
+        top = min(
+            max(out.top() + item.y * out.height() - height / 2, out.top()),
+            max(out.bottom() - height, out.top()))
         return QRectF(left, top, width, height)
 
     def _logo_image(self) -> QImage:
@@ -470,7 +490,8 @@ class VideoView(QWidget):
         height = width * image.height() / image.width()
         margin = logo.margin * out.width()
         if logo.corner == "custom":
-            left, top = out.left() + logo.x * out.width() - width / 2, out.top() + logo.y * out.height() - height / 2
+            left, top = out.left() + logo.x * out.width() - width / 2, out.top(
+            ) + logo.y * out.height() - height / 2
         else:
             vertical, _, horizontal = logo.corner.partition("-")
             left = out.center().x() - width / 2 if logo.corner == "center" else (
@@ -514,7 +535,8 @@ class VideoView(QWidget):
                 p.drawImage(rect, self._logo_image())
                 p.setOpacity(1.0)
             elif content:
-                self._draw_text(p, self.texts[index], rect, out, 1.0 if self._text_shown(index) else 0.4)
+                self._draw_text(
+                    p, self.texts[index], rect, out, 1.0 if self._text_shown(index) else 0.4)
         p.restore()
         for kind, index, rect in rects:
             if self.selected == (kind, index):
@@ -525,7 +547,8 @@ class VideoView(QWidget):
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawRect(rect.adjusted(-2, -2, 2, 2))
 
-    def _draw_text(self, p: QPainter, item: TextItem, rect: QRectF, out: QRectF, opacity: float) -> None:
+    def _draw_text(
+            self, p: QPainter, item: TextItem, rect: QRectF, out: QRectF, opacity: float) -> None:
         """One text, drawn with Qt's own text layout (so Arabic and other scripts join and run the right way).
         The export draws it with ffmpeg; this is the live version while editing."""
         scale = out.height() / self.out_size[1]
@@ -544,7 +567,11 @@ class VideoView(QWidget):
         inner = rect.adjusted(pad, pad, -pad, -pad)
         for i, line in enumerate(lines):
             width = metrics.horizontalAdvance(line)
-            x = {"left": inner.left(), "right": inner.right() - width}.get(item.align, inner.center().x() - width / 2)
+            x = {
+                "left": inner.left(),
+                "right": inner.right() - width
+            }.get(item.align,
+                  inner.center().x() - width / 2)
             path = QPainterPath()
             path.addText(x, inner.top() + i * metrics.lineSpacing() + metrics.ascent(), font, line)
             if item.outline > 0:
@@ -578,7 +605,8 @@ class VideoView(QWidget):
             self.overlayPicked.emit(kind, index)
             out = self.output_rect()
             # Where the middle of it is now, as shares of the frame (a logo in a corner starts from there).
-            x, y = (rect.center().x() - out.left()) / out.width(), (rect.center().y() - out.top()) / out.height()
+            x, y = (rect.center().x() - out.left()) / out.width(), (rect.center().y() -
+                                                                    out.top()) / out.height()
             self._overlay_drag = (kind, index, event.position(), x, y)
             return
         handle = self._handle_at(event.position())
@@ -597,17 +625,22 @@ class VideoView(QWidget):
             out = self.output_rect()
             delta = event.position() - start
             if not out.isEmpty():
-                self.overlayMoved.emit(kind, index, round(min(max(x + delta.x() / out.width(), 0.0), 1.0), 4),
-                                       round(min(max(y + delta.y() / out.height(), 0.0), 1.0), 4))
+                self.overlayMoved.emit(
+                    kind, index, round(min(max(x + delta.x() / out.width(), 0.0), 1.0), 4),
+                    round(min(max(y + delta.y() / out.height(), 0.0), 1.0), 4))
             return
         if self._drag is None and self._overlay_at(event.position()) is not None:
             self.setCursor(Qt.CursorShape.SizeAllCursor)
             return
         if self._drag is None:
             handle = self._handle_at(event.position())
-            cursor = {"move": Qt.CursorShape.SizeAllCursor, "tl": Qt.CursorShape.SizeFDiagCursor,
-                      "br": Qt.CursorShape.SizeFDiagCursor, "tr": Qt.CursorShape.SizeBDiagCursor,
-                      "bl": Qt.CursorShape.SizeBDiagCursor}.get(handle or "", Qt.CursorShape.ArrowCursor)
+            cursor = {
+                "move": Qt.CursorShape.SizeAllCursor,
+                "tl": Qt.CursorShape.SizeFDiagCursor,
+                "br": Qt.CursorShape.SizeFDiagCursor,
+                "tr": Qt.CursorShape.SizeBDiagCursor,
+                "bl": Qt.CursorShape.SizeBDiagCursor
+            }.get(handle or "", Qt.CursorShape.ArrowCursor)
             self.setCursor(cursor)
             return
         handle, start, cx, cy, zoom = self._drag
@@ -662,7 +695,9 @@ class VideoView(QWidget):
         p.fillRect(self.rect(), QColor(c["video_bg"]))
 
         if self.show_after and self.after_image is not None:
-            target = fit_rect(QSizeF(self.after_image.size()), QRectF(self.rect()).adjusted(8, 8, -8, -8))
+            target = fit_rect(
+                QSizeF(self.after_image.size()),
+                QRectF(self.rect()).adjusted(8, 8, -8, -8))
             p.drawImage(target, self.after_image)
             self._paint_overlays(p, content=False)
             self._badge(p, tr("After"))
@@ -682,10 +717,18 @@ class VideoView(QWidget):
         if rect is not None:
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             shade = QColor(0, 0, 0, 140)
-            p.fillRect(QRectF(frame.left(), frame.top(), frame.width(), rect.top() - frame.top()), shade)
-            p.fillRect(QRectF(frame.left(), rect.bottom(), frame.width(), frame.bottom() - rect.bottom()), shade)
-            p.fillRect(QRectF(frame.left(), rect.top(), rect.left() - frame.left(), rect.height()), shade)
-            p.fillRect(QRectF(rect.right(), rect.top(), frame.right() - rect.right(), rect.height()), shade)
+            p.fillRect(
+                QRectF(frame.left(), frame.top(), frame.width(),
+                       rect.top() - frame.top()), shade)
+            p.fillRect(
+                QRectF(frame.left(), rect.bottom(), frame.width(),
+                       frame.bottom() - rect.bottom()), shade)
+            p.fillRect(
+                QRectF(frame.left(), rect.top(),
+                       rect.left() - frame.left(), rect.height()), shade)
+            p.fillRect(
+                QRectF(rect.right(), rect.top(),
+                       frame.right() - rect.right(), rect.height()), shade)
             thirds = QPen(QColor(255, 255, 255, 70))
             p.setPen(thirds)
             for i in (1, 2):

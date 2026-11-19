@@ -17,9 +17,9 @@ from .errors import ConversionError
 
 log = logging.getLogger(__name__)
 
-
 VIDEO_EXTENSIONS = (
-    ".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm", ".flv", ".wmv", ".mpg", ".mpeg", ".3gp", ".ts",
+    ".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm", ".flv", ".wmv", ".mpg", ".mpeg", ".3gp",
+    ".ts",
 )
 # Sound-only files the editor can also open (to trim or cut them, or save them as MP3).
 AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus")
@@ -39,7 +39,8 @@ def is_partial_export(path: Path) -> bool:
 
 def is_media_file(path: Path) -> bool:
     """A video or an audio file, by its extension. An export that is still being written is not one yet."""
-    return path.suffix.lower() in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS and not is_partial_export(path)
+    return path.suffix.lower(
+    ) in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS and not is_partial_export(path)
 
 
 def _path_key(path: Path) -> str:
@@ -77,12 +78,8 @@ def unique_output_path(path: Path, avoid: Iterable[Path] = ()) -> Path:
 
 
 def output_path_for(
-    source: Path,
-    output_dir: Optional[Path] = None,
-    overwrite: bool = False,
-    suffix: str = ".mp3",
-    name_tag: str = "",
-    avoid: Iterable[Path] = (),
+        source: Path, output_dir: Optional[Path] = None, overwrite: bool = False,
+        suffix: str = ".mp3", name_tag: str = "", avoid: Iterable[Path] = (),
 ) -> Path:
     """Where to save the result for `source`. `name_tag` is appended to the file name,
     e.g. " (edited)", so an exported MP4 never replaces the original video.
@@ -100,7 +97,9 @@ def output_path_for(
 def input_files(cmd: list[str], cwd: Optional[Path] = None) -> list[Path]:
     """The files an ffmpeg command reads (its -i options)."""
     base = Path(cwd) if cwd else Path.cwd()
-    return [base / cmd[i + 1] for i, arg in enumerate(cmd[:-1]) if arg == "-i" and cmd[i + 1] != "-"]
+    return [
+        base / cmd[i + 1] for i, arg in enumerate(cmd[:-1]) if arg == "-i" and cmd[i + 1] != "-"
+    ]
 
 
 def remove_file(path: Path, seconds: float = 2.0) -> None:
@@ -131,7 +130,8 @@ def remove_folder(folder: Path, seconds: float = 2.0) -> None:
             return
         except OSError:
             if time.monotonic() >= deadline:
-                log.warning("Couldn't delete the work folder %s: something in it is still in use", folder)
+                log.warning(
+                    "Couldn't delete the work folder %s: something in it is still in use", folder)
                 return
             time.sleep(0.05)
 
@@ -152,5 +152,7 @@ def check_not_input(output: Path, inputs: Iterable[Path]) -> None:
     failed or cancelled export would delete it."""
     for source in inputs:
         if same_file(output, source):
-            raise ConversionError(tr("The result can't be saved over {name}, a file it is made from. "
-                                     "Choose another name or folder.", name=Path(source).name))
+            raise ConversionError(
+                tr(
+                    "The result can't be saved over {name}, a file it is made from. "
+                    "Choose another name or folder.", name=Path(source).name))

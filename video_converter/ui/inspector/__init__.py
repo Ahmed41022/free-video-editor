@@ -10,15 +10,6 @@ from .panel import Inspector
 from .widgets import Section, WheelGuard
 
 __all__ = [
-    "ADJUST_LABELS",
-    "FIT_DATA",
-    "FIT_LABEL",
-    "LOOK_CHIPS",
-    "NOISE_LABELS",
-    "SHAPES",
-    "SHAPE_HINTS",
-    "STABILIZE_LABELS",
-    "Inspector",
-    "Section",
-    "WheelGuard",
+    "ADJUST_LABELS", "FIT_DATA", "FIT_LABEL", "LOOK_CHIPS", "NOISE_LABELS", "SHAPES",
+    "SHAPE_HINTS", "STABILIZE_LABELS", "Inspector", "Section", "WheelGuard",
 ]

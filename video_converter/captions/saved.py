@@ -17,7 +17,9 @@ _COLOR = re.compile(r"#[0-9a-fA-F]{6}\Z")
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and abs(value) < 1e9
+    return isinstance(
+        value,
+        (int, float)) and not isinstance(value, bool) and value == value and abs(value) < 1e9
 
 
 def _in(low: float, high: float):
@@ -33,22 +35,43 @@ def _one_of(choices):
 
 
 _TEXT_RULES = {
-    "text": _text(MAX_TEXT_LENGTH), "font": lambda v: isinstance(v, str) and 0 < len(v) <= 100,
-    "size": _in(*TEXT_SIZE), "color": lambda v: isinstance(v, str) and bool(_COLOR.match(v)),
-    "outline_color": lambda v: isinstance(v, str) and bool(_COLOR.match(v)), "outline": _in(*OUTLINE_SIZE),
-    "box": lambda v: isinstance(v, bool), "box_color": lambda v: isinstance(v, str) and bool(_COLOR.match(v)),
-    "box_opacity": _in(*BOX_OPACITY), "bold": lambda v: isinstance(v, bool), "align": _one_of(ALIGNMENTS),
-    "x": _in(0, 1), "y": _in(0, 1), "start": _in(0, 1e7), "end": lambda v: v is None or _in(0, 1e7)(v),
-    "fade_in": _in(0, FADE_MAX), "fade_out": _in(0, FADE_MAX),
+    "text": _text(MAX_TEXT_LENGTH),
+    "font": lambda v: isinstance(v, str) and 0 < len(v) <= 100,
+    "size": _in(*TEXT_SIZE),
+    "color": lambda v: isinstance(v, str) and bool(_COLOR.match(v)),
+    "outline_color": lambda v: isinstance(v, str) and bool(_COLOR.match(v)),
+    "outline": _in(*OUTLINE_SIZE),
+    "box": lambda v: isinstance(v, bool),
+    "box_color": lambda v: isinstance(v, str) and bool(_COLOR.match(v)),
+    "box_opacity": _in(*BOX_OPACITY),
+    "bold": lambda v: isinstance(v, bool),
+    "align": _one_of(ALIGNMENTS),
+    "x": _in(0, 1),
+    "y": _in(0, 1),
+    "start": _in(0, 1e7),
+    "end": lambda v: v is None or _in(0, 1e7)(v),
+    "fade_in": _in(0, FADE_MAX),
+    "fade_out": _in(0, FADE_MAX),
 }
 _LOGO_RULES = {
-    "file": _text(1024), "corner": _one_of(LOGO_CORNERS), "x": _in(0, 1), "y": _in(0, 1),
-    "size": _in(*LOGO_SIZE), "opacity": _in(*LOGO_OPACITY), "margin": _in(*LOGO_MARGIN),
+    "file": _text(1024),
+    "corner": _one_of(LOGO_CORNERS),
+    "x": _in(0, 1),
+    "y": _in(0, 1),
+    "size": _in(*LOGO_SIZE),
+    "opacity": _in(*LOGO_OPACITY),
+    "margin": _in(*LOGO_MARGIN),
 }
 _SUBTITLE_RULES = {
-    "file": _text(1024), "font": _TEXT_RULES["font"], "size": _in(*SUBTITLE_SIZE), "color": _TEXT_RULES["color"],
-    "outline_color": _TEXT_RULES["outline_color"], "outline": _in(*OUTLINE_SIZE), "bold": _TEXT_RULES["bold"],
-    "position": _one_of(SUBTITLE_POSITIONS), "own_style": lambda v: isinstance(v, bool),
+    "file": _text(1024),
+    "font": _TEXT_RULES["font"],
+    "size": _in(*SUBTITLE_SIZE),
+    "color": _TEXT_RULES["color"],
+    "outline_color": _TEXT_RULES["outline_color"],
+    "outline": _in(*OUTLINE_SIZE),
+    "bold": _TEXT_RULES["bold"],
+    "position": _one_of(SUBTITLE_POSITIONS),
+    "own_style": lambda v: isinstance(v, bool),
 }
 
 
@@ -73,7 +96,10 @@ def load_texts(value: Any) -> Optional[list[TextItem]]:
     """The texts of saved settings, or None if the saved value isn't a list."""
     if not isinstance(value, (list, tuple)):
         return None
-    return [_load(TextItem, entry, _TEXT_RULES) for entry in value[:MAX_TEXTS] if isinstance(entry, dict)]
+    return [
+        _load(TextItem, entry, _TEXT_RULES) for entry in value[:MAX_TEXTS]
+        if isinstance(entry, dict)
+    ]
 
 
 def load_logo(value: Any) -> Logo:

@@ -25,11 +25,11 @@ from ..locks import FileLock, LockTimeout
 log = logging.getLogger(__name__)
 
 ACK = b"ok\n"
-MAX_MESSAGE = 4 * 1024 * 1024       # a longer "list of files" is not something a person sent
-CONNECT_MS = 800                     # how long a second copy waits for the first to answer
+MAX_MESSAGE = 4 * 1024 * 1024  # a longer "list of files" is not something a person sent
+CONNECT_MS = 800  # how long a second copy waits for the first to answer
 ANSWER_MS = 3000
-HANDOVER_SECONDS = 5.0               # how long a second copy keeps trying while the first one is still starting
-DISABLE_VARIABLE = "VIDEO_EDITOR_ALLOW_SEVERAL"      # set to 1 to run several copies at once (for developers)
+HANDOVER_SECONDS = 5.0  # how long a second copy keeps trying while the first one is still starting
+DISABLE_VARIABLE = "VIDEO_EDITOR_ALLOW_SEVERAL"  # set to 1 to run several copies at once (for developers)
 
 
 def instance_name() -> str:
@@ -63,8 +63,9 @@ def decode_paths(message: bytes) -> list[str]:
     return [p for p in paths if isinstance(p, str) and p] if isinstance(paths, list) else []
 
 
-def send_paths(name: str, paths: list[Path | str], connect_ms: Optional[int] = None,
-               answer_ms: Optional[int] = None) -> bool:
+def send_paths(
+        name: str, paths: list[Path | str], connect_ms: Optional[int] = None,
+        answer_ms: Optional[int] = None) -> bool:
     """Hand `paths` to the copy that listens on `name`. True once it has taken them. False when no copy answers
     (nobody listens, or a crashed one left its name behind)."""
     connect_ms = CONNECT_MS if connect_ms is None else connect_ms
@@ -90,11 +91,13 @@ class SingleInstance(QObject):
 
     pathsReceived = Signal(list)
 
-    def __init__(self, name: Optional[str] = None, lock_folder: Optional[Path] = None,
-                 parent: Optional[QObject] = None):
+    def __init__(
+            self, name: Optional[str] = None, lock_folder: Optional[Path] = None,
+            parent: Optional[QObject] = None):
         super().__init__(parent)
         self.name = name or instance_name()
-        self.lock = FileLock(Path(lock_folder or tempfile.gettempdir()) / f"{self.name}.lock", timeout=0)
+        self.lock = FileLock(
+            Path(lock_folder or tempfile.gettempdir()) / f"{self.name}.lock", timeout=0)
         self.server = QLocalServer(self)
         self.server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
         self.server.newConnection.connect(self._accept)
@@ -115,7 +118,8 @@ class SingleInstance(QObject):
         except OSError as exc:
             log.error("Couldn't make the lock file %s: %s", self.lock.path, exc)
             return False
-        QLocalServer.removeServer(self.name)         # a socket file a crashed copy left behind (not on Windows)
+        QLocalServer.removeServer(
+            self.name)  # a socket file a crashed copy left behind (not on Windows)
         if self.server.listen(self.name):
             return True
         log.error("Couldn't listen on %s: %s", self.name, self.server.errorString())
@@ -182,9 +186,11 @@ def claim(paths: list[Path | str], name: Optional[str] = None,
         if time.monotonic() >= deadline:
             break
         time.sleep(0.15)
-        if instance.listen():           # the running copy quit or crashed while we were asking: take over
+        if instance.listen():  # the running copy quit or crashed while we were asking: take over
             return instance
-    log.error("Another copy of the app holds %s but doesn't answer; starting on its own", instance.lock.path)
+    log.error(
+        "Another copy of the app holds %s but doesn't answer; starting on its own",
+        instance.lock.path)
     return instance
 
 
@@ -196,6 +202,6 @@ def allow_foreground() -> None:
     try:
         import ctypes
 
-        ctypes.windll.user32.AllowSetForegroundWindow(-1)       # ASFW_ANY
+        ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
     except (OSError, AttributeError):
         pass

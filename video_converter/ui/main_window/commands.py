@@ -14,27 +14,29 @@ from .items import MediaItem
 if TYPE_CHECKING:
     from .window import MainWindow
 
+
 class SettingsCommand(QUndoCommand):
     """One undoable settings change. Continuous edits (dragging the crop box or a
     slider) merge into a single step."""
 
     MERGE_ID = 1001
 
-    def __init__(self, window: "MainWindow", item: MediaItem, before: ClipSettings, after: ClipSettings,
-                 label: str, mergeable: bool, reveal: bool = True):
+    def __init__(
+            self, window: "MainWindow", item: MediaItem, before: ClipSettings, after: ClipSettings,
+            label: str, mergeable: bool, reveal: bool = True):
         super().__init__(label)
         self.window, self.item = window, item
         self.before, self.after = before.copy(), after.copy()
         self.mergeable = mergeable
-        self.reveal = reveal            # undo and redo select the file they changed, so the change is seen
-        self._pushed = False            # the first redo is the edit itself, on the file already shown
+        self.reveal = reveal  # undo and redo select the file they changed, so the change is seen
+        self._pushed = False  # the first redo is the edit itself, on the file already shown
 
     def id(self) -> int:
         return self.MERGE_ID if self.mergeable else -1
 
     def mergeWith(self, other: QUndoCommand) -> bool:
-        if (isinstance(other, SettingsCommand) and other.item is self.item and other.text() == self.text()
-                and self.window.merge_open):
+        if (isinstance(other, SettingsCommand) and other.item is self.item
+                and other.text() == self.text() and self.window.merge_open):
             self.after = other.after.copy()
             return True
         return False
@@ -56,7 +58,9 @@ class CaptionsFileCommand(QUndoCommand):
     kept once, next to it as `name.srt.bak`, before the first time it is overwritten (the rewrite is UTF-8,
     and the original may have been in an old code page or a form of Unicode that can't be got back exactly)."""
 
-    def __init__(self, window: "MainWindow", item: MediaItem, path: Path, before: bytes, after: bytes, label: str):
+    def __init__(
+            self, window: "MainWindow", item: MediaItem, path: Path, before: bytes, after: bytes,
+            label: str):
         super().__init__(label)
         self.window, self.item, self.path = window, item, path
         self.before, self.after = before, after
@@ -76,8 +80,9 @@ class CaptionsFileCommand(QUndoCommand):
                 backup.write_bytes(self.before)
         except OSError as exc:
             self.window.statusBar().showMessage(
-                tr("Couldn't keep a copy of {name} first: {reason}", name=isolate(self.path.name),
-                   reason=exc.strerror or exc), 6000)
+                tr(
+                    "Couldn't keep a copy of {name} first: {reason}", name=isolate(self.path.name),
+                    reason=exc.strerror or exc), 6000)
 
     def undo(self) -> None:
         self._write(self.before)
@@ -90,7 +95,9 @@ class CaptionsFileCommand(QUndoCommand):
             temp.replace(self.path)
         except OSError as exc:
             self.window.statusBar().showMessage(
-                tr("Couldn't update {name}: {reason}", name=isolate(self.path.name), reason=exc.strerror or exc), 6000)
+                tr(
+                    "Couldn't update {name}: {reason}", name=isolate(self.path.name),
+                    reason=exc.strerror or exc), 6000)
         self.window.captions_file_changed(self.item)
 
 

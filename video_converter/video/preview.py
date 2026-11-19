@@ -16,8 +16,10 @@ from .filters import build_filter_graph, orientation_filters, picture_filters
 from .geometry import plan_geometry
 from .memory import DEFAULT_FPS
 
-def _grab_frames(ffmpeg: str, source: Path, at: float, graph: str, outputs: dict[str, Path],
-                 info: Optional[MediaInfo] = None) -> None:
+
+def _grab_frames(
+        ffmpeg: str, source: Path, at: float, graph: str, outputs: dict[str, Path],
+        info: Optional[MediaInfo] = None) -> None:
     """Run `graph` on the frame at `at` seconds, saving each labelled output as a PNG.
 
     `at` is held to the last frame of the video (when `info` says how long it is): a seek to or past the
@@ -33,10 +35,15 @@ def _grab_frames(ffmpeg: str, source: Path, at: float, graph: str, outputs: dict
             pass
 
     def attempt(seek: list[str], once: bool) -> subprocess.CompletedProcess:
-        cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *seek, "-i", str(source),
-               "-filter_complex", graph]
+        cmd = [
+            ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *seek, "-i",
+            str(source), "-filter_complex", graph
+        ]
         for label, png in outputs.items():
-            cmd += ["-map", f"[{label}]", *(["-frames:v", "1"] if once else []), "-update", "1", str(png)]
+            cmd += [
+                "-map", f"[{label}]", *(["-frames:v", "1"] if once else []), "-update", "1",
+                str(png)
+            ]
         with graph_files(cmd) as run_cmd:
             try:
                 return subprocess.run(
@@ -52,7 +59,8 @@ def _grab_frames(ffmpeg: str, source: Path, at: float, graph: str, outputs: dict
         # of its final second, which is what writing every frame to the same file ends with.
         result = attempt(["-sseof", "-1"], once=False)
     if result.returncode != 0 or not all(png.is_file() for png in outputs.values()):
-        raise ConversionError(result.stderr.strip() or tr("Couldn't read a frame from this video."))
+        raise ConversionError(
+            result.stderr.strip() or tr("Couldn't read a frame from this video."))
 
 
 def _shrink(max_size: tuple[int, int]) -> str:
@@ -60,13 +68,8 @@ def _shrink(max_size: tuple[int, int]) -> str:
 
 
 def render_frame(
-    ffmpeg: str,
-    source: Path,
-    output_png: Path,
-    at: float,
-    max_size: tuple[int, int],
-    edit: VideoEdit,
-    info: MediaInfo,
+    ffmpeg: str, source: Path, output_png: Path, at: float, max_size: tuple[int, int],
+    edit: VideoEdit, info: MediaInfo,
 ) -> Path:
     """Save the edited frame at source time `at` as a PNG no larger than `max_size`.
 
@@ -82,13 +85,18 @@ def render_frame(
     chain = picture_filters(edit)
     if when is not None:
         chain.append(f"setpts={when:.3f}/TB")
-        chain += fade_filters(edit.fade_in, edit.fade_out, output_duration(segments, edit.speed), audio=False)
+        chain += fade_filters(
+            edit.fade_in, edit.fade_out, output_duration(segments, edit.speed), audio=False)
     kept = when is not None
-    overlays = overlay_graph("[drawn]", "[over]", edit.texts if kept else [], edit.logo,
-                             edit.subtitles if kept else Subtitles(), (geometry.out_width, geometry.out_height),
-                             segments, edit.speed, edit.reverse)
+    overlays = overlay_graph(
+        "[drawn]", "[over]", edit.texts if kept else [], edit.logo,
+        edit.subtitles if kept else Subtitles(), (geometry.out_width, geometry.out_height),
+        segments, edit.speed, edit.reverse)
     if overlays:
-        stages = [f"{graph};[framed]{','.join(chain) or 'null'}[drawn]", *overlays, f"[over]{_shrink(max_size)}[p]"]
+        stages = [
+            f"{graph};[framed]{','.join(chain) or 'null'}[drawn]", *overlays,
+            f"[over]{_shrink(max_size)}[p]"
+        ]
     else:
         stages = [f"{graph};[framed]{','.join([*chain, _shrink(max_size)])}[p]"]
     _grab_frames(ffmpeg, source, at, ";".join(stages), {"p": output_png}, info)
@@ -96,14 +104,8 @@ def render_frame(
 
 
 def render_source_frames(
-    ffmpeg: str,
-    source: Path,
-    normal_png: Path,
-    dimmed_png: Path,
-    at: float,
-    max_size: tuple[int, int],
-    edit: VideoEdit,
-    info: Optional[MediaInfo] = None,
+    ffmpeg: str, source: Path, normal_png: Path, dimmed_png: Path, at: float,
+    max_size: tuple[int, int], edit: VideoEdit, info: Optional[MediaInfo] = None,
 ) -> None:
     """Save the source frame (rotated and flipped only) plus a dimmed copy of it.
 

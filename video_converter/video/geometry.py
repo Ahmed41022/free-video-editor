@@ -7,13 +7,14 @@ from typing import Optional
 
 from .edit import SHORT_SIDE_CAP, VideoEdit
 
+
 @dataclass
 class Geometry:
-    width: int                # size of the source after rotation
+    width: int  # size of the source after rotation
     height: int
-    out_width: int            # size of the exported video
+    out_width: int  # size of the exported video
     out_height: int
-    crop: Optional[tuple[int, int, int, int]] = None   # w, h, x, y in rotated source pixels
+    crop: Optional[tuple[int, int, int, int]] = None  # w, h, x, y in rotated source pixels
 
 
 def _even(value: float) -> int:

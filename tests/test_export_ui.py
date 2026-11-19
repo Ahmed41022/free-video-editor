@@ -11,7 +11,9 @@ from pathlib import Path
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("VIDEO_EDITOR_NO_GPU_SEARCH", "1")      # a window never searches for graphics cards (see tests/__init__.py)
+os.environ.setdefault(
+    "VIDEO_EDITOR_NO_GPU_SEARCH",
+    "1")  # a window never searches for graphics cards (see tests/__init__.py)
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
@@ -39,7 +41,8 @@ def setUpModule():
     global app, _network
     app = QApplication.instance() or QApplication([])
     # Nothing in here may reach the network: a stray request fails the test that made it.
-    _network = mock.patch("urllib.request.urlopen", side_effect=AssertionError("the network was used"))
+    _network = mock.patch(
+        "urllib.request.urlopen", side_effect=AssertionError("the network was used"))
     _network.start()
 
 
@@ -56,10 +59,14 @@ def pump(seconds, until=lambda: False):
 
 
 def make_video(path, width=320, height=180, seconds=3):
-    subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
-                    "-f", "lavfi", "-i", f"testsrc2=duration={seconds}:size={width}x{height}:rate=15",
-                    "-f", "lavfi", "-i", f"sine=duration={seconds}", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-shortest", str(path)], check=True)
+    subprocess.run(
+        [
+            FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+            f"testsrc2=duration={seconds}:size={width}x{height}:rate=15", "-f", "lavfi", "-i",
+            f"sine=duration={seconds}", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+            "-shortest",
+            str(path)
+        ], check=True)
 
 
 def visible(widget, parent):
@@ -73,12 +80,14 @@ class FormatOptionsTests(unittest.TestCase):
         from video_converter.ui.inspector import Inspector
         self.inspector = Inspector()
         self.edits = []
-        self.inspector.settingsEdited.connect(lambda s, label, final: self.edits.append((s, label, final)))
+        self.inspector.settingsEdited.connect(
+            lambda s, label, final: self.edits.append((s, label, final)))
         self.show()
 
     def tearDown(self):
         self.inspector.close()
-        shiboken6.delete(self.inspector)     # free it now: every widget left alive slows each later theme change
+        shiboken6.delete(
+            self.inspector)  # free it now: every widget left alive slows each later theme change
 
     def show(self, **edit):
         self.inspector.set_settings(ClipSettings(edit=VideoEdit(**edit)), 10.0)
@@ -90,16 +99,17 @@ class FormatOptionsTests(unittest.TestCase):
         box.setCurrentIndex(box.findData(data))
 
     def test_showing_settings_reports_no_edits(self):
-        for edit in ({}, {"video_format": "gif", "gif_fps": 10, "gif_width": 320},
-                     {"video_format": "webm", "target_mb": 16.0}, {"target_mb": 12.5}):
+        for edit in ({}, {"video_format": "gif", "gif_fps": 10, "gif_width":
+                          320}, {"video_format": "webm", "target_mb": 16.0}, {"target_mb": 12.5}):
             self.show(**edit)
         self.assertEqual(self.edits, [])
 
     def test_every_format_is_offered_and_the_current_one_is_shown(self):
         box = self.inspector.format_box
         self.assertEqual([box.itemData(i) for i in range(box.count())], list(OUTPUT_FORMATS))
-        self.assertEqual([box.itemText(i) for i in range(box.count())],
-                         [f.label for f in OUTPUT_FORMATS.values()])
+        self.assertEqual(
+            [box.itemText(i) for i in range(box.count())],
+            [f.label for f in OUTPUT_FORMATS.values()])
         self.assertEqual(box.currentData(), "mp4")
         self.show(video_format="webm")
         self.assertEqual(box.currentData(), "webm")
@@ -117,7 +127,8 @@ class FormatOptionsTests(unittest.TestCase):
         self.assertFalse(visible(self.inspector.format_hint, self.inspector))
 
     def test_webm_has_no_graphics_card_option_but_the_others_do(self):
-        for key, expected in (("mp4", True), ("hevc", True), ("mov", True), ("webm", False), ("gif", False)):
+        for key, expected in (("mp4", True), ("hevc", True), ("mov", True), ("webm", False),
+                              ("gif", False)):
             with self.subTest(format=key):
                 self.show(video_format=key)
                 self.assertEqual(self.shown("gpu"), expected)
@@ -134,23 +145,27 @@ class FormatOptionsTests(unittest.TestCase):
 
     def test_the_gif_options_are_limits_you_can_change(self):
         self.show(video_format="gif")
-        self.assertEqual((self.inspector.gif_fps_box.currentData(), self.inspector.gif_width_box.currentData()),
-                         (15, 480))
+        self.assertEqual(
+            (self.inspector.gif_fps_box.currentData(), self.inspector.gif_width_box.currentData()),
+            (15, 480))
         self.choose(self.inspector.gif_fps_box, 10)
-        self.assertEqual((self.edits[-1][0].edit.gif_fps, self.edits[-1][1]), (10, "GIF frame rate"))
+        self.assertEqual(
+            (self.edits[-1][0].edit.gif_fps, self.edits[-1][1]), (10, "GIF frame rate"))
         self.choose(self.inspector.gif_width_box, 320)
         self.assertEqual((self.edits[-1][0].edit.gif_width, self.edits[-1][1]), (320, "GIF width"))
 
     def test_a_gif_value_from_a_saved_preset_that_the_list_lacks_is_still_shown(self):
         self.show(video_format="gif", gif_fps=12, gif_width=555)
-        self.assertEqual((self.inspector.gif_fps_box.currentData(), self.inspector.gif_width_box.currentData()),
-                         (12, 555))
+        self.assertEqual(
+            (self.inspector.gif_fps_box.currentData(), self.inspector.gif_width_box.currentData()),
+            (12, 555))
         self.assertEqual(self.edits, [])
 
     def test_the_quality_box_ends_with_fit_in_a_file_size(self):
         box = self.inspector.crf_box
-        self.assertEqual([box.itemText(i) for i in range(box.count())],
-                         ["High", "Balanced", "Smaller file", "Fit in a file size"])
+        self.assertEqual(
+            [box.itemText(i) for i in range(box.count())],
+            ["High", "Balanced", "Smaller file", "Fit in a file size"])
         self.assertFalse(self.shown("limit"))
 
     def test_choosing_fit_in_a_file_size_starts_at_discords_limit(self):
@@ -173,16 +188,19 @@ class FormatOptionsTests(unittest.TestCase):
 
     def test_the_limits_are_the_places_people_send_videos_to(self):
         box = self.inspector.limit_box
-        self.assertEqual([box.itemText(i) for i in range(box.count())],
-                         ["Discord (10 MB)", "WhatsApp (16 MB)", "Email (25 MB)", "Custom…"])
+        self.assertEqual(
+            [box.itemText(i) for i in range(box.count())],
+            ["Discord (10 MB)", "WhatsApp (16 MB)", "Email (25 MB)", "Custom…"])
         self.show(target_mb=10.0)
-        for text, megabytes in (("WhatsApp (16 MB)", 16.0), ("Email (25 MB)", 25.0), ("Discord (10 MB)", 10.0)):
+        for text, megabytes in (("WhatsApp (16 MB)", 16.0), ("Email (25 MB)", 25.0),
+                                ("Discord (10 MB)", 10.0)):
             self.show(target_mb=10.0 if megabytes != 10.0 else 16.0)
             box.setCurrentIndex(box.findText(text))
             self.assertEqual(self.edits[-1][0].edit.target_mb, megabytes)
 
     def test_a_saved_size_selects_its_limit(self):
-        for megabytes, text in ((10.0, "Discord (10 MB)"), (16.0, "WhatsApp (16 MB)"), (25.0, "Email (25 MB)")):
+        for megabytes, text in ((10.0, "Discord (10 MB)"), (16.0, "WhatsApp (16 MB)"),
+                                (25.0, "Email (25 MB)")):
             self.show(target_mb=megabytes)
             self.assertEqual(self.inspector.limit_box.currentText(), text)
             self.assertFalse(self.shown("custom"))
@@ -204,7 +222,9 @@ class FormatOptionsTests(unittest.TestCase):
 
     def test_the_sizes_the_box_takes_are_the_ones_the_settings_take(self):
         from video_converter.output import TARGET_RANGE
-        self.assertEqual((self.inspector.limit_spin.minimum(), self.inspector.limit_spin.maximum()), TARGET_RANGE)
+        self.assertEqual(
+            (self.inspector.limit_spin.minimum(), self.inspector.limit_spin.maximum()),
+            TARGET_RANGE)
 
     def test_the_note_about_the_picture_shows_only_with_a_file_size(self):
         self.show(target_mb=10.0)
@@ -244,6 +264,7 @@ class FormatOptionsTests(unittest.TestCase):
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class WindowTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -253,8 +274,12 @@ class WindowTests(unittest.TestCase):
         cls.second = cls.tmp / "second.mp4"
         make_video(cls.second, seconds=2)
         cls.song = cls.tmp / "song.mp3"
-        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-                        "sine=duration=2", str(cls.song)], check=True)
+        subprocess.run(
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                "sine=duration=2",
+                str(cls.song)
+            ], check=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -284,7 +309,9 @@ class WindowTests(unittest.TestCase):
 
     def load(self, *paths):
         self.window.add_paths(list(paths))
-        self.assertTrue(pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)), "files never loaded")
+        self.assertTrue(
+            pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)),
+            "files never loaded")
 
     def edit(self):
         return self.window.current.settings.edit
@@ -314,7 +341,8 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(self.edit().target_mb, 25.0)
         self.assertEqual(self.window.undo_stack.undoText(), "File size")
         self.window.undo_stack.undo()
-        self.assertEqual((self.edit().target_mb, inspector.limit_box.currentText()), (10.0, "Discord (10 MB)"))
+        self.assertEqual(
+            (self.edit().target_mb, inspector.limit_box.currentText()), (10.0, "Discord (10 MB)"))
         self.window.undo_stack.undo()
         self.assertEqual((self.edit().target_mb, inspector.crf_box.currentData()), (0.0, 23))
 
@@ -348,7 +376,8 @@ class WindowTests(unittest.TestCase):
 
     def test_a_long_gif_gets_a_warning_in_the_panel(self):
         self.load(self.clip)
-        self.window.current.info = MediaInfo(duration=60.0, width=640, height=360, has_audio=True, fps=15.0)
+        self.window.current.info = MediaInfo(
+            duration=60.0, width=640, height=360, has_audio=True, fps=15.0)
         inspector = self.window.inspector
         inspector.format_box.setCurrentIndex(inspector.format_box.findData("gif"))
         self.assertTrue(visible(inspector.format_warning, inspector))
@@ -394,7 +423,8 @@ class WindowTests(unittest.TestCase):
     def test_a_failed_size_says_why_in_the_queue(self):
         self.load(self.clip)
         self.window.output_dir = self.tmp / "exports-fail"
-        self.window.current.info = MediaInfo(duration=7200.0, width=1920, height=1080, has_audio=True, fps=30.0)
+        self.window.current.info = MediaInfo(
+            duration=7200.0, width=1920, height=1080, has_audio=True, fps=30.0)
         inspector = self.window.inspector
         inspector.crf_box.setCurrentIndex(inspector.crf_box.findData("fit"))
         self.window.export_current()
@@ -421,15 +451,20 @@ class WindowTests(unittest.TestCase):
         from video_converter.jobs import Job, JobState
         from video_converter.ui.queue_panel import status_text
         job = Job(self.clip, ClipSettings())
-        job.state, job.output, job.note = JobState.DONE, Path("clip (phone).mp4"), "Made smaller (720p) so it fits in 10 MB"
-        self.assertEqual(status_text(job), "Saved as clip (phone).mp4 · Made smaller (720p) so it fits in 10 MB")
+        job.state, job.output, job.note = JobState.DONE, Path(
+            "clip (phone).mp4"), "Made smaller (720p) so it fits in 10 MB"
+        self.assertEqual(
+            status_text(job),
+            "Saved as clip (phone).mp4 · Made smaller (720p) so it fits in 10 MB")
         job.state, job.started_at = JobState.RUNNING, time.monotonic()
-        self.assertNotIn("graphics card", status_text(job))               # that note is not about the card
+        self.assertNotIn("graphics card", status_text(job))  # that note is not about the card
 
     # ----- save frame
 
     def dialog(self, path):
-        return mock.patch("video_converter.ui.main_window.exporting.QFileDialog.getSaveFileName", return_value=(str(path), ""))
+        return mock.patch(
+            "video_converter.ui.main_window.exporting.QFileDialog.getSaveFileName",
+            return_value=(str(path), ""))
 
     def test_the_action_has_its_shortcut_and_name(self):
         self.assertEqual(self.window.frame_action.shortcut().toString(), "Ctrl+Shift+S")
@@ -463,11 +498,15 @@ class WindowTests(unittest.TestCase):
         self.assertTrue(pump(TIMEOUT, lambda: "Saved" in self.window.statusBar().currentMessage()))
         geometry = plan_geometry(320, 180, item.settings.edit)
         image = QImage(str(target))
-        self.assertEqual((image.width(), image.height()), (geometry.out_width, geometry.out_height))
-        self.assertEqual((geometry.out_width, geometry.out_height), (720, 1280))        # not the preview's size
+        self.assertEqual(
+            (image.width(), image.height()), (geometry.out_width, geometry.out_height))
+        self.assertEqual(
+            (geometry.out_width, geometry.out_height), (720, 1280))  # not the preview's size
         self.assertIn("Saved the frame as shot.png", self.window.statusBar().currentMessage())
         color = image.pixelColor(image.width() // 2, image.height() // 2)
-        self.assertLess(abs(color.red() - color.green()) + abs(color.green() - color.blue()), 12)     # black and white
+        self.assertLess(
+            abs(color.red() - color.green()) + abs(color.green() - color.blue()),
+            12)  # black and white
 
     def test_it_hands_the_right_things_to_the_saver(self):
         self.load(self.clip)
@@ -478,7 +517,9 @@ class WindowTests(unittest.TestCase):
         def fake(ffmpeg, source, target, at, edit, info):
             saved.append((source, target, at, edit, info))
             return target
-        with self.dialog(self.tmp / "args.jpg"), mock.patch("video_converter.ui.main_window.exporting.save_frame", fake):
+
+        with self.dialog(self.tmp / "args.jpg"), mock.patch(
+                "video_converter.ui.main_window.exporting.save_frame", fake):
             self.window.save_frame_image()
             self.assertTrue(pump(TIMEOUT, lambda: bool(saved)))
         source, target, at, edit, info = saved[0]
@@ -492,7 +533,8 @@ class WindowTests(unittest.TestCase):
             self.window.save_frame_image()
         suggested = Path(dialog.call_args.args[2])
         self.assertEqual(suggested.parent, self.clip.parent)
-        self.assertTrue(suggested.name.startswith("clip (frame ") and suggested.name.endswith(".png"))
+        self.assertTrue(
+            suggested.name.startswith("clip (frame ") and suggested.name.endswith(".png"))
         self.window.output_dir = self.tmp / "elsewhere"
         with self.dialog("") as dialog:
             self.window.save_frame_image()
@@ -502,7 +544,8 @@ class WindowTests(unittest.TestCase):
 
     def test_cancelling_the_dialog_saves_nothing(self):
         self.load(self.clip)
-        with self.dialog(""), mock.patch("video_converter.ui.main_window.exporting.save_frame") as saver:
+        with self.dialog(""), mock.patch(
+                "video_converter.ui.main_window.exporting.save_frame") as saver:
             self.window.save_frame_image()
             pump(0.2)
         saver.assert_not_called()
@@ -512,7 +555,8 @@ class WindowTests(unittest.TestCase):
         self.load(self.clip)
         saved = []
         with self.dialog(self.tmp / "oddly.bmp"), mock.patch(
-                "video_converter.ui.main_window.exporting.save_frame", lambda *a: saved.append(a[2]) or a[2]):
+                "video_converter.ui.main_window.exporting.save_frame",
+                lambda *a: saved.append(a[2]) or a[2]):
             self.window.save_frame_image()
             self.assertTrue(pump(TIMEOUT, lambda: bool(saved)))
         self.assertEqual(saved[0], self.tmp / "oddly.bmp.png")
@@ -527,10 +571,14 @@ class WindowTests(unittest.TestCase):
     def test_a_failure_is_said_in_the_status_bar(self):
         self.load(self.clip)
         with self.dialog(self.tmp / "fail.png"), mock.patch(
-                "video_converter.ui.main_window.exporting.save_frame", side_effect=ConversionError("Couldn't read a frame")):
+                "video_converter.ui.main_window.exporting.save_frame",
+                side_effect=ConversionError("Couldn't read a frame")):
             self.window.save_frame_image()
-            self.assertTrue(pump(TIMEOUT, lambda: "Couldn't save" in self.window.statusBar().currentMessage()))
-        self.assertEqual(self.window.statusBar().currentMessage(), "Couldn't save the frame: Couldn't read a frame")
+            self.assertTrue(
+                pump(TIMEOUT, lambda: "Couldn't save" in self.window.statusBar().currentMessage()))
+        self.assertEqual(
+            self.window.statusBar().currentMessage(),
+            "Couldn't save the frame: Couldn't read a frame")
 
     # ----- the update notice
 
@@ -546,13 +594,17 @@ class WindowTests(unittest.TestCase):
             if error:
                 raise error
             return release or self.RELEASE
+
         window.start_update_check(fetch)
-        pump(TIMEOUT, lambda: not any(t.name == "update-check" and t.is_alive() for t in threading.enumerate()))
+        pump(
+            TIMEOUT, lambda: not any(
+                t.name == "update-check" and t.is_alive() for t in threading.enumerate()))
         pump(0.2)
         return len(asked)
 
     def test_opening_the_window_asks_nothing(self):
-        with mock.patch.object(updates, "fetch_latest", side_effect=AssertionError("asked")) as fetch:
+        with mock.patch.object(updates, "fetch_latest",
+                               side_effect=AssertionError("asked")) as fetch:
             window = self.new_window()
             pump(0.4)
             self.close(window)
@@ -560,7 +612,9 @@ class WindowTests(unittest.TestCase):
 
     def test_the_help_menu_has_the_switch_and_it_starts_on(self):
         action = self.window.updates_action
-        self.assertEqual((action.text(), action.isCheckable(), action.isChecked()), ("Check for updates", True, True))
+        self.assertEqual(
+            (action.text(), action.isCheckable(), action.isChecked()),
+            ("Check for updates", True, True))
         menus = {a.text().replace("&", ""): a.menu() for a in self.window.menuBar().actions()}
         self.assertIn(action, menus["Help"].actions())
 
@@ -570,15 +624,19 @@ class WindowTests(unittest.TestCase):
         banner = self.window.update_banner
         self.assertTrue(banner.isVisible())
         self.assertEqual(self.window.update_label.text(), f"{APP_NAME} 99.0.0 is available")
-        self.assertEqual((self.window.update_download.text(), self.window.update_skip.text()), ("Download", "Not now"))
-        self.assertTrue(self.window.update_download.isVisible() and self.window.update_skip.isVisible())
+        self.assertEqual(
+            (self.window.update_download.text(), self.window.update_skip.text()),
+            ("Download", "Not now"))
+        self.assertTrue(
+            self.window.update_download.isVisible() and self.window.update_skip.isVisible())
 
     def test_the_banner_does_not_block_anything(self):
         self.check()
         from PySide6.QtWidgets import QDialog
-        self.assertFalse(any(isinstance(w, QDialog) and w.isVisible() for w in QApplication.topLevelWidgets()))
+        self.assertFalse(
+            any(isinstance(w, QDialog) and w.isVisible() for w in QApplication.topLevelWidgets()))
         self.assertTrue(self.window.isEnabled())
-        self.load(self.clip)                               # the window works as usual
+        self.load(self.clip)  # the window works as usual
         self.assertTrue(self.window.export_button.isEnabled())
 
     def test_the_time_of_the_check_is_remembered(self):
@@ -595,10 +653,12 @@ class WindowTests(unittest.TestCase):
 
     def test_a_failed_check_is_silent(self):
         import urllib.error
-        for error in (urllib.error.URLError("offline"), TimeoutError("slow"), ValueError("not json")):
+        for error in (urllib.error.URLError("offline"), TimeoutError("slow"),
+                      ValueError("not json")):
             self.window.store.setValue(updates.LAST_CHECK_KEY, 0.0)
             before = self.window.statusBar().currentMessage()
-            with mock.patch("PySide6.QtWidgets.QMessageBox.exec", side_effect=AssertionError("a box")):
+            with mock.patch("PySide6.QtWidgets.QMessageBox.exec",
+                            side_effect=AssertionError("a box")):
                 self.assertEqual(self.check(error=error), 1)
             self.assertFalse(self.window.update_banner.isVisible())
             self.assertEqual(self.window.statusBar().currentMessage(), before)
@@ -623,11 +683,13 @@ class WindowTests(unittest.TestCase):
 
     def test_download_opens_the_release_page_and_hides_the_banner(self):
         self.check()
-        with mock.patch("video_converter.ui.main_window.updates.QDesktopServices.openUrl") as opener:
+        with mock.patch(
+                "video_converter.ui.main_window.updates.QDesktopServices.openUrl") as opener:
             self.window.update_download.click()
         opener.assert_called_once_with(QUrl(self.RELEASE.url))
         self.assertFalse(self.window.update_banner.isVisible())
-        self.assertEqual(self.window.store.value(updates.SKIPPED_KEY, ""), "")      # not skipped: still the newest
+        self.assertEqual(
+            self.window.store.value(updates.SKIPPED_KEY, ""), "")  # not skipped: still the newest
 
     def test_not_now_skips_that_version_for_good(self):
         self.check()
@@ -636,11 +698,12 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(self.window.store.value(updates.SKIPPED_KEY), "99.0.0")
         self.window.store.setValue(updates.LAST_CHECK_KEY, 0.0)
         self.assertEqual(self.check(), 1)
-        self.assertFalse(self.window.update_banner.isVisible())            # it asked, and kept quiet
+        self.assertFalse(self.window.update_banner.isVisible())  # it asked, and kept quiet
         newer = Release("99.0.1", f"{REPO_URL}/releases/tag/v99.0.1")
         self.window.store.setValue(updates.LAST_CHECK_KEY, 0.0)
         self.assertEqual(self.check(release=newer), 1)
-        self.assertTrue(self.window.update_banner.isVisible())            # but a later version is another matter
+        self.assertTrue(
+            self.window.update_banner.isVisible())  # but a later version is another matter
         self.assertIn("99.0.1", self.window.update_label.text())
 
     def test_the_skipped_version_is_remembered_by_the_next_run(self):
@@ -657,7 +720,7 @@ class WindowTests(unittest.TestCase):
         self.check()
         self.assertTrue(self.window.update_banner.isVisible())
         self.window.updates_action.setChecked(False)
-        self.assertFalse(self.window.update_banner.isVisible())            # nothing to see once it is off
+        self.assertFalse(self.window.update_banner.isVisible())  # nothing to see once it is off
         self.assertFalse(self.window.check_updates)
         self.window.store.setValue(updates.LAST_CHECK_KEY, 0.0)
         self.assertEqual(self.check(), 0)

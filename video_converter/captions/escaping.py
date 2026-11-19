@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+
 def filter_value(text: str) -> str:
     """`text` as the value of a filter option, safe against every character ffmpeg treats specially. It
     goes through the two levels of escaping the filter syntax has: the option's and the graph's."""
