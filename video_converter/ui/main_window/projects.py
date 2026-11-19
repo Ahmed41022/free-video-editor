@@ -189,12 +189,13 @@ class ProjectsMixin:
                 QMessageBox.warning(
                     self, APP_NAME, tr("Type a name for the project (up to 80 characters)."))
                 continue
-            if self.projects.name_taken(name, exclude):
+            existing = self.projects.existing_name(name, exclude)
+            if existing is not None:
                 QMessageBox.warning(
                     self, APP_NAME,
                     tr(
                         "There is already a project called {name}. Two projects can't have "
-                        "the same name, so choose another.", name=isolate(name)))
+                        "the same name, so choose another.", name=isolate(existing)))
                 continue
             return name
 
@@ -230,10 +231,9 @@ class ProjectsMixin:
             tr("Couldn't save your work: {reason}", reason=getattr(exc, "strerror", None) or exc))
 
     def new_project(self) -> None:
-        if not self._leave_work():
-            return
+        # Ask for the name first: giving up on it must leave the open work exactly as it is.
         name = self._ask_name(tr("New project"), self.projects.suggest_name(tr("My project")))
-        if name is None:
+        if name is None or not self._leave_work():
             return
         try:
             data = self.projects.create(name)
@@ -246,14 +246,14 @@ class ProjectsMixin:
         if self.project is not None and self.project.id == ident:
             self.show_editor()
             return
-        if not self._leave_work():
-            return
-        try:
+        try:  # read it first: a project that can't be read must change nothing
             data = self.projects.load(ident)
         except ProjectError as exc:
             QMessageBox.warning(
                 self, APP_NAME, tr("Couldn't open this project: {reason}", reason=exc))
             self.refresh_home()
+            return
+        if not self._leave_work():
             return
         self._open_data(data)
 
@@ -399,13 +399,13 @@ class ProjectsMixin:
 
     def recover_work(self, recovery: Recovery) -> None:
         """Open work a run left behind (it was not in a project)."""
-        if not self._leave_work():
-            return
         try:
             data = self.projects.load_recovery(recovery.path)
         except ProjectError as exc:
             QMessageBox.warning(
                 self, APP_NAME, tr("Couldn't recover this work: {reason}", reason=exc))
+            return
+        if not self._leave_work():
             return
         self._open_data(data, project=False)
         # This run keeps its own copy now; the old one can go once that is written.

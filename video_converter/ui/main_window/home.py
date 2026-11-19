@@ -129,6 +129,7 @@ class HomeMixin:
             parts.append(self.project.name)
         parts.append(f"{APP_NAME} {__version__}")
         self.setWindowTitle(" · ".join(parts))
+        self._sync_project_menu()  # (also kept right while the menu is closed)
 
     # ----- starting with a feature
 
