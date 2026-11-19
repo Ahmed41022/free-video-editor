@@ -6,6 +6,7 @@ the before/after picture, thumbnails and exports always use the original file.""
 
 from __future__ import annotations
 
+import itertools
 import logging
 import os
 import threading
@@ -89,7 +90,7 @@ class _Job:
         self.key, self.source, self.info, self.target = key, source, info, target
         self.cancel = PausableEvent()  # set to stop it; it also freezes and releases the run
         self.state = WAITING
-        self.paused_at = 0.0
+        self.paused_order = 0  # when it was paused, counted (a clock can tie)
         self.timer: Optional[threading.Timer] = None  # drops it if it stays paused too long
         self.thread: Optional[threading.Thread] = None
 
@@ -122,6 +123,7 @@ class ProxyMaker:
         self._threads: list[threading.Thread] = []
         self._closed = False
         self._counter = 0
+        self._pauses = itertools.count(1)  # numbers the pauses; only used with the lock held
 
     def request(self, key: Hashable, source: Path, info: MediaInfo) -> bool:
         """Ask for a copy for `key`, unless one is already on its way (running or paused). Returns
@@ -226,15 +228,16 @@ class ProxyMaker:
         if front is not None and front.key in self._parked:
             front = None
         running = next((job for job in self._jobs.values() if job.state == RUNNING), None)
-        if running is not None:
-            if (running.key not in self._parked and not (self._hold and running is not front)
-                    and (front is None or front is running)):
-                return  # it carries on
-            self._pause(running, dropped)
+        if running is not None and (running.key not in self._parked
+                                    and not (self._hold and running is not front) and
+                                    (front is None or front is running)):
+            return  # it carries on
         pick = front
         if pick is None and not self._hold:
             pick = self._background()
-        if pick is not None and pick.key in self._jobs:  # (not dropped just now)
+        if running is not None:
+            self._pause(running, dropped, keep=pick)
+        if pick is not None:
             self._run(pick)
 
     def _background(self) -> Optional[_Job]:
@@ -245,7 +248,7 @@ class ProxyMaker:
             if job.state == WAITING:
                 return job
         paused = [job for job in free if job.state == PAUSED]
-        return max(paused, key=lambda job: job.paused_at) if paused else None
+        return max(paused, key=lambda job: job.paused_order) if paused else None
 
     def _run(self, job: _Job) -> None:
         if job.timer is not None:
@@ -263,16 +266,19 @@ class ProxyMaker:
             self._threads = [t for t in self._threads if t.is_alive()] + [job.thread]
             job.thread.start()
 
-    def _pause(self, job: _Job, dropped: list[Hashable]) -> None:
+    def _pause(self, job: _Job, dropped: list[Hashable], keep: Optional[_Job] = None) -> None:
         job.cancel.pause()
         job.state = PAUSED
-        job.paused_at = time.monotonic()
+        job.paused_order = next(self._pauses)
         job.timer = threading.Timer(PAUSED_KEEP_SECONDS, self._expire, (job.key, job.cancel))
         job.timer.daemon = True
         job.timer.start()
-        paused = [other for other in self._jobs.values() if other.state == PAUSED]
+        # (the copy that is about to carry on doesn't count: it is not going to stay paused)
+        paused = [
+            other for other in self._jobs.values() if other.state == PAUSED and other is not keep
+        ]
         while len(paused) > MAX_PAUSED:
-            oldest = min(paused, key=lambda other: other.paused_at)
+            oldest = min(paused, key=lambda other: other.paused_order)
             paused.remove(oldest)
             del self._jobs[oldest.key]
             self._parked.discard(oldest.key)
