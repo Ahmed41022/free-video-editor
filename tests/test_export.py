@@ -12,7 +12,7 @@ from fractions import Fraction
 from pathlib import Path
 from unittest import mock
 
-from video_converter import __main__ as cli
+from video_converter.cli import run as cli
 from video_converter import gpu, output, video
 from video_converter.core import (
     ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media,

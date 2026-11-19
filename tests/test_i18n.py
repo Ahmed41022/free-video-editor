@@ -152,7 +152,7 @@ def hard_coded_texts():
     for path in package_files():
         relative = path.relative_to(PACKAGE).as_posix()
         in_ui = relative.startswith("ui/")
-        if not in_ui and relative in ("i18n.py", "__main__.py"):
+        if not in_ui and (relative in ("i18n.py", "__main__.py") or relative.startswith("cli/")):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

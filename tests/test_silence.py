@@ -23,7 +23,7 @@ try:
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from video_converter import __main__ as cli
+from video_converter.cli import run as cli
 from video_converter.core import ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media
 from video_converter.project import ClipSettings
 from video_converter.silence import (
@@ -373,7 +373,7 @@ class CommandLineTests(unittest.TestCase):
 
         with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
                 mock.patch.object(cli, "probe_media", return_value=info), \
-                mock.patch.object(cli, "detect_silences", side_effect=fake_detect), \
+                mock.patch("video_converter.cli.editing.detect_silences", side_effect=fake_detect), \
                 mock.patch.object(cli, "convert", side_effect=fake_convert), \
                 mock.patch.object(cli, "convert_video", side_effect=fake_video), \
                 mock.patch.object(cli, "choose_encoder", return_value=None), \
@@ -436,7 +436,7 @@ class CommandLineTests(unittest.TestCase):
         jobs = []
         with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
                 mock.patch.object(cli, "probe_media", return_value=self.INFO), \
-                mock.patch.object(cli, "detect_silences", return_value=[(2.0, 4.0)]), \
+                mock.patch("video_converter.cli.editing.detect_silences", return_value=[(2.0, 4.0)]), \
                 mock.patch.object(cli, "join_clips", side_effect=lambda ffmpeg, job, **kw: jobs.append(job) or Path("j.mp3")), \
                 mock.patch.object(cli, "choose_encoder", return_value=None), \
                 mock.patch.object(Path, "is_file", return_value=True):
@@ -462,7 +462,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(jobs[0].edit.volume, -4.0)
         self.assertTrue(jobs[0].edit.music.endswith("song.mp3"))
         joined = []
-        with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"),                 mock.patch.object(cli, "probe_media", return_value=self.INFO),                 mock.patch.object(cli, "detect_silences", return_value=[(2.0, 4.0)]),                 mock.patch.object(cli, "join_clips", side_effect=lambda ffmpeg, job, **kw: joined.append(job) or Path("j.mp3")),                 mock.patch.object(cli, "choose_encoder", return_value=None),                 mock.patch.object(Path, "is_file", return_value=True):
+        with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"),                 mock.patch.object(cli, "probe_media", return_value=self.INFO),                 mock.patch("video_converter.cli.editing.detect_silences", return_value=[(2.0, 4.0)]),                 mock.patch.object(cli, "join_clips", side_effect=lambda ffmpeg, job, **kw: joined.append(job) or Path("j.mp3")),                 mock.patch.object(cli, "choose_encoder", return_value=None),                 mock.patch.object(Path, "is_file", return_value=True):
             code, _, err = run("a.mp4", "b.mp4", "--join", "--remove-silences", "--silence-pad", "0", "--normalize")
         self.assertEqual(code, 0, err)
         self.assertEqual([p.edit.keep for p in joined[0].parts], [[(0.0, 2.0), (4.0, 10.0)]] * 2)

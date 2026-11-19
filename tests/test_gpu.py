@@ -9,7 +9,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from video_converter import __main__ as cli
+from video_converter.cli import run as cli
 from video_converter import gpu
 from video_converter.core import ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media
 from video_converter.jobs import Job, run_job

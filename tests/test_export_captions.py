@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from tests.test_captions import H, W, bright, make_black, write_png
-from video_converter import __main__ as cli
+from video_converter.cli import run as cli
 from video_converter.captions import Logo, Subtitles, TextItem
 from video_converter.core import find_ffmpeg, probe_media
 from video_converter.stills import save_frame

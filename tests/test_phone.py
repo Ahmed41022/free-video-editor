@@ -11,7 +11,7 @@ from fractions import Fraction
 from pathlib import Path
 from unittest import mock
 
-from video_converter import __main__ as cli
+from video_converter.cli import run as cli
 from video_converter import gpu
 from video_converter.core import MediaInfo, find_ffmpeg, parse_media_info, probe_media
 from video_converter.core.probe import _ffmpeg_info_text

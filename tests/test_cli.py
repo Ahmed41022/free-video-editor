@@ -7,7 +7,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from video_converter import __main__ as cli
+from video_converter.cli import run as cli
 from video_converter.core import MediaInfo
 
 BIG = MediaInfo(duration=600.0, width=1920, height=1080, has_audio=True, fps=30.0)     # about 50 GB reversed

@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from tests.test_cli import run
-from video_converter import __main__ as cli
+from video_converter.cli import run as cli
 from video_converter.autocaptions import CaptionResult
 from video_converter.captions import Cue, parse_cues
 from video_converter.core import ConversionError, MediaInfo
@@ -39,10 +39,10 @@ class CaptionCliTests(unittest.TestCase):
 
         for patcher in (mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"),
                         mock.patch.object(cli, "probe_media", side_effect=lambda *a: self.info),
-                        mock.patch.object(cli, "make_captions", side_effect=listen),
+                        mock.patch("video_converter.cli.captions.make_captions", side_effect=listen),
                         mock.patch.object(cli, "convert_video", side_effect=export),
                         mock.patch.object(cli, "choose_encoder", return_value=None),
-                        mock.patch.object(cli, "is_downloaded", return_value=True)):
+                        mock.patch("video_converter.cli.captions.is_downloaded", return_value=True)):
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -128,7 +128,7 @@ class CaptionCliTests(unittest.TestCase):
         self.assertEqual(self.listened, [])
 
     def test_a_model_that_is_not_downloaded_yet_is_announced(self):
-        with mock.patch.object(cli, "is_downloaded", return_value=False):
+        with mock.patch("video_converter.cli.captions.is_downloaded", return_value=False):
             _, _, err = run(self.video, "--captions-only", "--caption-model", "fast")
         self.assertIn("downloading the Fast speech model (75 MB)", err)
 
