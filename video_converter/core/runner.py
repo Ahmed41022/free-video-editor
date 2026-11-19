@@ -13,10 +13,40 @@ from ..i18n import tr
 from .commands import graph_files
 from .errors import ConversionCancelled, ConversionError
 from .paths import check_not_input, input_files, remove_file
-from .processes import start_process, stop_process
+from .processes import pause_process, resume_process, start_process, stop_process
 from .winproc import _NO_WINDOW, ProcessJob
 
 log = logging.getLogger(__name__)
+
+
+class PausableEvent(threading.Event):
+    """A cancel event for `run_ffmpeg` that can also freeze the run it is given to and let it carry
+    on. `pause()` before the run has started its ffmpeg freezes it as soon as it starts."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._guard = threading.Lock()
+        self._proc: Optional[subprocess.Popen] = None
+        self.paused = False
+
+    def attach(self, proc: Optional[subprocess.Popen]) -> None:
+        """Called by `run_ffmpeg` with the ffmpeg it started (and with None when it is over)."""
+        with self._guard:
+            self._proc = proc
+            if proc is not None and self.paused:
+                pause_process(proc)
+
+    def pause(self) -> None:
+        with self._guard:
+            self.paused = True
+            if self._proc is not None:
+                pause_process(self._proc)
+
+    def resume(self) -> None:
+        with self._guard:
+            self.paused = False
+            if self._proc is not None:
+                resume_process(self._proc)
 
 
 def run_ffmpeg(
@@ -42,9 +72,13 @@ def run_ffmpeg(
             errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, cwd=cwd,
         )
         job: Optional[ProcessJob] = proc.fve_job  # type: ignore[attr-defined]
+        if isinstance(cancel_event, PausableEvent):
+            cancel_event.attach(proc)
         try:
             return _watch(proc, output, duration, on_progress, cancel_event, report)
         finally:
+            if isinstance(cancel_event, PausableEvent):
+                cancel_event.attach(None)
             if job is not None:
                 job.close()  # anything still running in it ends here
 
