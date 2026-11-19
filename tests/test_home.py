@@ -13,7 +13,7 @@ os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
     from PySide6.QtCore import QEvent, QSettings, Qt
-    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+    from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
@@ -342,6 +342,161 @@ class HomePageTests(HomeCase):
         self.assertIsNone(window.home)
         window.show_home()
         self.assertIsNotNone(window.home)
+
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class HideProjectsTests(HomeCase):
+    """The setting that hides the projects on the home page."""
+
+    def with_projects(self, count=3):
+        window = self.new_window(load=False)
+        for n in range(count):
+            window.projects.create(f"Project {n}")
+        window.show_home()
+        self.assertTrue(pump(10, lambda: not window.home.loading))
+        return window
+
+    def test_hiding_removes_the_section_and_showing_brings_it_back(self):
+        window = self.with_projects()
+        page = window.home
+        self.assertEqual(len(page.project_cards), 3)
+        self.assertFalse(page.projects_header.isHidden())
+        page.hide_button.click()
+        self.assertTrue(page.projects_header.isHidden())  # the heading and New project with it
+        self.assertTrue(page.project_grid.isHidden())
+        self.assertTrue(page.empty_label.isHidden())
+        self.assertFalse(page.hidden_note.isHidden())
+        self.assertEqual(page.project_cards, [])
+        page.show_button.click()
+        self.assertTrue(pump(10, lambda: not page.loading and len(page.project_cards) == 3))
+        self.assertFalse(page.projects_header.isHidden())
+        self.assertTrue(page.hidden_note.isHidden())
+
+    def test_hiding_changes_nothing_on_disk(self):
+        window = self.with_projects()
+        before = sorted(p.name for p in window.projects.folder.iterdir())
+        window.home.hide_button.click()
+        window.home.show_button.click()
+        self.assertEqual(sorted(p.name for p in window.projects.folder.iterdir()), before)
+        self.assertEqual(len(window.projects.list()), 3)
+
+    def test_the_setting_is_saved_and_a_new_window_starts_hidden(self):
+        first = self.with_projects()
+        first.set_show_projects(False)
+        first.store.sync()
+        self.assertEqual(first.store.value("showProjects"), False)
+        second = self.new_window(load=False)  # the same settings file
+        self.assertFalse(second.show_projects)
+        self.assertFalse(second.show_projects_action.isChecked())
+        second.show_home()
+        self.assertFalse(second.home.hidden_note.isHidden())
+        self.assertEqual(second.home.project_cards, [])
+        first.set_show_projects(True)
+        first.store.sync()
+        third = self.new_window(load=False)
+        self.assertTrue(third.show_projects)
+        for extra in (first, second, third):
+            extra.close()
+            extra.loader.shutdown(wait=True)
+        self.window = None
+
+    def test_it_is_on_by_default(self):
+        window = self.new_window(load=False, home=True)
+        self.assertTrue(window.show_projects)
+        self.assertTrue(window.show_projects_action.isChecked())
+
+    def test_the_menu_action_and_the_page_link_stay_in_step(self):
+        window = self.with_projects()
+        window.show_projects_action.trigger()
+        self.assertFalse(window.show_projects)
+        self.assertFalse(window.home.hidden_note.isHidden())
+        window.home.show_button.click()
+        self.assertTrue(window.show_projects)
+        self.assertTrue(window.show_projects_action.isChecked())
+        self.assertFalse(window.home.projects_header.isHidden())
+        window.home.hide_button.click()
+        self.assertFalse(window.show_projects_action.isChecked())
+        window.show_projects_action.trigger()
+        self.assertTrue(window.show_projects)
+        self.assertTrue(window.home.hidden_note.isHidden())
+
+    def test_new_project_stays_reachable_from_the_menu_while_hidden(self):
+        window = self.with_projects(0)
+        window.set_show_projects(False)
+        self.assertTrue(window.new_project_action.isEnabled())
+        with mock.patch.object(type(window), "new_project") as new:
+            window.new_project_action.trigger()
+        new.assert_called_once()
+
+    def test_recovered_work_is_still_offered_while_hidden(self):
+        from video_converter.projects import FileEntry, ProjectData
+
+        window = self.new_window(load=False)
+        window.projects.write_recovery("crashed", ProjectData("", "", files=[FileEntry("a.mp4")]))
+        window.set_show_projects(False)
+        window.show_home()
+        self.assertFalse(window.home.recovery_box.isHidden())
+        row = window.home.recovery_layout.itemAt(0).widget()
+        self.assertIn("Recover the work from", row.label.plain)
+
+    def test_no_picture_is_loaded_while_hidden(self):
+        from video_converter.ui import home as home_module
+
+        window = self.with_projects()
+        window.set_show_projects(False)
+        with mock.patch.object(home_module, "QImageReader") as reader:
+            window.show_home()
+            window.home.finish()
+            pump(0.2)
+        reader.assert_not_called()
+        self.assertEqual(window.home.project_cards, [])
+
+    def use_arabic(self):
+        from video_converter.ui import language
+
+        i18n.set_language("ar")
+        language.apply_to_app(app)
+
+        def restore():
+            i18n.set_language("en")
+            language.apply_to_app(app)
+
+        self.addCleanup(restore)
+
+    def test_the_hidden_note_reads_right_to_left_in_arabic(self):
+        self.use_arabic()
+        window = self.with_projects()
+        window.set_show_projects(False)
+        window.resize(1320, 840)
+        pump(0.3)
+        self.assertEqual(window.home.show_button.text(), "إظهارها")
+        note = next(w for w in window.home.hidden_note.findChildren(QLabel) if w.text())
+        self.assertIn("مشاريعك مخفية", note.plain)
+        self.assertEqual(window.home.hidden_note.layoutDirection(), Qt.LayoutDirection.RightToLeft)
+        sentence = note.mapTo(window.home, note.rect().center()).x()
+        button = window.home.show_button.mapTo(
+            window.home,
+            window.home.show_button.rect().center()).x()
+        self.assertGreater(sentence, button)  # the sentence first (at the right), then the button
+
+    def test_deleting_says_only_the_project_goes_and_the_videos_stay(self):
+        window = self.with_projects(1)
+        seen = []
+
+        def question(parent, title, text, *args):
+            seen.append(text)
+            return QMessageBox.StandardButton.No
+
+        ident = window.projects.list()[0].id
+        with mock.patch.object(QMessageBox, "question", side_effect=question):
+            window.delete_project(ident)
+        self.assertEqual(len(window.projects.list()), 1)  # answering No keeps it
+        self.assertIn("videos are not deleted", seen[0])
+        self.assertIn("removes only the project", seen[0])
+        self.use_arabic()
+        with mock.patch.object(QMessageBox, "question", side_effect=question):
+            window.delete_project(ident)
+        self.assertIn("لا تُحذف مقاطع الفيديو", seen[1])
 
 
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")

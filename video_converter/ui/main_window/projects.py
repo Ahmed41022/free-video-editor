@@ -328,8 +328,9 @@ class ProjectsMixin:
         answer = QMessageBox.question(
             self, tr("Delete the project"),
             tr(
-                "Delete the project {name}? Your videos are not deleted, only the project "
-                "and its settings.", name=isolate(name)))
+                "Delete the project {name} from your history? This removes only the project "
+                "(its list of files, its settings and its picture). Your videos are not "
+                "deleted or changed.", name=isolate(name)))
         if answer != QMessageBox.StandardButton.Yes:
             return
         if self.project is not None and self.project.id == ident:

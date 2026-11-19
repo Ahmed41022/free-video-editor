@@ -743,7 +743,7 @@
   "Crop and rotate": "اقتصاص وتدوير",
   "Delete": "حذف",
   "Delete the project": "حذف المشروع",
-  "Delete the project {name}? Your videos are not deleted, only the project and its settings.": "هل تريد حذف المشروع {name}؟ لن تُحذف مقاطع الفيديو الخاصة بك، بل المشروع وإعداداته فقط.",
+  "Delete the project {name} from your history? This removes only the project (its list of files, its settings and its picture). Your videos are not deleted or changed.": "هل تريد حذف المشروع {name} من سجلّك؟ يُزال المشروع فقط (قائمة ملفاته وإعداداته وصورته). لا تُحذف مقاطع الفيديو الخاصة بك ولا تتغيّر.",
   "Discard": "تجاهل",
   "Discard recovered work": "تجاهل العمل المُستعاد",
   "Discard the work from {date}? It can't be brought back.": "هل تريد تجاهل العمل المحفوظ في {date}؟ لا يمكن استرجاعه.",
@@ -813,5 +813,10 @@
     "few": "{n} ملفات",
     "many": "{n} ملفًا",
     "other": "{n} ملف"
-  }
+  },
+  "Show my projects on the home page": "إظهار مشاريعي في الصفحة الرئيسية",
+  "Hide": "إخفاء",
+  "Hide your projects on this page. Nothing is deleted; you can show them again.": "أخفِ مشاريعك في هذه الصفحة. لا يُحذف شيء، ويمكنك إظهارها مجددًا.",
+  "Your projects are hidden.": "مشاريعك مخفية.",
+  "Show them": "إظهارها"
 }
