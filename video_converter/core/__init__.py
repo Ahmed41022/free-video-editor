@@ -19,7 +19,9 @@ from .paths import (
 from .probe import (
     STANDARD_RATES, VARIABLE_RATIO, MediaInfo, parse_media_info, probe_duration, probe_media,
 )
-from .processes import pause_process, resume_process, start_process, stop_process
+from .processes import (
+    pause_process, process_memory, resume_process, start_process, stop_process, total_memory,
+)
 from .progress import LOUDNESS_SHARE, LOUDNESS_SHARE_AUDIO, never_back, scaled
 from .runner import PausableEvent, run_ffmpeg
 from .staging import StagedOutput, part_path, staged_output
@@ -34,8 +36,8 @@ __all__ = [
     "convert", "find_ffmpeg", "format_time", "graph_files", "has_long_graph", "input_files",
     "is_media_file", "is_partial_export", "is_video_file", "measure_loudness", "mp3_command",
     "music_length_error", "never_back", "no_segments_error", "output_path_for", "parse_media_info",
-    "parse_time", "part_path", "pause_process", "probe_duration", "probe_media", "remove_file",
-    "remove_folder", "resume_process", "run_ffmpeg", "same_file", "scaled", "staged_output",
-    "start_process", "stop_process", "trim_args", "unique_output_path", "with_graph_files",
-    "work_folder",
+    "parse_time", "part_path", "pause_process", "probe_duration", "probe_media", "process_memory",
+    "remove_file", "remove_folder", "resume_process", "run_ffmpeg", "same_file", "scaled",
+    "staged_output", "start_process", "stop_process", "total_memory", "trim_args",
+    "unique_output_path", "with_graph_files", "work_folder",
 ]

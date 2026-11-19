@@ -11,7 +11,9 @@ from typing import Optional
 
 from ..i18n import tr
 from .errors import ConversionError
-from .winproc import _NO_WINDOW, ProcessJob, resume_processes, suspend_processes
+from .winproc import (
+    _NO_WINDOW, ProcessJob, physical_memory, resume_processes, suspend_processes, working_set,
+)
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +63,49 @@ def _descendants(pid: int) -> list[int]:
             found.append(child)
             queue.append(child)
     return found
+
+
+_memory_failed = False  # a failed measurement is logged once, not every time
+
+
+def _measure_failed(what: str, exc: Exception) -> int:
+    global _memory_failed
+    if not _memory_failed:
+        _memory_failed = True
+        log.warning("Couldn't measure %s (counted as 0): %s", what, exc)
+    return 0
+
+
+def process_memory(proc: subprocess.Popen) -> int:
+    """The memory in bytes that `proc` and everything it started hold in RAM (the working set on
+    Windows, the resident size on Linux). 0 when it can't be measured: that is logged once, and
+    never an error."""
+    try:
+        if sys.platform == "win32":
+            job: Optional[ProcessJob] = getattr(proc, "fve_job", None)
+            pids = job.pids() if job is not None else []
+            return working_set(pids or [proc.pid])
+        page = os.sysconf("SC_PAGE_SIZE")
+        total = 0
+        for pid in [proc.pid] + _descendants(proc.pid):
+            try:
+                with open(f"/proc/{pid}/statm", encoding="utf-8") as statm:
+                    total += int(statm.read().split()[1]) * page
+            except (OSError, ValueError, IndexError):
+                continue  # gone since the list was made
+        return total
+    except (OSError, ValueError, AttributeError) as exc:
+        return _measure_failed("the memory of a process", exc)
+
+
+def total_memory() -> int:
+    """The PC's physical memory in bytes, or 0 when it can't be read (logged once)."""
+    try:
+        if sys.platform == "win32":
+            return physical_memory()
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (OSError, ValueError, AttributeError) as exc:
+        return _measure_failed("the PC's memory", exc)
 
 
 def pause_process(proc: subprocess.Popen) -> bool:

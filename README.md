@@ -56,8 +56,9 @@ and so is the app: see **Arabic interface** below.
 - **Smooth previews**: 4K and other very large or very fast videos play from a small copy that is made in the
   background (see *Smooth previews* under **View**; exports always use the original). The copy of the file you
   select gets the work. If you pick another file meanwhile, the copy being made is paused where it is, not
-  thrown away, and carries on when you come back or when the other copy is done (at most 3 are kept paused,
-  and one nobody comes back to is dropped after 5 minutes). To play one file as it is, tick **Play this file
+  thrown away, and carries on when you come back or when the other copy is done (the paused copies may hold
+  up to 10% of the PC's memory together, and the oldest is dropped first beyond that; one nobody comes
+  back to is dropped after 5 minutes). To play one file as it is, tick **Play this file
   as it is** in its right-click menu (or **View → Play the selected file as it is**): its copy is paused, and
   carries on from there when you untick it. While a big original is playing as it is, the other paused copies
   stay paused, so that nothing adds to the load.

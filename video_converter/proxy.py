@@ -16,6 +16,7 @@ from typing import Callable, Hashable, Optional
 
 from .core import (
     ConversionCancelled, ConversionError, MediaInfo, PausableEvent, remove_file, run_ffmpeg,
+    total_memory,
 )
 
 log = logging.getLogger(__name__)
@@ -32,7 +33,9 @@ KEYFRAME_SECONDS = 1  # a keyframe this often, so jumping around the timeline is
 # A copy that is put on hold (its file was left for another, or is played as it is) is frozen where
 # it is, not thrown away, so it carries on later instead of starting again. A frozen ffmpeg keeps
 # its memory and its files open, so only a few are kept, and one nobody comes back to is dropped.
-MAX_PAUSED = 3  # at most this many copies are kept on hold; the one on hold longest is dropped
+# The copies on hold together may hold at most this share of the PC's memory (10%); when they hold
+# more, the one on hold longest is dropped (also the one just paused, if it alone is over).
+PAUSED_MEMORY_SHARE = 0.10
 PAUSED_KEEP_SECONDS = 300.0  # a copy on hold this long (5 minutes) is dropped
 
 
@@ -83,6 +86,11 @@ def proxy_command(ffmpeg: str, source: Path, output: Path, info: MediaInfo) -> l
 WAITING, RUNNING, PAUSED = "waiting", "running", "paused"
 
 
+def paused_memory(job: "_Job") -> int:
+    """The memory in bytes a paused copy holds (0 when it can't be measured)."""
+    return job.cancel.memory()
+
+
 class _Job:
     """One copy: waiting for its turn (never started), running, or paused part-way."""
 
@@ -106,8 +114,9 @@ class ProxyMaker:
     for, then the ones that were paused (the latest first). Moving the focus to a copy that is
     waiting or paused freezes the one that is running: its ffmpeg stays in memory and carries on
     from the same point when it gets its turn. `park` keeps a copy frozen whatever the focus is,
-    and `focus(..., hold=True)` lets nothing but the focused copy run. At most MAX_PAUSED copies
-    are kept paused and each is dropped after PAUSED_KEEP_SECONDS (`on_dropped(key)` says so)."""
+    and `focus(..., hold=True)` lets nothing but the focused copy run. The copies kept
+    paused may hold PAUSED_MEMORY_SHARE of the PC's memory together (the one paused longest is
+    dropped first) and each is dropped after PAUSED_KEEP_SECONDS (`on_dropped(key)` says so)."""
 
     def __init__(
             self, ffmpeg: str, folder: Path, on_progress: Callable[[Hashable, float], None],
@@ -277,7 +286,11 @@ class ProxyMaker:
         paused = [
             other for other in self._jobs.values() if other.state == PAUSED and other is not keep
         ]
-        while len(paused) > MAX_PAUSED:
+        limit = PAUSED_MEMORY_SHARE * total_memory()
+        if limit <= 0:  # the PC's memory is unknown: no limit is better than dropping everything
+            return
+        held = {id(other): paused_memory(other) for other in paused}
+        while paused and sum(held[id(other)] for other in paused) > limit:
             oldest = min(paused, key=lambda other: other.paused_order)
             paused.remove(oldest)
             del self._jobs[oldest.key]
@@ -286,7 +299,9 @@ class ProxyMaker:
                 oldest.timer.cancel()
             oldest.cancel.set()
             dropped.append(oldest.key)
-            log.info("Dropped the oldest paused smooth preview: %s are kept", MAX_PAUSED)
+            log.info(
+                "Dropped the oldest paused smooth preview: the paused ones held over %s%% of the "
+                "memory", round(PAUSED_MEMORY_SHARE * 100))
 
     def _expire(self, key: Hashable, token: threading.Event) -> None:
         """A copy has been paused for too long: drop it."""

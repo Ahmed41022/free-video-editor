@@ -12,11 +12,13 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from video_converter.core import (
-    ConversionCancelled, PausableEvent, find_ffmpeg, pause_process, resume_process, run_ffmpeg,
-    start_process, stop_process,
+    ConversionCancelled, PausableEvent, find_ffmpeg, pause_process, process_memory, resume_process,
+    run_ffmpeg, start_process, stop_process, total_memory,
 )
+from video_converter.core import processes
 from video_converter.core.processes import _descendants
 
 FFMPEG = find_ffmpeg()
@@ -212,6 +214,47 @@ class PauseProcessTests(unittest.TestCase):
         self.wait_for(lambda: output.exists() and started_by(proc), "the launcher never started")
         self.assertTrue(started_by(proc), "no process behind the launcher")
         self.check_frozen_then_running(proc, family(proc), output)
+
+    def test_the_memory_of_a_paused_ffmpeg_and_of_the_pc_can_be_measured(self):
+        output = self.tmp / "out.ts"
+        proc = self.start(slow_encode(output))
+        self.wait_for(lambda: output.exists() and output.stat().st_size > 20_000, "no output")
+        self.assertTrue(pause_process(proc))
+        time.sleep(0.3)
+        held, total = process_memory(proc), total_memory()
+        self.assertGreater(total, 1 << 30, "the memory of the PC should be over a gigabyte")
+        self.assertGreater(held, 5_000_000, "a paused ffmpeg holds more than 5 MB")
+        self.assertLess(held, total)
+
+    def test_the_memory_behind_a_launcher_is_counted(self):
+        output = self.tmp / "out.ts"
+        proc = self.start(launched_by_python(slow_encode(output)))
+        self.wait_for(lambda: output.exists() and started_by(proc), "the launcher never started")
+        self.wait_for(lambda: output.stat().st_size > 20_000, "no output")
+        self.assertTrue(pause_process(proc))
+        self.assertGreater(process_memory(proc), 5_000_000, "only the launcher was measured")
+
+    def test_a_measurement_that_fails_counts_as_zero_and_is_logged_once(self):
+        proc = self.start([sys.executable, "-c", "import time; time.sleep(30)"])
+        failing = (
+            [
+                mock.patch.object(processes, "working_set", side_effect=OSError("no")),
+                mock.patch.object(processes, "physical_memory", side_effect=OSError("no"))
+            ] if sys.platform == "win32" else
+            [mock.patch.object(processes.os, "sysconf", side_effect=OSError("no"))])
+        for patcher in failing:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(setattr, processes, "_memory_failed", processes._memory_failed)
+        processes._memory_failed = False
+        with self.assertLogs("video_converter.core.processes", "WARNING") as logs:
+            self.assertEqual(process_memory(proc), 0)
+            self.assertEqual(process_memory(proc), 0)
+            self.assertEqual(total_memory(), 0)
+        self.assertEqual(len(logs.records), 1)
+
+    def test_a_run_with_no_ffmpeg_yet_holds_no_memory(self):
+        self.assertEqual(PausableEvent().memory(), 0)
 
     def test_a_paused_process_can_still_be_stopped(self):
         output = self.tmp / "out.ts"
