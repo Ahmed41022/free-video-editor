@@ -69,6 +69,29 @@ _SHAPES = {
     "camera":
     '<path d="M3 8a2 2 0 0 1 2-2h2l2-2h6l2 2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'
     '<circle cx="12" cy="13" r="4"/>',
+    "home":
+    '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/>',
+    "save":
+    '<path d="M5 3h11l4 4v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/>'
+    '<path d="M8 3v5h7V3M8 21v-7h8v7"/>',
+    "phone":
+    '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
+    "crop":
+    '<path d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14"/>',
+    "size":
+    '<path d="M4 4h16v16H4z"/><path d="M9 15l6-6M10 9h5v5"/>',
+    "speed":
+    '<path d="M12 4a9 9 0 0 0-9 9c0 2 .6 3.600 1.600 5h14.800A9 9 0 0 0 21 13a9 9 0 0 0-9-9z"/>'
+    '<path d="M12 13l4-4"/>',
+    "palette":
+    '<path d="M12 3a9 9 0 1 0 0 18c1.500 0 2-1 1.500-2.200-.6-1.300.2-2.800 1.800-2.800H18a3 3 0'
+    ' 0 0 3-3c0-5-4-10-9-10z"/><circle cx="7.500" cy="11" r="1"/><circle cx="11" cy="7" r="1"/>'
+    '<circle cx="16" cy="8" r="1"/>',
+    "text":
+    '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
+    "join":
+    '<rect x="2" y="7" width="8" height="10" rx="1"/><rect x="14" y="7" width="8" height="10" '
+    'rx="1"/><path d="M10 12h4"/>',
 }
 
 # Arrows that point back or forward in the user's writing direction: drawn flipped in a

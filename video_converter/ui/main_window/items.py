@@ -31,6 +31,9 @@ class MediaItem:
     proxy_progress: Optional[float] = None  # how far along the copy is, while it is being made
     proxy_failed: bool = False
     play_original: bool = False  # play the file as it is, not its smooth copy (this file only)
+    thumb_paths: list[Path] = field(default_factory=list)  # the thumbnail files, until exit
+    restored: bool = False  # it came back with a project or recovered work
+    missing: bool = False  # the file isn't there (moved or deleted); a project still keeps it
     serial: int = field(
         default_factory=lambda: next(_item_numbers))  # never reused, unlike id(): names its folder
     _resolved: Optional[Path] = field(default=None, repr=False)

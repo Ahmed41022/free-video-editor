@@ -49,6 +49,9 @@ class LifecycleMixin:
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
+        if not self._restarting and not self._finish_work():
+            event.ignore()  # no clear decision about the work: the app stays open
+            return
         self._save_preferences()
         QApplication.instance().removeEventFilter(self)
         self.queue.shutdown()

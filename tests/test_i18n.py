@@ -1244,7 +1244,7 @@ class LanguageSettingTests(WindowCase):
             self.assertTrue(window._ask_restart())
         self.assertIn("The new language is used the next time the app starts.", seen)
         self.assertIn("Later", seen)
-        self.assertTrue(any("not kept" in text for text in seen))
+        self.assertTrue(any("saved first" in text for text in seen))
 
         with mock.patch.object(QMessageBox, "exec", new=lambda box: 0):
             self.assertFalse(window._ask_restart())
@@ -1265,7 +1265,7 @@ class LanguageSettingTests(WindowCase):
                                "restart") as restart, mock.patch.object(type(window), "close",
                                                                         return_value=True):
             window.restart_app()
-        restart.assert_called_once_with([str(self.video)])
+        restart.assert_called_once_with([str(self.video)], resume={"work": mock.ANY})
 
     def test_a_window_that_stays_open_is_not_restarted(self):
         from video_converter.ui import language

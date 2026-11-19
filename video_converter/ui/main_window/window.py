@@ -21,12 +21,14 @@ from .editing import EditingMixin
 from .exporting import ExportingMixin
 from .graphics import GPU_SEARCH_LATEST_MS, GraphicsMixin
 from .help import HelpMixin
+from .home import HomeMixin
 from .items import MediaItem
 from .layout import LayoutMixin
 from .library import LibraryMixin
 from .lifecycle import LifecycleMixin
 from .playback import PlaybackMixin
 from .preferences import PreferencesMixin
+from .projects import ProjectsMixin, projects_folder
 from .previews import PreviewsMixin
 from .selection import SelectionMixin
 from .shortcuts import ShortcutsMixin
@@ -52,10 +54,15 @@ class Signals(QObject):
 
 class MainWindow(LayoutMixin, PreferencesMixin, LibraryMixin, SelectionMixin, EditingMixin,
                  CaptionsMixin, PreviewsMixin, PlaybackMixin, GraphicsMixin, HelpMixin,
-                 ExportingMixin, UpdatesMixin, ShortcutsMixin, LifecycleMixin, QMainWindow):
+                 ExportingMixin, UpdatesMixin, ShortcutsMixin, LifecycleMixin, HomeMixin,
+                 ProjectsMixin, QMainWindow):
 
-    def __init__(self, ffmpeg: str, settings: Optional[QSettings] = None):
+    def __init__(
+            self, ffmpeg: str, settings: Optional[QSettings] = None,
+            projects_dir: Optional[Path] = None):
         super().__init__()
+        self._init_home()
+        self._init_projects(projects_folder(projects_dir, settings))
         self.ffmpeg = ffmpeg
         # The storage key keeps the app's original name so saved settings and presets carry over.
         self.store = settings or QSettings("VideoConverter", "Video Converter")
@@ -110,6 +117,7 @@ class MainWindow(LayoutMixin, PreferencesMixin, LibraryMixin, SelectionMixin, Ed
         self.undo_stack = QUndoStack(self)
         self.undo_stack.setUndoLimit(
             UNDO_LIMIT)  # steps hold copies of settings: don't keep them forever
+        self.undo_stack.indexChanged.connect(lambda _index: self._mark_dirty())
         self.bridge = QueueBridge()
         self.queue = JobQueue(ffmpeg, on_update=self.bridge.jobUpdated.emit)
         self.player = Player(self)

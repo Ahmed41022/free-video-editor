@@ -661,7 +661,9 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
             self.trim_section, self.speed_section, self.fade_section, self.captions_section,
             self.audio_section, self.quality_section
         ]
-        for section in self.sections + [self.export_section]:
+        self.all_sections = self.sections + [self.export_section]  # in the order they are shown
+        self.panel_layout = layout
+        for section in self.all_sections:
             layout.addWidget(section)
         layout.addStretch(1)
         for combo in self.findChildren(QComboBox):

@@ -31,9 +31,7 @@ class PreferencesMixin:
             QMessageBox.Icon.Question, tr("Language"),
             tr("The new language is used the next time the app starts."), parent=self)
         box.setInformativeText(
-            tr(
-                "Restart now? Your files are opened again, but the edits you made to them "
-                "are not kept."))
+            tr("Restart now? Your work is saved first and opened again just as it is."))
         restart = box.addButton(tr("Restart now"), QMessageBox.ButtonRole.AcceptRole)
         box.addButton(tr("Later"), QMessageBox.ButtonRole.RejectRole)
         box.exec()
@@ -51,12 +49,17 @@ class PreferencesMixin:
                 tr("Some exports haven't finished. Stop them and quit?"
                    )) != QMessageBox.StandardButton.Yes:
             return
+        resume = self._hand_over_work()
+        if resume is False:
+            return
         # Free the "one window per user" name first, so the new copy takes it instead of handing
         # its files to this window while it closes. Then start the new copy before closing: if it
         # can't be started, this window stays open (and listens again) instead of just vanishing.
         if self.instance is not None:
             self.instance.close()
-        if not language.restart(paths):
+        started = language.restart(paths, resume=resume) if resume else language.restart(paths)
+        if not started:
+            self._work_handed_over = False
             if self.instance is not None:
                 self.instance.listen()
             QMessageBox.warning(
@@ -68,6 +71,22 @@ class PreferencesMixin:
         self._restarting = True  # the question about running exports was answered above
         if not self.close():
             self._restarting = False
+            self._work_handed_over = False
+
+    def _hand_over_work(self):
+        """Save the work for the copy that is about to start: the project (by its id), or the
+        recovery copy of work outside a project (by its file). Returns what to pass to the new
+        copy, None when nothing is open, or False when it couldn't be saved."""
+        if self.project is None and not self.items:
+            return None
+        if not self.save_work_now(feedback=False):
+            QMessageBox.warning(
+                self, APP_NAME, tr("Your work couldn't be saved, so the app was not restarted."))
+            return False
+        self._work_handed_over = True
+        if self.project is not None:
+            return {"project": self.project.id}
+        return {"work": str(self.projects.recovery_path(self.session))}
 
     def _load_preferences(self) -> None:
         mode = self._saved_text("theme", "system")

@@ -70,8 +70,26 @@ def apply_to_app(app: Optional[QApplication] = None) -> None:
         _translator = translator
 
 
-def restart_command(paths: list[str]) -> tuple[str, list[str], str]:
-    """The program, arguments and folder that start the app again with `paths` opened."""
+PROJECT_OPTION = "--project"  # followed by the id of the project to open again
+WORK_OPTION = "--work"  # followed by the recovery file of the work to open again
+
+
+def resume_options(resume: Optional[dict]) -> list[str]:
+    """The arguments that make the new copy open the same project (`{"project": id}`) or the same
+    unsaved work (`{"work": recovery file}`) instead of just the files."""
+    if not resume:
+        return []
+    if resume.get("project"):
+        return [PROJECT_OPTION, str(resume["project"])]
+    if resume.get("work"):
+        return [WORK_OPTION, str(resume["work"])]
+    return []
+
+
+def restart_command(paths: list[str], resume: Optional[dict] = None) -> tuple[str, list[str], str]:
+    """The program, arguments and folder that start the app again with `paths` opened (or, with
+    `resume`, the same project or work)."""
+    paths = [*resume_options(resume), *paths]
     if getattr(sys, "frozen", False):
         return sys.executable, [*paths], str(Path(sys.executable).parent)
     root = Path(__file__).resolve().parents[2]
@@ -79,9 +97,9 @@ def restart_command(paths: list[str]) -> tuple[str, list[str], str]:
     return sys.executable, ["-c", code, *paths], str(root)
 
 
-def restart(paths: list[str]) -> bool:
+def restart(paths: list[str], resume: Optional[dict] = None) -> bool:
     """Start the app again (the caller closes this copy). Returns whether it could be started."""
-    program, args, folder = restart_command(paths)
+    program, args, folder = restart_command(paths, resume) if resume else restart_command(paths)
     process = QProcess()
     process.setProgram(program)
     process.setArguments(args)

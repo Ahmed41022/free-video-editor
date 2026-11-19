@@ -926,7 +926,7 @@ class WindowInstanceTests(WindowCase):
         from video_converter.ui import language
         started = []
 
-        def start_new_copy(paths):
+        def start_new_copy(paths, resume=None):
             started.append(second_start(self.name, self.lock_dir, *paths))
             return True
 
