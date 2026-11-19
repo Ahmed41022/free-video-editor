@@ -47,16 +47,18 @@ class ConversionJob:
     fade_in: float = 0.0
     fade_out: float = 0.0
     sound: Sound = field(default_factory=Sound)  # volume, loudness, noise reduction, music
-    overwrite: bool = True  # False: the output name was chosen as free, and is made another if it gets taken
+    # False: the output name was chosen as free, and is made another if it gets taken
+    overwrite: bool = True
 
 
 def measure_loudness(
         cmd: list[str], scratch: Path, duration: Optional[float],
         on_progress: Optional[Callable[[float], None]], cancel_event: Optional[threading.Event],
         cwd: Optional[Path] = None) -> Optional[Loudness]:
-    """Run the first loudness pass `cmd` (see `sound.loudnorm`) and return what it measured, or None when
-    the sound is silent or can't be measured, so that there is nothing to even out. `scratch` is a file
-    name that is never written: run_ffmpeg wants an output to clean up after a cancel."""
+    """Run the first loudness pass `cmd` (see `sound.loudnorm`) and return what it measured, or
+    None when the sound is silent or can't be measured, so that there is nothing to even out.
+    `scratch` is a file name that is never written: run_ffmpeg wants an output to clean up after a
+    cancel."""
     report: list[str] = []
     run_ffmpeg(cmd, scratch, duration, on_progress, cancel_event, cwd, report=report)
     measured = parse_loudness("".join(report))
@@ -74,8 +76,8 @@ def mp3_command(
         cover: Optional[int] = None) -> list[str]:
     """The ffmpeg command that makes `job`'s MP3. `voice` is whether the source's own sound is used
     (False when the file has none and only the music is). With `measure` it is the loudness pass
-    instead: the same sound, thrown away after loudnorm has measured it. `cover` is the index of the
-    source's cover picture, which the MP3 keeps."""
+    instead: the same sound, thrown away after loudnorm has measured it. `cover` is the index of
+    the source's cover picture, which the MP3 keeps."""
     sound = job.sound
     music = sound.music and Path(sound.music).resolve()
     filters: list[str] = []
@@ -139,7 +141,8 @@ def convert(
     total = output_duration(segments, job.speed)
     if sound.music and total is None:
         raise music_length_error()
-    voice = info.has_audio or not sound.music  # without sound of its own, the music is all there is
+    # without sound of its own, the music is all there is
+    voice = info.has_audio or not sound.music
     inputs = [job.source, *([Path(sound.music)] if sound.music else [])]
     with staged_output(job.output, inputs, job.overwrite) as staged:
         measured = None

@@ -23,13 +23,13 @@ def reverse_memory(
     """About how many bytes ffmpeg needs to play this clip backwards, or 0 when it isn't reversed
     (or its length is unknown).
 
-    Reversing holds every frame of the result in memory. Measured on real exports, ffmpeg needs about
-    3 bytes a pixel for each frame (the raw yuv420p frame is 1.5, and its buffers and the encoder's own
-    frames about as much again), or 4.5 after a color look that works on RGB pictures (see `RGB_LOOKS`),
-    plus REVERSE_BASE_BYTES for the rest of ffmpeg. The size is
-    the exported one (see `plan_geometry`), the number of frames comes from
-    the kept, sped-up length at `fps` (a join's frame rate; the clip's own by default, or 30 when
-    unknown). A `sound_only` export holds just the sound instead."""
+    Reversing holds every frame of the result in memory. Measured on real exports, ffmpeg needs
+    about 3 bytes a pixel for each frame (the raw yuv420p frame is 1.5, and its buffers and the
+    encoder's own frames about as much again), or 4.5 after a color look that works on RGB pictures
+    (see `RGB_LOOKS`), plus REVERSE_BASE_BYTES for the rest of ffmpeg. The size is the exported one
+    (see `plan_geometry`), the number of frames comes from the kept, sped-up length at `fps` (a
+    join's frame rate; the clip's own by default, or 30 when unknown). A `sound_only` export holds
+    just the sound instead."""
     if not edit.reverse:
         return 0
     segments = edit.segments(info.duration)
@@ -58,5 +58,6 @@ def reverse_warning(nbytes: int) -> str:
     if nbytes <= REVERSE_WARN_BYTES:
         return ""
     return tr(
-        "Reversing this needs about {memory} of memory. Shorten the clip or lower the size if your PC "
+        "Reversing this needs about {memory} of memory. Shorten the clip or lower the size if "
+        "your PC "
         "has less.", memory=format_memory(nbytes))

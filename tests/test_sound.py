@@ -53,7 +53,8 @@ def make_media(*args):
 
 
 def sine(frequency, seconds, amplitude):
-    """A sine wave source with a true peak of `amplitude` (1 = full scale; ffmpeg's own sine peaks at 0.125)."""
+    """A sine wave source with a true peak of `amplitude` (1 = full scale; ffmpeg's own sine peaks
+    at 0.125)."""
     return f"sine=frequency={frequency}:duration={seconds},volume={amplitude * 8}"
 
 
@@ -96,7 +97,8 @@ def level(path, band=None, start=None, length=None, key="max_volume", before="")
     return float(re.search(rf"{key}: (-?[\d.]+) dB", report).group(1))
 
 
-HIGH_PASS = "highpass=f=3000," * 3  # everything above 3 kHz, where the voice (440 Hz) leaks nothing
+# everything above 3 kHz, where the voice (440 Hz) leaks nothing
+HIGH_PASS = "highpass=f=3000," * 3
 
 
 def lufs(path):
@@ -134,7 +136,8 @@ class VolumeFilterTests(unittest.TestCase):
         edit = VideoEdit(
             volume=3.0, speed=2.0, reverse=True, audio_fade_out=1.0, keep=[(0.0, 1.0), (2.0, 4.0)])
         graph = graph_of(command_for(edit))
-        # (the short fades at the cuts come with the cuts; the fade out of the export is the last "afade")
+        # (the short fades at the cuts come with the cuts; the fade out of the export is the last
+        # "afade")
         positions = [graph.index(word) for word in ("atrim", "atempo", "areverse")]
         positions += [graph.rindex("afade"), graph.index("volume=3dB")]
         self.assertEqual(positions, sorted(positions))
@@ -265,7 +268,8 @@ class LoudnessFilterTests(unittest.TestCase):
         self.assertNotIn("libx264", cmd)
         self.assertEqual(cmd[cmd.index("-f") + 1], "null")
         self.assertEqual(cmd[-1], "-")
-        # The export applies loudnorm to exactly this sound, so what was measured is what gets normalized.
+        # The export applies loudnorm to exactly this sound, so what was measured is what gets
+        # normalized.
         export = graph_of(command_for(edit, loudness=MEASURED))
         sound_of = lambda text: text[text.index("[0:a:0]"):text.index("loudnorm")]  # noqa: E731
         self.assertEqual(sound_of(graph), sound_of(export))
@@ -296,8 +300,8 @@ class MusicFilterTests(unittest.TestCase):
     def test_it_is_18_decibels_down_by_default(self):
         self.assertEqual(DEFAULT_MUSIC_VOLUME, -18.0)
         self.assertIn(
-            "[1:a:0]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=-18dB",
-            self.graph())
+            "[1:a:0]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=-"
+            "18dB", self.graph())
         self.assertIn("volume=-9.5dB", self.graph(music_volume=-9.5))
 
     def test_the_music_volume_is_kept_in_range(self):
@@ -873,7 +877,8 @@ class TwoPassTests(unittest.TestCase):
         cls._tmp.cleanup()
 
     def recorded(self, action, *, spawned=None):
-        """Run `action()` while recording every ffmpeg run, in order: (command, working folder, output)."""
+        """Run `action()` while recording every ffmpeg run, in order: (command, working folder,
+        output)."""
         calls, real_core, real_video = [], core.run_ffmpeg, video.export.run_ffmpeg
 
         def recorder(real):
@@ -1011,7 +1016,8 @@ class TwoPassTests(unittest.TestCase):
 
         _, calls = self.recorded(action, spawned=spawned)
         self.assertEqual(len(calls), passes_started)
-        # taskkill, which stops the whole ffmpeg tree on Windows, may still be exiting a moment after ffmpeg has
+        # taskkill, which stops the whole ffmpeg tree on Windows, may still be exiting a moment
+        # after ffmpeg has
         ffmpegs = [p for p in spawned if Path(str(p.args[0])).stem.lower() != "taskkill"]
         self.assertTrue(
             ffmpegs and all(p.poll() is not None for p in ffmpegs), "an ffmpeg is still running")

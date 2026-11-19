@@ -82,11 +82,13 @@ class Subtitles:
     outline: float = 0.08  # as a share of the text size
     bold: bool = False
     position: str = "bottom"  # a SUBTITLE_POSITIONS key
-    own_style: bool = True  # an .ass/.ssa file keeps its own design (fonts, colors, places) and ignores the above
+    # an .ass/.ssa file keeps its own design (fonts, colors, places) and ignores the above
+    own_style: bool = True
 
 
-# Settings that belong to one video and aren't copied by "Apply to all files" or a preset: the texts
-# and the subtitle FILE (a subtitle file was made for one video). The logo and the subtitle style are shared.
+# Settings that belong to one video and aren't copied by "Apply to all files" or a preset: the
+# texts and the subtitle FILE (a subtitle file was made for one video). The logo and the subtitle
+# style are shared.
 def keep_own_captions(result_edit: Any, target_edit: Any) -> None:
     """Put `target_edit`'s own texts and subtitle file into `result_edit`."""
     result_edit.texts = copy.deepcopy(target_edit.texts)

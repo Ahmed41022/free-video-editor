@@ -146,14 +146,18 @@ class ConvertTests(unittest.TestCase):
 class StopProcessTests(unittest.TestCase):
 
     def test_stopping_a_launcher_stops_what_it_started(self):
-        """An ffmpeg found through a launcher (a Chocolatey shim) is only the launcher; the real one must stop too."""
+        """An ffmpeg found through a launcher (a Chocolatey shim) is only the launcher; the real
+        one must stop too."""
         import sys
         from video_converter.core import remove_file, stop_process
         folder = Path(tempfile.mkdtemp())
         marker = folder / "child-alive.txt"
-        child = "import sys,time; f = open(sys.argv[1], 'w'); f.write('x'); f.flush(); time.sleep(60)"
+        child = (
+            "import sys,time; f = open(sys.argv[1], 'w'); f.write('x'); f.flush(); "
+            "time.sleep(60)")
         parent = (
-            "import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', %r, sys.argv[1]]); "
+            "import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', %r, "
+            "sys.argv[1]]); "
             "time.sleep(60)" % child)
         proc = subprocess.Popen([sys.executable, "-c", parent, str(marker)])
         for _ in range(200):

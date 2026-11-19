@@ -20,16 +20,18 @@ log = logging.getLogger(__name__)
 
 BIG_PIXELS = 1920 * 1080  # a video with more pixels than a 1080p one gets a preview copy...
 BIG_KBPS = 20_000  # ...and so does one with more than about 20 megabits per second
-HIGH_FPS = 35  # a picture of at least HIGH_FPS_PIXELS that runs faster than this gets a copy too...
-HIGH_FPS_PIXELS = 1280 * 720 - 1  # (about 720p: game recordings at 60 or 120 fps cost the player far too much)
+# a picture of at least HIGH_FPS_PIXELS that runs faster than this gets a copy too...
+HIGH_FPS = 35
+# (about 720p: game recordings at 60 or 120 fps cost the player far too much)
+HIGH_FPS_PIXELS = 1280 * 720 - 1
 PROXY_FPS = 30  # ...which is made at no more than this many frames per second
 PROXY_LONG_SIDE = 960  # the copy's longer side, in pixels
 KEYFRAME_SECONDS = 1  # a keyframe this often, so jumping around the timeline is quick
 
 
 def frame_rate_of(info: MediaInfo) -> float:
-    """How fast the picture can run: its average rate, or for a variable-rate video (a game recording that
-    averages 58 fps but declares 120) the highest rate it declares."""
+    """How fast the picture can run: its average rate, or for a variable-rate video (a game
+    recording that averages 58 fps but declares 120) the highest rate it declares."""
     rate = info.fps or 0.0
     if info.variable_frame_rate and info.max_fps:
         rate = max(rate, info.max_fps)
@@ -47,15 +49,16 @@ def needs_proxy(info: Optional[MediaInfo]) -> bool:
 
 
 def proxy_size(width: int, height: int) -> tuple[int, int]:
-    """The size of the preview copy of a `width` x `height` video: the same shape, never bigger than the
-    original, with even sides (which H.264 needs)."""
+    """The size of the preview copy of a `width` x `height` video: the same shape, never bigger
+    than the original, with even sides (which H.264 needs)."""
     scale = min(PROXY_LONG_SIDE / max(width, height), 1.0)
     return max(2, round(width * scale / 2) * 2), max(2, round(height * scale / 2) * 2)
 
 
 def proxy_command(ffmpeg: str, source: Path, output: Path, info: MediaInfo) -> list[str]:
-    """Make a small, fast-to-decode copy: ultrafast x264, a keyframe every second, and the sound as AAC.
-    ffmpeg turns phone videos upright while reading them, so the copy has no rotation to apply."""
+    """Make a small, fast-to-decode copy: ultrafast x264, a keyframe every second, and the sound as
+    AAC. ffmpeg turns phone videos upright while reading them, so the copy has no rotation to
+    apply."""
     width, height = proxy_size(info.width, info.height)
     # Cap the rate before shrinking, so the scaler only sees the frames that are kept.
     slow_down = f"fps={PROXY_FPS}," if frame_rate_of(info) > PROXY_FPS + 0.5 else ""
@@ -90,7 +93,8 @@ class ProxyMaker:
         self._counter = 0
 
     def request(self, key: Hashable, source: Path, info: MediaInfo) -> bool:
-        """Start making a copy for `key`, unless one is already on its way. Returns whether it was started."""
+        """Start making a copy for `key`, unless one is already on its way. Returns whether it was
+        started."""
         with self._lock:
             if self._closed or key in self._jobs:
                 return False

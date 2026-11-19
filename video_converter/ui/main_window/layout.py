@@ -18,8 +18,8 @@ from ..queue_panel import QueuePanel
 from ..timeline import Timeline
 from .items import MediaList
 
-# The width the settings panel starts with. Every section fits in it, in English and in Arabic (it fits even in
-# the narrowest the panel can be made, 330), with room for longer words.
+# The width the settings panel starts with. Every section fits in it, in English and in Arabic (it
+# fits even in the narrowest the panel can be made, 330), with room for longer words.
 INSPECTOR_WIDTH = 380
 
 
@@ -209,7 +209,8 @@ class LayoutMixin:
         help_menu.addAction(tr("About {app}", app=APP_NAME), self.show_about)
 
     def _build_language_menu(self, view: QMenu) -> None:
-        """View > Language: English, Arabic, or whatever Windows uses. The choice takes effect on the next start."""
+        """View > Language: English, Arabic, or whatever Windows uses. The choice takes effect on
+        the next start."""
         menu = view.addMenu(tr("&Language"))
         menu.setToolTip(tr("The language of the app's menus and messages"))
         self.language_actions: dict[str, QAction] = {}
@@ -262,8 +263,8 @@ class LayoutMixin:
         self.bridge.jobUpdated.connect(self._job_updated)
 
     def _frame_limit(self) -> int:
-        """How many pixels on its longer side a video frame can usefully have: what the preview shows, more when
-        it is zoomed in. Bigger frames are shrunk when they arrive."""
+        """How many pixels on its longer side a video frame can usefully have: what the preview
+        shows, more when it is zoomed in. Bigger frames are shrunk when they arrive."""
         return int(
             max(self.view.width(), self.view.height()) * self.view.devicePixelRatioF() *
             max(self.view.zoom, 1.0))

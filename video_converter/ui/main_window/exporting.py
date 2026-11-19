@@ -28,7 +28,8 @@ class ExportingMixin:
         reset = menu.addAction(
             tr("Next to each original file"), lambda: self._set_output_folder(None))
         reset.setEnabled(self.output_dir is not None)
-        # Under the Change… button, whether it was clicked or pressed from the keyboard (the mouse may be anywhere).
+        # Under the Change… button, whether it was clicked or pressed from the keyboard (the mouse
+        # may be anywhere).
         button = self.inspector.change_button
         menu.exec(button.mapToGlobal(QPoint(0, button.height())))
 
@@ -63,7 +64,8 @@ class ExportingMixin:
         return Job(item.path, item.settings.copy(), self.output_dir, item.info)
 
     def _confirm_heavy(self, jobs: list[Job]) -> bool:
-        """Ask whether to go ahead with exports that play something backwards and need a lot of memory."""
+        """Ask whether to go ahead with exports that play something backwards and need a lot of
+        memory."""
         if not self.confirm_heavy_exports:
             return True
         if len(jobs) == 1:
@@ -114,7 +116,8 @@ class ExportingMixin:
         count = len(self._queue_jobs(jobs))
         parts = [ntr(count, "Added {n} export to the queue.", "Added {n} exports to the queue.")
                  ] if count else []
-        # A single file left out on its own already has _make_job's message; otherwise say which ones were.
+        # A single file left out on its own already has _make_job's message; otherwise say which
+        # ones were.
         if left_out and (count or len(left_out) > 1):
             names = join_parts(
                 [item.path.name for item in left_out[:3]] + (["…"] if len(left_out) > 3 else []))
@@ -183,8 +186,8 @@ class ExportingMixin:
                 tr("Export failed: {name}", name=isolate(job.source.name)), 6000)
 
     def save_frame_image(self) -> None:
-        """Ask where, then save the frame at the playhead as a PNG or JPG: at the size the export has, with
-        every edit applied (not the smaller picture the preview shows)."""
+        """Ask where, then save the frame at the playhead as a PNG or JPG: at the size the export
+        has, with every edit applied (not the smaller picture the preview shows)."""
         item = self.current
         if item is None or item.info is None or not item.info.has_video:
             self.statusBar().showMessage(tr("Open a video to save a frame of it."), 4000)

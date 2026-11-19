@@ -27,12 +27,14 @@ class ShowingMixin:
             self.gpu_label.setText(name or tr("No supported graphics card found"))
 
     def set_frame_rate_hint(self, text: str) -> None:
-        """Show (or, with "", hide) the note under Frame rate about a source that may not play on a phone."""
+        """Show (or, with "", hide) the note under Frame rate about a source that may not play on a
+        phone."""
         self.rate_hint.setText(text)
         self.rate_hint.setVisible(bool(text) and not self._gif)
 
     def set_size_note(self, text: str, error: bool = False) -> None:
-        """Show what fitting a file size will do to the picture, or (`error`) why it can't be done. "" hides it."""
+        """Show what fitting a file size will do to the picture, or (`error`) why it can't be done.
+        "" hides it."""
         self._size_text, self._size_is_error = text, error
         self._refresh_size_note()
 
@@ -49,7 +51,8 @@ class ShowingMixin:
         self.format_warning.setVisible(bool(text))
 
     def set_has_picture(self, has_picture: bool) -> None:
-        """A file with no picture (a song) can only be saved as MP3: the Video choice is switched off."""
+        """A file with no picture (a song) can only be saved as MP3: the Video choice is switched
+        off."""
         self._has_picture = has_picture
         video_button = self.output_group.button(0)
         video_button.setEnabled(has_picture)
@@ -64,7 +67,8 @@ class ShowingMixin:
                 "This file has no sound, so there are no silences to remove"))
 
     def set_reverse_warning(self, text: str) -> None:
-        """Show (or, with "", hide) the note about how much memory playing the clip backwards needs."""
+        """Show (or, with "", hide) the note about how much memory playing the clip backwards
+        needs."""
         self.reverse_warning.setText(text)
         self.reverse_warning.setVisible(bool(text))
 
@@ -144,7 +148,8 @@ class ShowingMixin:
             self._updating = False
 
     def _show_format(self, edit) -> None:
-        """Show the format, the quality or file size, and the GIF options, and only the rows that go with them."""
+        """Show the format, the quality or file size, and the GIF options, and only the rows that
+        go with them."""
         fmt = edit.output_format
         self.format_box.setCurrentIndex(max(self.format_box.findData(edit.video_format), 0))
         self.format_hint.setText(tr(fmt.hint) if fmt.hint else "")

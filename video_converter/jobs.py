@@ -15,7 +15,9 @@ from .core import ConversionCancelled, ConversionError, ConversionJob, MediaInfo
 from .gpu import choose_encoder
 from .i18n import N_, tr
 from .project import OUTPUT_AUDIO, ClipSettings, describe, describe_join, output_file_for
-from .video import DEFAULT_FPS, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, reverse_memory
+from .video import (
+    DEFAULT_FPS, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, reverse_memory,
+)
 
 log = logging.getLogger(__name__)
 
@@ -79,8 +81,8 @@ class Job:
 
     @property
     def reverse_memory(self) -> int:
-        """About how many bytes ffmpeg needs to play this export backwards (0 if nothing is reversed).
-        In a join each clip is reversed on its own, so this is the biggest clip's."""
+        """About how many bytes ffmpeg needs to play this export backwards (0 if nothing is
+        reversed). In a join each clip is reversed on its own, so this is the biggest clip's."""
         sound_only = self.settings.output == OUTPUT_AUDIO
         if self.clips:
             fps = (self.clips[0].info.fps if self.clips[0].info else None) or DEFAULT_FPS
@@ -108,13 +110,14 @@ def run_job(ffmpeg: str, job: Job, on_progress: Callable[[float], None]) -> Path
     allow it and there is one that works; if it fails, the job is done again on the CPU."""
 
     def note(text: str) -> None:
-        # A job can have more to say than one thing (made smaller to fit, and then the card failed).
+        # A job can have more to say than one thing (made smaller to fit, and then the card
+        # failed).
         job.note = f"{job.note} · {text}" if job.note and text not in job.note else (
             job.note or text)
 
     if job.clips:
-        # The result never takes the name of one of the clips (or of the music), and the name is made again if
-        # another program takes it before the export starts (overwrite=False).
+        # The result never takes the name of one of the clips (or of the music), and the name is
+        # made again if another program takes it before the export starts (overwrite=False).
         output = output_file_for(
             job.source, job.settings, job.output_dir, joined=True,
             avoid=[clip.source for clip in job.clips])
@@ -139,12 +142,15 @@ def run_job(ffmpeg: str, job: Job, on_progress: Callable[[float], None]) -> Path
 
 
 def hardware_codec(edit: VideoEdit) -> str:
-    """Which graphics card encoders suit `edit`'s format: "h264" or "hevc" (WebM and GIF have none)."""
+    """Which graphics card encoders suit `edit`'s format: "h264" or "hevc" (WebM and GIF have
+    none)."""
     return edit.output_format.codec
 
 
 def _describe_for_log(job: Job) -> str:
-    return f"{job.title} ({job.summary}); graphics card: {'allowed' if job.settings.edit.use_gpu else 'off'}"
+    return (
+        f"{job.title} ({job.summary}); graphics card: "
+        f"{'allowed' if job.settings.edit.use_gpu else 'off'}")
 
 
 class JobQueue:

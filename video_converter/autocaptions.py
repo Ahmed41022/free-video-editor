@@ -1,12 +1,13 @@
 """Automatic captions: listen to a video's speech and write it down as subtitle cues.
 
-The sound is pulled out of the SOURCE file with ffmpeg (16 kHz mono, the trimmed part of it), a Whisper
-model (faster-whisper, on the CPU, offline) turns it into words with times, and `build_cues` cuts those
-words into short, readable cues. The cues are in the source video's own time, so the subtitle retiming
-that already exists (cuts, speed, reverse) keeps them in sync with whatever the edit does later.
+The sound is pulled out of the SOURCE file with ffmpeg (16 kHz mono, the trimmed part of it), a
+Whisper model (faster-whisper, on the CPU, offline) turns it into words with times, and
+`build_cues` cuts those words into short, readable cues. The cues are in the source video's own
+time, so the subtitle retiming that already exists (cuts, speed, reverse) keeps them in sync with
+whatever the edit does later.
 
-Nothing here touches the network except `speech_models.download_model`, the one-time download of the model.
-"""
+Nothing here touches the network except `speech_models.download_model`, the one-time download of
+the model. """
 
 from __future__ import annotations
 
@@ -25,7 +26,9 @@ from . import APP_NAME
 from .captions import Cue, write_srt
 from .core import ConversionCancelled, ConversionError, run_ffmpeg, unique_output_path
 from .i18n import N_, tr
-from .speech_models import DEFAULT_MODEL, MODELS, SpeechModel, download_model, is_downloaded, verify_model
+from .speech_models import (
+    DEFAULT_MODEL, MODELS, SpeechModel, download_model, is_downloaded, verify_model,
+)
 
 log = logging.getLogger(__name__)
 
@@ -73,7 +76,8 @@ Progress = Callable[[str, float, str],
 
 @dataclass
 class Piece:
-    """A word (or a stretch of text) and when it is spoken. `text` keeps its leading space, if any."""
+    """A word (or a stretch of text) and when it is spoken. `text` keeps its leading space, if
+    any."""
     start: float
     end: float
     text: str
@@ -92,9 +96,9 @@ def _ends(text: str, marks: str) -> bool:
 
 
 def wrap_lines(text: str, width: int = LINE_LENGTH) -> Optional[list[str]]:
-    """`text` as one line, or as two lines no longer than `width` and as even as can be (preferring to
-    break after a comma or a full stop). None if it can't be done in two lines. Text with no spaces
-    (Chinese, Japanese) is broken between letters."""
+    """`text` as one line, or as two lines no longer than `width` and as even as can be (preferring
+    to break after a comma or a full stop). None if it can't be done in two lines. Text with no
+    spaces (Chinese, Japanese) is broken between letters."""
     text = _clean(text)
     if len(text) <= width:
         return [text] if text else []
@@ -143,8 +147,8 @@ def _fits(pieces: list[Piece]) -> bool:
 
 
 def _split_point(pieces: list[Piece]) -> Optional[int]:
-    """Where in `pieces` to break the cue that has grown too big: after the last full stop or comma that
-    leaves a sensible first part. None if there is no such place."""
+    """Where in `pieces` to break the cue that has grown too big: after the last full stop or comma
+    that leaves a sensible first part. None if there is no such place."""
     for k in range(len(pieces) - 2, -1, -1):
         if _ends(pieces[k].text, SENTENCE_END + CLAUSE_END) and len(_text_of(
                 pieces[:k + 1])) >= 10:
@@ -153,7 +157,8 @@ def _split_point(pieces: list[Piece]) -> Optional[int]:
 
 
 def split_text(start: float, end: float, text: str) -> list[Piece]:
-    """Pieces for a stretch of speech that came without word times: its words, spread over the time by length."""
+    """Pieces for a stretch of speech that came without word times: its words, spread over the time
+    by length."""
     text = text.strip()
     if not text:
         return []
@@ -171,7 +176,8 @@ def split_text(start: float, end: float, text: str) -> list[Piece]:
 
 
 def pieces_from_segments(segments: Iterable) -> list[Piece]:
-    """The words of Whisper's segments (each with `start`, `end`, `text` and, when asked for, `words`)."""
+    """The words of Whisper's segments (each with `start`, `end`, `text` and, when asked for,
+    `words`)."""
     pieces: list[Piece] = []
     for segment in segments:
         words = [w for w in (getattr(segment, "words", None) or []) if str(w.word).strip()]
@@ -187,9 +193,9 @@ def pieces_from_segments(segments: Iterable) -> list[Piece]:
 
 def build_cues(pieces: Iterable[Piece], offset: float = 0.0,
                limit: Optional[float] = None) -> list[Cue]:
-    """Cut words into cues of at most two lines of 42 letters, between 1 and 6 seconds long where the
-    speech allows, breaking at pauses and punctuation. Times are moved by `offset` seconds, and cues
-    are kept inside 0..`limit` (when given). The cues never overlap."""
+    """Cut words into cues of at most two lines of 42 letters, between 1 and 6 seconds long where
+    the speech allows, breaking at pauses and punctuation. Times are moved by `offset` seconds, and
+    cues are kept inside 0..`limit` (when given). The cues never overlap."""
     pieces = sorted(pieces, key=lambda p: (p.start, p.end))
     groups: list[list[Piece]] = []
     current: list[Piece] = []
@@ -265,8 +271,8 @@ def extract_audio(
         ffmpeg: str, source: Path, target: Path, start: float = 0.0,
         length: Optional[float] = None, on_progress: Optional[Callable[[float], None]] = None,
         cancel_event: Optional[threading.Event] = None) -> Path:
-    """The first sound track of `source` as 16 kHz mono 16-bit WAV: from `start`, `length` seconds long
-    (to the end if None). Raises ConversionError if the file has no sound."""
+    """The first sound track of `source` as 16 kHz mono 16-bit WAV: from `start`, `length` seconds
+    long (to the end if None). Raises ConversionError if the file has no sound."""
     cmd = [ffmpeg, "-hide_banner", "-nostdin", "-y"]
     if start > 0:
         cmd += ["-ss", f"{start:.3f}"]
@@ -293,8 +299,8 @@ WAV_BLOCK = 1 << 20  # frames read at a time
 
 def read_wav(path: Path):
     """The samples of a 16-bit mono WAV as a float32 array in -1..1. The file is read in blocks and
-    converted into one array that is allocated once, so a long recording takes about twice the size of its WAV
-    in memory instead of five times."""
+    converted into one array that is allocated once, so a long recording takes about twice the size
+    of its WAV in memory instead of five times."""
     import numpy as np
 
     try:
@@ -322,7 +328,8 @@ def read_wav(path: Path):
 
 
 def load_whisper(folder: Path):
-    """A faster-whisper model from the (already verified) `folder`, on the CPU. It never goes online."""
+    """A faster-whisper model from the (already verified) `folder`, on the CPU. It never goes
+    online."""
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     try:
         from faster_whisper import WhisperModel
@@ -351,10 +358,10 @@ def transcribe(
         cancel_event: Optional[threading.Event] = None) -> tuple[list[Piece], str]:
     """Run `model` over `audio`: (the words with their times, the language that was spoken).
 
-    Speech is found first (the voice activity filter), so music and silence are not "transcribed"; word
-    times are asked for so the cues can be cut at the right places. A cancel is noticed before the speech
-    is looked for, before and after the engine produces each segment, so it never has to wait for more than
-    the one step that is already running."""
+    Speech is found first (the voice activity filter), so music and silence are not "transcribed";
+    word times are asked for so the cues can be cut at the right places. A cancel is noticed before
+    the speech is looked for, before and after the engine produces each segment, so it never has to
+    wait for more than the one step that is already running."""
     if _cancelled(cancel_event):
         raise ConversionCancelled()
     try:
@@ -408,8 +415,8 @@ class CaptionResult:
 def ensure_model(
         model: SpeechModel, root: Optional[Path] = None, on_progress: Optional[Progress] = None,
         cancel_event: Optional[threading.Event] = None, opener=None) -> Path:
-    """The folder of an intact `model`: downloaded first if it isn't there yet, and fetched again (just
-    what is wrong with it) when its files have the right sizes but fail their checksum."""
+    """The folder of an intact `model`: downloaded first if it isn't there yet, and fetched again
+    (just what is wrong with it) when its files have the right sizes but fail their checksum."""
 
     def report(fraction: float, done: int, total: int) -> None:
         if on_progress:
@@ -452,10 +459,10 @@ def make_captions(
         opener=None) -> CaptionResult:
     """Make captions for the speech in `source` (the part of it inside the trim), in source time.
 
-    `duration` is the file's length. `loader(folder)` makes the speech model and `opener` replaces the
-    network for the model download (both for tests). Raises ConversionCancelled when `cancel_event` is set,
-    and ConversionError with a plain-English message when something is wrong. A video with no speech in it
-    gives no cues."""
+    `duration` is the file's length. `loader(folder)` makes the speech model and `opener` replaces
+    the network for the model download (both for tests). Raises ConversionCancelled when
+    `cancel_event` is set, and ConversionError with a plain-English message when something is
+    wrong. A video with no speech in it gives no cues."""
     model = MODELS.get(options.model)
     if model is None:
         raise ConversionError(tr("Unknown accuracy choice: {name}", name=options.model))
@@ -535,8 +542,9 @@ def save_captions(
 
 
 def fallback_folders() -> list[Path]:
-    """Where captions are saved when the folder next to the video can't be written to (a read-only drive, a
-    disc, a folder that needs rights): the user's Documents folder, then the temporary folder."""
+    """Where captions are saved when the folder next to the video can't be written to (a read-only
+    drive, a disc, a folder that needs rights): the user's Documents folder, then the temporary
+    folder."""
     home = Path.home()
     documents = home / "Documents"
     return [
@@ -548,9 +556,10 @@ def fallback_folders() -> list[Path]:
 def save_captions_anywhere(
         cues: list[Cue], source: Path, output_dir: Optional[Path] = None, overwrite: bool = False,
         fallbacks: Optional[list[Path]] = None, save=None) -> tuple[Path, bool]:
-    """`save_captions` (or `save`, which does the same job), but finished work is never thrown away: when
-    the file can't be written where it belongs, the first of the `fallbacks` folders that takes it is used.
-    Returns (the file, whether a fallback was needed). Raises the first problem only when nowhere works."""
+    """`save_captions` (or `save`, which does the same job), but finished work is never thrown
+    away: when the file can't be written where it belongs, the first of the `fallbacks` folders
+    that takes it is used. Returns (the file, whether a fallback was needed). Raises the first
+    problem only when nowhere works."""
     save = save or save_captions
     try:
         return save(cues, source, output_dir, overwrite), False

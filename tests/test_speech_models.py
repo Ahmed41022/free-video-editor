@@ -16,7 +16,9 @@ from pathlib import Path
 from unittest import mock
 
 from video_converter import speech_models as sm
-from video_converter.core import ConversionCancelled, ConversionError, remove_folder, start_process, stop_process
+from video_converter.core import (
+    ConversionCancelled, ConversionError, remove_folder, start_process, stop_process,
+)
 from video_converter.locks import FileLock
 
 
@@ -62,7 +64,8 @@ class Answer:
 
 
 class FakeServer:
-    """Stands in for `open_url`: serves `files` by the file name at the end of the URL and understands Range."""
+    """Stands in for `open_url`: serves `files` by the file name at the end of the URL and
+    understands Range."""
 
     def __init__(self, files=None, honor_range=True, fail_after=None, tamper=None):
         self.files = dict(FILES if files is None else files)
@@ -219,8 +222,9 @@ class DownloadTests(unittest.TestCase):
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
-        # Cleanups run after tearDown and newest first, so this one runs last: after a helper process that holds
-        # the lock (see hold_lock_in_another_process) has been stopped; remove_folder waits for it to let go.
+        # Cleanups run after tearDown and newest first, so this one runs last: after a helper
+        # process that holds the lock (see hold_lock_in_another_process) has been stopped;
+        # remove_folder waits for it to let go.
         self.addCleanup(remove_folder, self.root)
         self.model = tiny_model()
         self.staging = self.root / "tiny.downloading"
@@ -250,14 +254,17 @@ class DownloadTests(unittest.TestCase):
                 for url, _ in server.requests))
 
     def hold_lock_in_another_process(self, seconds):
-        """A separate process (another copy of the app) that holds the download lock for `seconds`."""
+        """A separate process (another copy of the app) that holds the download lock for
+        `seconds`."""
         code = (
-            "import sys, time; from pathlib import Path; from video_converter import speech_models as sm\n"
+            "import sys, time; from pathlib import Path; from video_converter import "
+            "speech_models as sm\n"
             "from video_converter.locks import FileLock\n"
             "with FileLock(Path(sys.argv[1]) / sm.LOCK_NAME, timeout=10):\n"
             "    print('held', flush=True); time.sleep(float(sys.argv[2]))\n")
-        # Started and stopped like the app does its ffmpeg runs: a venv's python.exe is only a launcher, and killing
-        # it alone leaves the real Python holding the lock file for a moment after.
+        # Started and stopped like the app does its ffmpeg runs: a venv's python.exe is only a
+        # launcher, and killing it alone leaves the real Python holding the lock file for a moment
+        # after.
         proc = start_process(
             [sys.executable, "-c", code, str(self.root),
              str(seconds)], stdout=subprocess.PIPE, text=True,
@@ -281,7 +288,8 @@ class DownloadTests(unittest.TestCase):
     def test_a_download_that_waited_uses_the_model_the_other_copy_finished(self):
         server = FakeServer()
         other = self.hold_lock_in_another_process(1.0)
-        # While this one waits, the other copy "finishes" the model (put in place from here, as it would have).
+        # While this one waits, the other copy "finishes" the model (put in place from here, as it
+        # would have).
         for name, data in FILES.items():
             (self.root / "tiny").mkdir(exist_ok=True)
             (self.root / "tiny" / name).write_bytes(data)
@@ -494,8 +502,8 @@ class SlowAnswer(Answer):
 
 
 class CancelledRunTests(unittest.TestCase):
-    """A download that was cancelled may still be waiting on the network when the next one starts: whatever
-    it receives late must go nowhere."""
+    """A download that was cancelled may still be waiting on the network when the next one starts:
+    whatever it receives late must go nowhere."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

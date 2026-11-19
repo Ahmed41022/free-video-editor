@@ -1,4 +1,5 @@
-"""The log file, crash handling, "Report a problem" and About (2.4). Logs go to temp folders here."""
+"""The log file, crash handling, "Report a problem" and About (2.4). Logs go to temp folders
+here."""
 
 import logging
 import os

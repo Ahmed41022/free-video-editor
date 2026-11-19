@@ -1,9 +1,10 @@
-"""The Arabic interface: the translation layer, the language files, and the window with Arabic and right-to-left
-turned on. The window tests run without a visible window and are skipped when PySide6 isn't installed.
+"""The Arabic interface: the translation layer, the language files, and the window with Arabic and
+right-to-left turned on. The window tests run without a visible window and are skipped when PySide6
+isn't installed.
 
-Two scans keep later features honest: every text passed to `tr()`, `ntr()` or `N_()` must have an entry in
-locales/ar.json, and no label, tooltip, message or dialog text in the UI code may be left out of `tr()`. A new
-feature needs only to wrap its texts and add their translations."""
+Two scans keep later features honest: every text passed to `tr()`, `ntr()` or `N_()` must have an
+entry in locales/ar.json, and no label, tooltip, message or dialog text in the UI code may be left
+out of `tr()`. A new feature needs only to wrap its texts and add their translations."""
 
 import ast
 import json
@@ -48,24 +49,30 @@ ARABIC_LETTER = re.compile(r"[\u0600-\u06FF]")
 PLACEHOLDER = re.compile(r"\{[^{}]*\}")
 CATEGORIES = ("zero", "one", "two", "few", "many", "other")
 
-# Words that stay in Latin letters in an Arabic interface: product and brand names, formats, units, key names
-# and the commands the ffmpeg message tells people to type.
+# Words that stay in Latin letters in an Arabic interface: product and brand names, formats, units,
+# key names and the commands the ffmpeg message tells people to type.
 KEPT_LATIN = re.compile(
-    r"(?<![A-Za-z])(?:Qt for Python|TikTok|Reels|Shorts|Stories|YouTube|WhatsApp|Discord|Instagram|Spotify|Apple|GitHub|Windows|Intel|AMD|NVIDIA"
-    r"|MP4|MP3|GIF|PNG|JPG|JPEG|srt|vtt|ass|H\.26[45]|WebM|MOV|VP9|AAC|VBR|LUFS|ffmpeg|FFmpeg|libvidstab|Qt|PySide6"
-    r"|MIT|CPU|HTML|Ctrl|Shift|Enter|Space|Submit|Mbps|kbps|fps|MB|GB|dB|px|Segoe|UI|winget|install|pip|imageio"
+    r"(?<![A-Za-z])(?:Qt for "
+    r"Python|TikTok|Reels|Shorts|Stories|YouTube|WhatsApp|Discord|Instagram|Spotify|Apple|"
+    r"GitHub|Windows|Intel|AMD|NVIDIA"
+    r"|MP4|MP3|GIF|PNG|JPG|JPEG|srt|vtt|ass|H\.26[45]|WebM|MOV|VP9|AAC|VBR|LUFS|ffmpeg|FFmpeg|"
+    r"libvidstab|Qt|PySide6"
+    r"|MIT|CPU|HTML|Ctrl|Shift|Enter|Space|Submit|Mbps|kbps|fps|MB|GB|dB|px|Segoe|UI|winget|"
+    r"install|pip|imageio"
     r"|Gyan|Python|English|High|Hugging Face|Hugging|Face|huggingface|co)(?![A-Za-z])")
 
 
 def translatable(text: str) -> bool:
-    """Whether `text` has words that need translating (not just numbers, units, symbols and brand names)."""
+    """Whether `text` has words that need translating (not just numbers, units, symbols and brand
+    names)."""
     text = PLACEHOLDER.sub("", text)
     text = re.sub(r"<[^>]*>|https?://[^\s<]+", "", text)
     return bool(re.search(r"[A-Za-z]{2,}", KEPT_LATIN.sub("", text)))
 
 
 def english_words(text: str, extra: tuple[str, ...] = ()) -> list[str]:
-    """The English words left in a text that is meant to be Arabic (brand names, units and `extra` aside)."""
+    """The English words left in a text that is meant to be Arabic (brand names, units and `extra`
+    aside)."""
     text = re.sub(
         r"<[^>]*>|https?://[^\s<]+|'[^']*'|\b(?:h:)?mm?:ss\b", " ",
         text)  # also what the user typed, and m:ss
@@ -75,7 +82,7 @@ def english_words(text: str, extra: tuple[str, ...] = ()) -> list[str]:
     return re.findall(r"[A-Za-z]{2,}", KEPT_LATIN.sub(" ", text))
 
 
-# ----- scanning the source ---------------------------------------------------------------------------
+# ----- scanning the source -----------------------------------------------------------------------
 
 
 def _literal(node):
@@ -92,7 +99,8 @@ def package_files():
 
 
 def scan_keys():
-    """(keys, plurals): every literal text given to tr()/N_() and every (singular, plural) pair given to ntr()."""
+    """(keys, plurals): every literal text given to tr()/N_() and every (singular, plural) pair
+    given to ntr()."""
     keys, plurals = {}, {}
     for path in package_files():
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -119,7 +127,8 @@ def scan_keys():
 
 
 def load_ar():
-    """ar.json read strictly: a repeated key is an error (json would silently keep the last one)."""
+    """ar.json read strictly: a repeated key is an error (json would silently keep the last
+    one)."""
 
     def no_repeats(pairs):
         names = [k for k, _ in pairs]
@@ -158,7 +167,8 @@ def _unwrapped_text(node) -> bool:
 
 
 def hard_coded_texts():
-    """Texts in the UI code (and engine error messages) that the user would see but that skip tr()."""
+    """Texts in the UI code (and engine error messages) that the user would see but that skip
+    tr()."""
     found = []
     for path in package_files():
         relative = path.relative_to(PACKAGE).as_posix()
@@ -183,7 +193,7 @@ def hard_coded_texts():
     return found
 
 
-# ----- the translation layer ---------------------------------------------------------------------------
+# ----- the translation layer ---------------------------------------------------------------------
 
 
 class TranslationLayerTests(unittest.TestCase):
@@ -289,7 +299,8 @@ class TranslationLayerTests(unittest.TestCase):
         self.assertNotIn("{", text)
 
     def test_the_command_line_stays_english(self):
-        # Only the desktop app picks a language; a script that never calls set_language gets English.
+        # Only the desktop app picks a language; a script that never calls set_language gets
+        # English.
         code = (
             "from video_converter.core import parse_time\n"
             "try:\n    parse_time('abc')\nexcept ValueError as e:\n    print(e)\n")
@@ -347,7 +358,7 @@ class SystemLanguageTests(unittest.TestCase):
         self.assertEqual(i18n.saved_choice(Store(7)), "system")
 
 
-# ----- the language file --------------------------------------------------------------------------------
+# ----- the language file -------------------------------------------------------------------------
 
 
 class ArabicFileTests(unittest.TestCase):
@@ -397,7 +408,8 @@ class ArabicFileTests(unittest.TestCase):
             if isinstance(value, dict):
                 for category, text in value.items():
                     shown = sorted(PLACEHOLDER.findall(text))
-                    # a plural form may leave out the number ("a cut") but never invent a placeholder
+                    # a plural form may leave out the number ("a cut") but never invent a
+                    # placeholder
                     allowed = sorted({*wanted, "{n}"})
                     self.assertTrue(set(shown) <= set(allowed), f"{key} [{category}]: {shown}")
                     self.assertTrue(
@@ -443,7 +455,8 @@ class ArabicFileTests(unittest.TestCase):
             "wrap these in tr() and add them to video_converter/locales/ar.json")
 
     def test_the_scan_notices_an_unwrapped_text(self):
-        # The check itself works: texts with words are found, numbers, units, brand names and tr() calls are fine.
+        # The check itself works: texts with words are found, numbers, units, brand names and tr()
+        # calls are fine.
         def unwrapped(source):
             return _unwrapped_text(ast.parse(source, mode="eval").body)
 
@@ -469,7 +482,8 @@ class ArabicFileTests(unittest.TestCase):
 
 
 class MessageTests(unittest.TestCase):
-    """The texts the engine produces (job notes, errors, summaries, warnings) come out in Arabic."""
+    """The texts the engine produces (job notes, errors, summaries, warnings) come out in
+    Arabic."""
 
     def setUp(self):
         i18n.set_language("ar")
@@ -606,7 +620,7 @@ class MessageTests(unittest.TestCase):
             describe(ClipSettings(edit=edit), 10.0), "MP4 · 9:16 · crop · no sound · 1 cut")
 
 
-# ----- the window -----------------------------------------------------------------------------------------
+# ----- the window --------------------------------------------------------------------------------
 
 
 def setUpModule():
@@ -650,8 +664,9 @@ def use_language(test, code):
 
 
 def visible_texts(root):
-    """Every text the user can read in `root` and below, as (what, text) pairs: labels, buttons, tooltips,
-    placeholders, spin box words, combo box items, menus and actions, window and group titles."""
+    """Every text the user can read in `root` and below, as (what, text) pairs: labels, buttons,
+    tooltips, placeholders, spin box words, combo box items, menus and actions, window and group
+    titles."""
     seen = set()
 
     def add(where, text):
@@ -837,7 +852,8 @@ class ArabicInterfaceTests(WindowCase):
         job = Job(self.video, ClipSettings())
         job.state, job.error = JobState.FAILED, "ffmpeg said no\nlast line"
         boxes.append(details_box(job))
-        with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as question, \
+        with mock.patch.object(QMessageBox, "question",
+                               return_value=QMessageBox.StandardButton.No) as question, \
                 mock.patch.object(QMessageBox, "about") as about:
             window.report_problem()
             window.show_about()
@@ -952,8 +968,8 @@ def mock_text():
 
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")
 class SettingsPanelFitTests(WindowCase):
-    """The settings panel (Inspector) has to fit its width at the window's default size, in every language:
-    nothing may be cut off on the right (English) or on the left (Arabic)."""
+    """The settings panel (Inspector) has to fit its width at the window's default size, in every
+    language: nothing may be cut off on the right (English) or on the left (Arabic)."""
 
     def test_the_default_width_is_not_below_the_narrowest(self):
         from video_converter.ui.inspector import Inspector
@@ -965,8 +981,9 @@ class SettingsPanelFitTests(WindowCase):
 
     @unittest.skipUnless(sys.platform == "win32", "needs the fonts of the real Windows platform")
     def test_every_section_fits_in_english_and_in_arabic(self):
-        """Measured in another process on the real platform: the "offscreen" one used by the other tests has no
-        fonts, so its widths mean nothing. (The panel is never shown on the screen.)"""
+        """Measured in another process on the real platform: the "offscreen" one used by the other
+        tests has no fonts, so its widths mean nothing. (The panel is never shown on the
+        screen.)"""
         from video_converter.ui.main_window import INSPECTOR_WIDTH
 
         probe, results = Path(__file__).with_name("panel_fit_probe.py"), []
@@ -1249,8 +1266,10 @@ class LanguageSettingTests(WindowCase):
 
         window = self.new_window("en", load=False)
         with mock.patch.object(language, "restart") as restart, \
-                mock.patch.object(type(window.queue), "busy", new_callable=mock.PropertyMock, return_value=True), \
-                mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
+                mock.patch.object(type(window.queue), "busy", new_callable=mock.PropertyMock,
+                                  return_value=True), \
+                mock.patch.object(QMessageBox, "question",
+                                  return_value=QMessageBox.StandardButton.No):
             window.restart_app()  # exports are running and the user chose to wait
         restart.assert_not_called()
 
@@ -1270,8 +1289,9 @@ class LanguageSettingTests(WindowCase):
         self.assertTrue((Path(folder) / "video_converter" / "i18n.py").is_file())
 
     def test_restart_really_starts_a_program(self):
-        # Through the real QProcess, not a stand-in: PySide6 6.12's startDetached() returns a bool where older
-        # versions returned (bool, pid), and unpacking it broke every language change in 3.0.0.
+        # Through the real QProcess, not a stand-in: PySide6 6.12's startDetached() returns a bool
+        # where older versions returned (bool, pid), and unpacking it broke every language change
+        # in 3.0.0.
         from video_converter.ui import language
 
         tmp = tempfile.mkdtemp()
@@ -1286,9 +1306,10 @@ class LanguageSettingTests(WindowCase):
                 time.sleep(0.05)
             self.assertTrue(marker.exists(), "the program was not started")
         finally:
-            # The started program has this folder as its working folder and may still be shutting down when it
-            # has written the marker; on Windows a folder in use can't be removed, so try again for a while.
-            # (On a PC busy with other work that race made this test fail once, in a run of the parallel runner.)
+            # The started program has this folder as its working folder and may still be shutting
+            # down when it has written the marker; on Windows a folder in use can't be removed, so
+            # try again for a while. (On a PC busy with other work that race made this test fail
+            # once, in a run of the parallel runner.)
             for _ in range(100):
                 try:
                     shutil.rmtree(tmp)
@@ -1297,7 +1318,8 @@ class LanguageSettingTests(WindowCase):
                     time.sleep(0.1)
             else:
                 shutil.rmtree(tmp, ignore_errors=True)
-        with mock.patch.object(language, "restart_command", return_value=("C:/no/such/program.exe", [], tmp)), \
+        with mock.patch.object(language, "restart_command", return_value=("C:/no/such/program."
+                                                                          "exe", [], tmp)), \
                 self.assertLogs("video_converter.ui.language", "ERROR"):
             self.assertFalse(language.restart([]))
 

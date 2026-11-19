@@ -1,5 +1,6 @@
-"""Puts the chosen language into the Qt application: the layout direction, the number format, fonts that can
-show Arabic, Qt's own texts (the standard buttons), and restarting the app after the language was changed."""
+"""Puts the chosen language into the Qt application: the layout direction, the number format, fonts
+that can show Arabic, Qt's own texts (the standard buttons), and restarting the app after the
+language was changed."""
 
 from __future__ import annotations
 
@@ -18,7 +19,8 @@ from .. import i18n
 
 log = logging.getLogger(__name__)
 
-# Segoe UI shows Arabic on every Windows; the others are fallbacks for letters it lacks and for odd systems.
+# Segoe UI shows Arabic on every Windows; the others are fallbacks for letters it lacks and for odd
+# systems.
 FONT_FAMILIES = ["Segoe UI", "Tahoma", "Arial", "Noto Sans Arabic", "Noto Naskh Arabic"]
 
 _translator: Optional[QTranslator] = None
@@ -27,8 +29,9 @@ _original_locale: Optional[QLocale] = None
 
 
 def number_locale(code: str) -> QLocale:
-    """A locale for the language that writes numbers with the digits 0-9: Qt's Arabic locales may use
-    Arabic-Indic digits, and times, sizes and counts here are always written with Western ones."""
+    """A locale for the language that writes numbers with the digits 0-9: Qt's Arabic locales may
+    use Arabic-Indic digits, and times, sizes and counts here are always written with Western
+    ones."""
     if code == "ar":
         for name in ("ar_AE", "ar_MA"):
             locale = QLocale(name)
@@ -38,7 +41,8 @@ def number_locale(code: str) -> QLocale:
 
 
 def apply_to_app(app: Optional[QApplication] = None) -> None:
-    """Make `app` follow `i18n.language()`. Call it after `i18n.set_language`, before the window is made."""
+    """Make `app` follow `i18n.language()`. Call it after `i18n.set_language`, before the window is
+    made."""
     global _translator, _original_font, _original_locale
     app = app or QApplication.instance()
     if app is None:

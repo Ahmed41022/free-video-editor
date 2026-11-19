@@ -17,8 +17,9 @@ def _ass_color(color: str) -> str:
 def subtitle_filter(
         subtitles: Subtitles, segments: list[Segment], speed: float = 1.0,
         reverse: bool = False) -> str:
-    """The subtitles filter, drawing the file on the export's timeline in the chosen style. An .ass/.ssa file
-    keeps its own design (unless the style is asked for); the font is one that can draw the words."""
+    """The subtitles filter, drawing the file on the export's timeline in the chosen style. An
+    .ass/.ssa file keeps its own design (unless the style is asked for); the font is one that can
+    draw the words."""
     path, kind, script_height = retimed_subtitles(subtitles, segments, speed, reverse)
     options = [f"filename={_path_value(path)}"]
     fonts = windows_fonts_dir()
@@ -42,7 +43,8 @@ def subtitle_filter(
             f"Outline={_n(subtitles.outline * size, 2)}",
             "Shadow=0",
             f"Bold={-1 if subtitles.bold else 0}",
-            f"Alignment={ {'bottom': 2, 'middle': 10, 'top': 6}[subtitles.position] }",  # force_style numbers them the SSA way
+            # force_style numbers them the SSA way
+            f"Alignment={ {'bottom': 2, 'middle': 10, 'top': 6}[subtitles.position] }",
         ])
     options.append(f"force_style={filter_value(style)}")
     return "subtitles=" + ":".join(options)

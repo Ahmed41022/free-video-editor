@@ -19,32 +19,35 @@ MUSIC_VOLUME_MIN, MUSIC_VOLUME_MAX = -40.0, 0.0  # dB
 DEFAULT_MUSIC_VOLUME = -18.0
 MUSIC_FADE = 2.0  # the music fades out over this many seconds at the end
 
-# YouTube and Spotify play at about -14 LUFS; -1 dB keeps the loudest peaks from clipping after encoding.
+# YouTube and Spotify play at about -14 LUFS; -1 dB keeps the loudest peaks from clipping after
+# encoding.
 TARGET_LUFS = -14.0
 TARGET_PEAK = -1.0
 TARGET_RANGE = 11.0
 NORMALIZED_RATE = 48000  # loudnorm works at 192 kHz inside, so its result is brought back down
 
-# Noise reduction -> afftdn settings, or None for off. nr is how many dB of noise to take out, nf the
-# level the noise is assumed to start at, and tn lets it follow the noise as it changes. Light only
-# takes away a gentle hiss, so speech keeps its body; Strong cleans up louder noise at the price of
-# a little more of the "underwater" sound that every noise remover has.
+# Noise reduction -> afftdn settings, or None for off. nr is how many dB of noise to take out, nf
+# the level the noise is assumed to start at, and tn lets it follow the noise as it changes. Light
+# only takes away a gentle hiss, so speech keeps its body; Strong cleans up louder noise at the
+# price of a little more of the "underwater" sound that every noise remover has.
 #
-# Measured on a spoken clip over white noise at -36 dB, in the pauses (and the speech level stays within
-# 0.1 dB): the old values (nr 10/18, tn=1 without tr) took out 0.4 dB and Light and Strong were the same;
-# with residual tracking (tr=1) Light takes out 10 dB, and Strong, which runs the filter twice, 33 dB.
-# Noise that is mostly low rumble (pink, brown) is out of reach of this filter: 1 to 2 dB.
+# Measured on a spoken clip over white noise at -36 dB, in the pauses (and the speech level stays
+# within 0.1 dB): the old values (nr 10/18, tn=1 without tr) took out 0.4 dB and Light and Strong
+# were the same; with residual tracking (tr=1) Light takes out 10 dB, and Strong, which runs the
+# filter twice, 33 dB. Noise that is mostly low rumble (pink, brown) is out of reach of this
+# filter: 1 to 2 dB.
 AUDIO_DENOISE = {
     "off": None,
     "light": "afftdn=nr=12:nf=-50:tn=1:tr=1",
     "strong": "afftdn=nr=24:nf=-45:tn=1:tr=1,afftdn=nr=24:nf=-45:tn=1:tr=1",
 }
 
-# The last stage of any sound that was made louder, mixed with music or evened out: a limiter that keeps the
-# peaks under 0 dBFS. Without it a +6 dB boost, or music on top of speech, goes past the top and is cut
-# off (clipped) by the encoder; loudnorm's own limiter doesn't work in the steady (linear) mode used here.
-# `level=disabled` leaves the volume as it is. The ceiling is a little under -1 dBFS, because an MP3 or AAC
-# file overshoots what it was given by up to half a dB, and the file should stay under -0.5 dBTP.
+# The last stage of any sound that was made louder, mixed with music or evened out: a limiter that
+# keeps the peaks under 0 dBFS. Without it a +6 dB boost, or music on top of speech, goes past the
+# top and is cut off (clipped) by the encoder; loudnorm's own limiter doesn't work in the steady
+# (linear) mode used here. `level=disabled` leaves the volume as it is. The ceiling is a little
+# under -1 dBFS, because an MP3 or AAC file overshoots what it was given by up to half a dB, and
+# the file should stay under -0.5 dBTP.
 LIMIT = 0.89
 LIMITER = f"alimiter=limit={LIMIT}:level=disabled"
 
@@ -116,14 +119,16 @@ class Loudness:
 
     @property
     def usable(self) -> bool:
-        """False for a silent sound: its loudness is minus infinity, and there is nothing to even out."""
+        """False for a silent sound: its loudness is minus infinity, and there is nothing to even
+        out."""
         return all(
             math.isfinite(v)
             for v in (self.integrated, self.true_peak, self.range, self.threshold, self.offset))
 
 
 def parse_loudness(text: str) -> Optional[Loudness]:
-    """The numbers loudnorm prints (as JSON) at the end of its first pass, or None if they're not there."""
+    """The numbers loudnorm prints (as JSON) at the end of its first pass, or None if they're not
+    there."""
     for block in reversed(re.findall(r"\{[^{}]*\}", text)):
         try:
             data = json.loads(block)
@@ -136,8 +141,8 @@ def parse_loudness(text: str) -> Optional[Loudness]:
 
 
 def loudnorm(measured: Optional[Loudness] = None) -> str:
-    """The loudnorm filter. Without `measured` it only measures (the first pass, printing JSON); with it,
-    it applies one steady gain that lands on the target (the second)."""
+    """The loudnorm filter. Without `measured` it only measures (the first pass, printing JSON);
+    with it, it applies one steady gain that lands on the target (the second)."""
     target = f"loudnorm=I={_db(TARGET_LUFS)}:TP={_db(TARGET_PEAK)}:LRA={_db(TARGET_RANGE)}"
     if measured is None:
         return f"{target}:print_format=json"
@@ -160,15 +165,16 @@ def master_filters(
         loudness: Optional[Loudness] = None, measure: bool = False) -> list[str]:
     """Filters that lay the music under the finished sound of the export and even out its loudness.
 
-    `voice` is the label of the export's own sound (None when it has none), `music` the index of the
-    music input (None for no music) and `total` the export's length in seconds, which the music is
-    cut to, with a fade out at its end. With a `loudness` measured by a first pass the sound is
-    normalized; with `measure` the last filter is the measuring one instead, for that first pass.
-    A sound without music or normalizing needs no filters, and gets one `anull`."""
+    `voice` is the label of the export's own sound (None when it has none), `music` the index of
+    the music input (None for no music) and `total` the export's length in seconds, which the music
+    is cut to, with a fade out at its end. With a `loudness` measured by a first pass the sound is
+    normalized; with `measure` the last filter is the measuring one instead, for that first pass. A
+    sound without music or normalizing needs no filters, and gets one `anull`."""
     steps: list[str] = []
     current = voice
     if music is not None:
-        # With the video's own sound the music sits next to it at its volume; alone, it plays as it is.
+        # With the video's own sound the music sits next to it at its volume; alone, it plays as it
+        # is.
         song = [STEREO_48K]
         if voice:
             song.append(
@@ -188,8 +194,8 @@ def master_filters(
             else:
                 steps.append(f"{voice}{STEREO_48K}[heard]")
             steps.append(
-                "[heard][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed]"
-            )
+                "[heard][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize="
+                "0[mixed]")
         current = "[mixed]"
     if current and sound.normalize and (measure or loudness is not None):
         # The measuring pass is thrown away; the real one ends with the limiter (see LIMITER).

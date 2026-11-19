@@ -54,7 +54,8 @@ class LibraryMixin:
             self.add_paths([Path(folder)])
 
     def add_paths(self, paths: list[Path]) -> int:
-        """Add files (and the videos and audio files inside any folders). Returns how many were new."""
+        """Add files (and the videos and audio files inside any folders). Returns how many were
+        new."""
         files: list[Path] = []
         skipped: list[Path] = []  # files dropped or chosen that are not a video or audio file
         for path in paths:
@@ -117,8 +118,8 @@ class LibraryMixin:
             self.items = moved
 
     def remove_selected(self) -> None:
-        """Take the selected files (or the current one) out of the list. It is an undoable step, so the history
-        of the other files is kept and Undo brings the files back."""
+        """Take the selected files (or the current one) out of the list. It is an undoable step, so
+        the history of the other files is kept and Undo brings the files back."""
         rows = sorted(
             {self.media_list.row(selected)
              for selected in self.media_list.selectedItems()})
@@ -130,8 +131,8 @@ class LibraryMixin:
             self.undo_stack.push(RemoveFilesCommand(self, entries, tr("Remove from list")))
 
     def take_items(self, items: list[MediaItem]) -> None:
-        """Take `items` out of the list (the redo of RemoveFilesCommand). The last row goes first, so the
-        selection never lands on a file that is about to go too."""
+        """Take `items` out of the list (the redo of RemoveFilesCommand). The last row goes first,
+        so the selection never lands on a file that is about to go too."""
         first_row = min(self.media_list.row(item.list_item) for item in items)
         for item in sorted(items, key=lambda i: self.media_list.row(i.list_item), reverse=True):
             self.items.remove(item)
@@ -143,7 +144,8 @@ class LibraryMixin:
             self.select(self.items[min(first_row, len(self.items) - 1)] if self.items else None)
 
     def restore_items(self, entries: list[tuple[int, MediaItem]]) -> None:
-        """Put removed files back, each at the row it had (the undo of RemoveFilesCommand), and show the first."""
+        """Put removed files back, each at the row it had (the undo of RemoveFilesCommand), and
+        show the first."""
         ordered = sorted(entries, key=lambda entry: entry[0])
         for row, item in ordered:
             self.items.insert(min(row, len(self.items)), item)
@@ -171,7 +173,8 @@ class LibraryMixin:
 
     def _item_text(self, item: MediaItem) -> str:
         if item.error:
-            return f"{isolate(item.path.name)}\n{item.error}"  # no summary of settings it can't be exported with
+            # no summary of settings it can't be exported with
+            return f"{isolate(item.path.name)}\n{item.error}"
         if item.loading or item.info is None:
             meta = tr("Loading…")
         else:
@@ -187,13 +190,16 @@ class LibraryMixin:
         item.list_item.setToolTip(f"{item.path}\n{text.splitlines()[-1]}")
 
     def _thumb_folder(self, item: MediaItem) -> Path:
-        """Where `item`'s thumbnails are kept: a folder of its own, named by a number that is never reused."""
+        """Where `item`'s thumbnails are kept: a folder of its own, named by a number that is never
+        reused."""
         return self.tmpdir / f"thumbs-{item.serial}"
 
     def _load_item(self, item: MediaItem) -> None:
-        """Background thread: read the file's details, thumbnails and waveform. However it goes, the window is told
-        (with an error to show when the file couldn't be read), so a file is never left on "Loading…"."""
-        if self.closed or item not in self.items:  # the window closed, or the file was removed while it waited
+        """Background thread: read the file's details, thumbnails and waveform. However it goes,
+        the window is told (with an error to show when the file couldn't be read), so a file is
+        never left on "Loading…"."""
+        # the window closed, or the file was removed while it waited
+        if self.closed or item not in self.items:
             return
         info, thumbs, wave = MediaInfo(duration=None), [], []
         try:
@@ -225,8 +231,8 @@ class LibraryMixin:
             self._remove_tmpdir_if_closed()
 
     def _optionally(self, read, *args, **kwargs):
-        """Run one of the readings that only add to the picture (thumbnails, waveform): if it fails or takes too
-        long the file is still fine, just shown without them."""
+        """Run one of the readings that only add to the picture (thumbnails, waveform): if it fails
+        or takes too long the file is still fine, just shown without them."""
         try:
             return read(*args, **kwargs)
         except ConversionCancelled:

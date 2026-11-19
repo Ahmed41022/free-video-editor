@@ -53,7 +53,8 @@ def _watch(
         proc: subprocess.Popen, output: Path, duration: Optional[float],
         on_progress: Optional[Callable[[float], None]], cancel_event: Optional[threading.Event],
         report: Optional[list[str]]) -> Path:
-    """Follow a started ffmpeg to its end: progress, cancelling, and what it printed if it failed."""
+    """Follow a started ffmpeg to its end: progress, cancelling, and what it printed if it
+    failed."""
     # Drain stderr on a separate thread so a chatty ffmpeg can't block on a full pipe.
     errors: deque[str] = deque(maxlen=20)
 
@@ -66,9 +67,9 @@ def _watch(
     stderr_reader = threading.Thread(target=read_errors, daemon=True)
     stderr_reader.start()
 
-    # ffmpeg only prints progress every so often, and a slow encode can go seconds between lines, so
-    # a cancel is acted on by a watcher instead of waiting for the next line. Windows won't delete
-    # (or replace) a file ffmpeg still has open, so the stop has to be prompt.
+    # ffmpeg only prints progress every so often, and a slow encode can go seconds between lines,
+    # so a cancel is acted on by a watcher instead of waiting for the next line. Windows won't
+    # delete (or replace) a file ffmpeg still has open, so the stop has to be prompt.
     stopped = threading.Event()
     finished = threading.Event()
 

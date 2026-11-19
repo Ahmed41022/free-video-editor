@@ -1,4 +1,5 @@
-"""The ffmpeg command lines of an export: codecs, one clip, a GIF, loudness and stabilizer passes."""
+"""The ffmpeg command lines of an export: codecs, one clip, a GIF, loudness and stabilizer
+passes."""
 
 from __future__ import annotations
 
@@ -21,11 +22,11 @@ from .geometry import plan_geometry
 from .memory import DEFAULT_FPS
 from .rates import _rate_text, edit_rate, encoder_level, native_rate, output_rate
 
-# Memory: a 4K export that lets ffmpeg use every thread of a 24-thread PC holds a 4K frame for each decoder
-# thread and a 1080p one for each encoder thread, and reached 1.9 GB on 8 seconds (4.9 GB on a longer
-# clip). Eight threads for the decoder (it is the 4K frames that are big), 12 for the encoder (x264 and
-# x265 stop getting faster there), 4 for the filters, and a shorter look ahead keep it around 700 MB at
-# the same speed. Smaller pictures are left alone: their frames are small.
+# Memory: a 4K export that lets ffmpeg use every thread of a 24-thread PC holds a 4K frame for each
+# decoder thread and a 1080p one for each encoder thread, and reached 1.9 GB on 8 seconds (4.9 GB
+# on a longer clip). Eight threads for the decoder (it is the 4K frames that are big), 12 for the
+# encoder (x264 and x265 stop getting faster there), 4 for the filters, and a shorter look ahead
+# keep it around 700 MB at the same speed. Smaller pictures are left alone: their frames are small.
 BIG_PICTURE = 2_500_000  # pixels; 1080p is 2.07 million
 DECODER_THREADS = 8
 FILTER_THREADS = 4
@@ -56,7 +57,8 @@ class VideoJob:
     source: Path
     output: Path
     edit: VideoEdit
-    overwrite: bool = True  # False: the output name was chosen as free, and is made another if it gets taken
+    # False: the output name was chosen as free, and is made another if it gets taken
+    overwrite: bool = True
 
 
 _HEAD = ["-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
@@ -66,10 +68,11 @@ _HEAD_INFO = [
 _TAIL = ["-progress", "pipe:1", "-nostats"]
 _X264 = ["-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p"]
 _FASTSTART = ["-movflags", "+faststart"]
-# A picture that keeps the changing frame rate of its source (no `-r`) is told so out loud. Measured with a
-# 30/120 fps clip: without this, ffmpeg 6.1.1 (Ubuntu 24.04, WSL) wrote an MP4 with a steady step at the
-# highest rate and copies in the gaps (360 frames instead of 225); the bundled 7.1 on Windows kept the times
-# (225) with or without it. Other ffmpeg versions and platforms: untested.
+# A picture that keeps the changing frame rate of its source (no `-r`) is told so out loud.
+# Measured with a 30/120 fps clip: without this, ffmpeg 6.1.1 (Ubuntu 24.04, WSL) wrote an MP4 with
+# a steady step at the highest rate and copies in the gaps (360 frames instead of 225); the bundled
+# 7.1 on Windows kept the times (225) with or without it. Other ffmpeg versions and platforms:
+# untested.
 _KEEP_TIMES = ["-fps_mode", "vfr"]
 _AAC = ["-c:a", "aac", "-b:a", "192k"]
 # What every phone plays: AAC LC at 48 kHz in stereo (more channels are mixed down).
@@ -79,14 +82,16 @@ _VP9 = [
     "-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", "-row-mt", "1", "-deadline", "good", "-cpu-used",
     "4"
 ]
-# The same quality number asks more of x265 and VP9, which both count a little differently from x264.
+# The same quality number asks more of x265 and VP9, which both count a little differently from
+# x264.
 _CRF_OFFSET = {"h264": 0, "hevc": 5, "vp9": 9}
 PASSLOG = "passlog"  # the first pass's notes for the second, in ffmpeg's working folder
 
 
 def audio_codec_args(edit: VideoEdit, phone: bool = False, kbps: int = 0) -> list[str]:
-    """How to encode the sound for `edit`'s format. `phone` is a steady-frame-rate export, whose sound
-    is AAC at 48 kHz in stereo; `kbps` (more than 0) sets the bitrate, for an export that has to fit a file size."""
+    """How to encode the sound for `edit`'s format. `phone` is a steady-frame-rate export, whose
+    sound is AAC at 48 kHz in stereo; `kbps` (more than 0) sets the bitrate, for an export that has
+    to fit a file size."""
     mono = 0 < kbps < MIN_STEREO_KBPS  # the least a file size leaves for the sound is a mono voice
     if edit.output_format.audio == "opus":
         return [
@@ -104,35 +109,38 @@ def video_codec_args(
         level: Optional[str] = None, video_format: str = DEFAULT_VIDEO_FORMAT,
         fit: Optional[SizeFit] = None, first_pass: bool = False, lean: bool = False,
         changing_rate: Optional[tuple[float, float]] = None) -> list[str]:
-    """How to encode the picture at quality `crf`: with the hardware `encoder`, or on the CPU (x264, x265
-    or VP9, by `video_format`). `fps` is the frame rate of the result, when known; it is always passed on
-    to the encoder, which otherwise works one out from the filtered picture's time base (often 90000) and
-    writes the file as the highest level there is. With a `level` (see `h264_level`) an H.264 video is
-    High profile at that level, which is how a phone-safe export says what it needs; an H.265 video is
-    given its level (`h265_level`) only when there is no `fps`, because x265 works it out from the rate.
+    """How to encode the picture at quality `crf`: with the hardware `encoder`, or on the CPU
+    (x264, x265 or VP9, by `video_format`). `fps` is the frame rate of the result, when known; it
+    is always passed on to the encoder, which otherwise works one out from the filtered picture's
+    time base (often 90000) and writes the file as the highest level there is. With a `level` (see
+    `h264_level`) an H.264 video is High profile at that level, which is how a phone-safe export
+    says what it needs; an H.265 video is given its level (`h265_level`) only when there is no
+    `fps`, because x265 works it out from the rate.
 
-    `changing_rate` is (average, highest) for a picture without `fps` that keeps the changing frame rate of
-    its source (a game recording). The encoders that need a rate are told one that fits it: Intel's, which
-    has to make the picture steady, gets the average (not 30 fps, which drops half of a 60 fps recording),
-    and x265 the highest, which its level is checked against (else it works a rate of 1000 or more out of
-    the time base and refuses the level).
+    `changing_rate` is (average, highest) for a picture without `fps` that keeps the changing frame
+    rate of its source (a game recording). The encoders that need a rate are told one that fits it:
+    Intel's, which has to make the picture steady, gets the average (not 30 fps, which drops half
+    of a 60 fps recording), and x265 the highest, which its level is checked against (else it works
+    a rate of 1000 or more out of the time base and refuses the level).
 
-    With a `fit` the picture gets its bitrate instead of a quality: from the graphics card, or on the CPU
-    in two passes (`first_pass` is the first one, which makes the notes the second needs). On the CPU, x264
-    and x265 use at most ENCODER_THREADS threads, and with `lean` (a big picture) x264 looks ahead less."""
+    With a `fit` the picture gets its bitrate instead of a quality: from the graphics card, or on
+    the CPU in two passes (`first_pass` is the first one, which makes the notes the second needs).
+    On the CPU, x264 and x265 use at most ENCODER_THREADS threads, and with `lean` (a big picture)
+    x264 looks ahead less."""
     fmt = OUTPUT_FORMATS.get(video_format, OUTPUT_FORMATS[DEFAULT_VIDEO_FORMAT])
     codec = fmt.codec
     if encoder and encoder_codec(encoder) != codec:
         encoder = None  # an H.264 card can't make H.265
     kbps = fit.kbps if fit else None
-    # The encoders spread a bitrate over frames at the frame rate they are told, and a picture that has
-    # been through the filters doesn't tell them (x265, VP9 and the graphics cards then aim far too low):
-    # a file size says it out loud, and the export runs at that steady rate.
+    # The encoders spread a bitrate over frames at the frame rate they are told, and a picture that
+    # has been through the filters doesn't tell them (x265, VP9 and the graphics cards then aim far
+    # too low): a file size says it out loud, and the export runs at that steady rate.
     known = fps or (DEFAULT_FPS if kbps else None)
     rate = ["-r", _rate_text(known)] if known else []
     if encoder:
         card_rate = fps or (native_rate(changing_rate[0]) if changing_rate else DEFAULT_FPS)
-        # Only H.264 gets a level here: the cards refuse an H.265 one ("Invalid Level") for a changing rate.
+        # Only H.264 gets a level here: the cards refuse an H.265 one ("Invalid Level") for a
+        # changing rate.
         args = encoder_args(
             encoder, crf, float(card_rate), level if codec == "h264" else None, kbps)
         return [*args, *((rate or _KEEP_TIMES) if "-r" not in args else []), *_FASTSTART]
@@ -175,8 +183,8 @@ def video_codec_args(
 
 
 def music_path(edit: VideoEdit, video: bool = True) -> Optional[str]:
-    """The background music to lay under an export of `edit`, as a full path, or None. A video export
-    that removes the sound has no music either: Mute wins over everything."""
+    """The background music to lay under an export of `edit`, as a full path, or None. A video
+    export that removes the sound has no music either: Mute wins over everything."""
     if not edit.music or (video and edit.mute):
         return None
     return str(Path(edit.music).resolve())  # ffmpeg may run in another folder
@@ -186,12 +194,12 @@ def video_command(
         ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None,
         encoder: Optional[str] = None, loudness: Optional[Loudness] = None,
         fit: Optional[SizeFit] = None, first_pass: bool = False) -> list[str]:
-    """The export command. `loudness` is what the first loudness pass measured (see `measure_command`);
-    with it, and `edit.normalize`, the sound is evened out.
+    """The export command. `loudness` is what the first loudness pass measured (see
+    `measure_command`); with it, and `edit.normalize`, the sound is evened out.
 
     With a `fit` the picture is encoded at its bitrate; on the CPU that takes two passes, and
-    `first_pass` is the command for the first (the picture only, thrown away). A GIF has its own two
-    commands (see `gif_command`), where `first_pass` makes the palette."""
+    `first_pass` is the command for the first (the picture only, thrown away). A GIF has its own
+    two commands (see `gif_command`), where `first_pass` makes the palette."""
     edit = job.edit
     if edit.output_format.codec == "gif":
         return gif_command(ffmpeg, job, info, transforms, first_pass)
@@ -224,13 +232,15 @@ def video_command(
         cmd += ["-map", "[a]", *audio_codec_args(edit, bool(rate), fit.audio_kbps if fit else 0)]
     else:
         cmd += ["-an"]
-    # Always say the frame rate and the level: left to itself, the encoder takes the time base of the filtered
-    # picture for the frame rate, and the file comes out flagged as H.264 level 6.2 (H.265 6.1).
+    # Always say the frame rate and the level: left to itself, the encoder takes the time base of
+    # the filtered picture for the frame rate, and the file comes out flagged as H.264 level 6.2
+    # (H.265 6.1).
     out_rate = output_rate(edit, info)
     geometry = plan_geometry(info.width, info.height, edit)
     level = encoder_level(
         edit.output_format.codec, geometry.out_width, geometry.out_height, out_rate, info)
-    # A file size is planned at the rate the picture has on average, even a changing one, so it is told so.
+    # A file size is planned at the rate the picture has on average, even a changing one, so it is
+    # told so.
     told = out_rate or (info.fps if fit and info.fps else None)
     changing = (info.fps, info.max_fps or info.fps) if not told and info.fps else None
     cmd += video_codec_args(
@@ -241,16 +251,17 @@ def video_command(
     return [*cmd, "-map_metadata", "0", *_TAIL, str(job.output.resolve())]
 
 
-GIF_PALETTE = "palette.png"  # the colors of the GIF, made by its first pass in ffmpeg's working folder
+# the colors of the GIF, made by its first pass in ffmpeg's working folder
+GIF_PALETTE = "palette.png"
 
 
 def gif_command(
         ffmpeg: str, job: VideoJob, info: MediaInfo, transforms: Optional[str] = None,
         palette: bool = False) -> list[str]:
-    """The export command for a GIF, which takes two: the first (`palette`) picks the best 256 colors for
-    the whole clip, and the second uses them. The picture goes through the same cuts, speed, reframing and
-    adjustments as any export, then is made no wider than `edit.gif_width` at no more than `edit.gif_fps`
-    frames a second, and loops forever. There is no sound."""
+    """The export command for a GIF, which takes two: the first (`palette`) picks the best 256
+    colors for the whole clip, and the second uses them. The picture goes through the same cuts,
+    speed, reframing and adjustments as any export, then is made no wider than `edit.gif_width` at
+    no more than `edit.gif_fps` frames a second, and loops forever. There is no sound."""
     edit = job.edit
     segments = edit.segments(info.duration, info.fps)
     if not segments:

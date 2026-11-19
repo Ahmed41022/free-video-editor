@@ -1,5 +1,5 @@
-"""The automatic captions window, the caption editor, and how they work in the main window (undo included).
-They run without a visible window and are skipped when PySide6 isn't installed."""
+"""The automatic captions window, the caption editor, and how they work in the main window (undo
+included). They run without a visible window and are skipped when PySide6 isn't installed."""
 
 import os
 import subprocess
@@ -194,8 +194,8 @@ class DialogTests(unittest.TestCase):
                 pump(
                     TIMEOUT, lambda: dialog.status.text().startswith(expected) and
                     (value is None or dialog.bar.value() == value)),
-                f"never showed {expected!r}; showed {dialog.status.text()!r} at {dialog.bar.value()}"
-            )
+                f"never showed {expected!r}; showed {dialog.status.text()!r} at "
+                f"{dialog.bar.value()}")
             self.assertFalse(dialog.start_button.isEnabled())
             self.assertFalse(dialog.model_box.isEnabled())
             step.set()
@@ -205,8 +205,8 @@ class DialogTests(unittest.TestCase):
 
         def runner(ffmpeg, source, options, duration=None, **extra):
             raise ConversionError(
-                "Couldn't download the speech model. Check that this PC is connected to the internet."
-            )
+                "Couldn't download the speech model. Check that this PC is connected to the "
+                "internet.")
 
         dialog = self.make(runner)
         dialog.show()
@@ -729,7 +729,8 @@ class MainWindowTests(unittest.TestCase):
     def test_an_srt_that_cannot_be_saved_is_reported_and_nothing_changes(self):
         patch, _ = self.fake_dialog()
         with patch, mock.patch.object(self.main_window, "save_captions",
-                                      side_effect=ConversionError("Couldn't save the captions: disk full")), \
+                                      side_effect=ConversionError("Couldn't save the captions: "
+                                                                  "disk full")), \
                 mock.patch.object(self.main_window.QMessageBox, "warning") as warning:
             self.window.make_captions()
         warning.assert_called_once()

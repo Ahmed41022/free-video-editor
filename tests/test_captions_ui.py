@@ -783,13 +783,15 @@ class MainWindowOverlayTests(unittest.TestCase):
         self.assertEqual(self.window.timeline.text_spans, [[(0.5, 1.5)], [(2.0, 4.0)]])
 
     def test_the_timeline_track_follows_cuts_and_speed(self):
-        # 1-2 s cut out: the text's first half second is the source's 0.5-1.0 s, then it jumps to 2.0-2.5 s.
+        # 1-2 s cut out: the text's first half second is the source's 0.5-1.0 s, then it jumps to
+        # 2.0-2.5 s.
         self.set_edit(
             texts=[TextItem(text="a", start=0.5, end=1.5)], aspect=None,
             keep=[(0.0, 1.0), (2.0, 4.0)])
         self.assertEqual(self.window.timeline.text_spans, [[(0.5, 1.0), (2.0, 2.5)]])
         self.set_edit(speed=2.0)
-        # at double speed the same 0.5-1.5 s of the result is 1-3 s of what is kept: all of the second part
+        # at double speed the same 0.5-1.5 s of the result is 1-3 s of what is kept: all of the
+        # second part
         self.assertEqual(self.window.timeline.text_spans, [[(2.0, 4.0)]])
 
     def test_no_track_without_texts(self):
@@ -801,7 +803,8 @@ class MainWindowOverlayTests(unittest.TestCase):
         self.set_edit(
             texts=[TextItem(text="a")], aspect=None, keep=[(0.0, 1.0), (2.0, 4.0)], speed=2.0)
         self.window.inspector.captions.select(0)
-        # source 3.0 s is 1 s into the second kept part: (1.0 + 1.0) / 2 = 1.0 s on the finished video
+        # source 3.0 s is 1 s into the second kept part: (1.0 + 1.0) / 2 = 1.0 s on the finished
+        # video
         with mock.patch.object(Player, "position", new_callable=mock.PropertyMock,
                                return_value=3.0):
             self.window.text_time_at_playhead("start")

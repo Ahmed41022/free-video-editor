@@ -1,5 +1,6 @@
-"""The "Edit captions" window: a table of the captions (start, end, text) to fix words, nudge times or
-delete a caption. The times are those of the original video, the same as in the subtitle file."""
+"""The "Edit captions" window: a table of the captions (start, end, text) to fix words, nudge times
+or delete a caption. The times are those of the original video, the same as in the subtitle
+file."""
 
 from __future__ import annotations
 
@@ -22,8 +23,8 @@ DURATION_MARGIN = 60.0  # a caption may be placed this many seconds past the end
 
 
 def clock(seconds: float) -> str:
-    """A time as the table shows it: m:ss.mmm, or h:mm:ss.mmm from an hour on (0:00.000 for a time that
-    isn't a number)."""
+    """A time as the table shows it: m:ss.mmm, or h:mm:ss.mmm from an hour on (0:00.000 for a time
+    that isn't a number)."""
     if not math.isfinite(seconds):
         seconds = 0.0
     ms = int(round(max(seconds, 0.0) * 1000))
@@ -33,7 +34,8 @@ def clock(seconds: float) -> str:
 
 
 class _TextDelegate(QStyledItemDelegate):
-    """Edits a caption in a box that takes more than one line (Enter starts a new line; clicking away finishes)."""
+    """Edits a caption in a box that takes more than one line (Enter starts a new line; clicking
+    away finishes)."""
 
     def createEditor(self, parent: QWidget, option, index: QModelIndex) -> QWidget:
         editor = QPlainTextEdit(parent)
@@ -52,8 +54,8 @@ class _TextDelegate(QStyledItemDelegate):
 
 
 class CaptionsEditor(QDialog):
-    """Shows `cues` in a table. After `accept()`, `cues` holds them as edited: in time order, with the
-    ones that were deleted gone."""
+    """Shows `cues` in a table. After `accept()`, `cues` holds them as edited: in time order, with
+    the ones that were deleted gone."""
 
     def __init__(
             self, cues: list[Cue], parent: Optional[QWidget] = None,
@@ -71,8 +73,10 @@ class CaptionsEditor(QDialog):
         layout.setSpacing(10)
         intro = QLabel(
             tr(
-                "Double-click a time or the words to change them. Times are those of the original video "
-                "(before any cuts or speed changes). In the text, Enter starts a second line; click "
+                "Double-click a time or the words to change them. Times are those of the "
+                "original video "
+                "(before any cuts or speed changes). In the text, Enter starts a second line; "
+                "click "
                 "somewhere else to finish."))
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -170,7 +174,8 @@ class CaptionsEditor(QDialog):
         self._show_time(item, value)
 
     def _allowed(self, seconds: float) -> bool:
-        """Whether a typed time makes sense: a real, non-negative number, not far past the end of the video."""
+        """Whether a typed time makes sense: a real, non-negative number, not far past the end of
+        the video."""
         if not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds < 0:
             return False
         return self.duration is None or seconds <= self.duration + DURATION_MARGIN
@@ -206,7 +211,8 @@ class CaptionsEditor(QDialog):
         self.count_label.setText(ntr(count, "{n} caption", "{n} captions"))
 
     def accept(self) -> None:
-        # A time that isn't a real number can never be stored (the cells check it), but never write one either.
+        # A time that isn't a real number can never be stored (the cells check it), but never write
+        # one either.
         self.cues = sorted(
             (
                 c for c in self.cues

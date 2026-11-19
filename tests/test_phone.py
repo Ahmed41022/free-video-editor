@@ -1,4 +1,5 @@
-"""Playing on a phone (2.5): steady frame rates, phone-safe encoding, "Up to 1080p" and the preset."""
+"""Playing on a phone (2.5): steady frame rates, phone-safe encoding, "Up to 1080p" and the
+preset."""
 
 import io
 import json
@@ -32,7 +33,8 @@ GAME_LINE = (
 
 
 def info_from(rates: str) -> MediaInfo:
-    """What the app learns from a video stream line that says `rates`, e.g. "57.97 fps, 120 tbr"."""
+    """What the app learns from a video stream line that says `rates`, e.g. "57.97 fps, 120
+    tbr"."""
     return parse_media_info(
         "  Duration: 00:00:13.62, start: 0.000000, bitrate: 14112 kb/s\n" +
         GAME_LINE.format(rates))
@@ -307,22 +309,25 @@ class CommandTests(unittest.TestCase):
         self.assertNotIn("fps=", graph_of(cmd))
         for flag in ("-ar", "-ac"):
             self.assertNotIn(flag, cmd)
-        # a picture whose frame rate changes still says its level (the highest rate it declares: 1728x1080 at 120)
+        # a picture whose frame rate changes still says its level (the highest rate it declares:
+        # 1728x1080 at 120)
         self.assertEqual((after(cmd, "-profile:v"), after(cmd, "-level")), ("high", "5.1"))
         self.assertNotIn("-r", cmd)
 
     def test_a_picture_that_keeps_its_changing_rate_says_so_with_fps_mode_vfr(self):
-        # Regression guard. Measured with a 30/120 fps clip: left unsaid, ffmpeg 6.1.1 (Ubuntu 24.04, WSL) wrote
-        # an MP4 with a steady step at the highest rate, filling the gaps with copies (360 frames instead of 225),
-        # while the bundled 7.1 on Windows kept the times (225). With "-fps_mode vfr" both gave 225. It must not
-        # be given together with "-r": 6.1.1 refused that ("-r ... together with a non-CFR -fps_mode"). Other
-        # ffmpeg versions (6.0, 7.0, 7.1 on Linux, anything older than 5.1) are untested.
+        # Regression guard. Measured with a 30/120 fps clip: left unsaid, ffmpeg 6.1.1 (Ubuntu
+        # 24.04, WSL) wrote an MP4 with a steady step at the highest rate, filling the gaps with
+        # copies (360 frames instead of 225), while the bundled 7.1 on Windows kept the times
+        # (225). With "-fps_mode vfr" both gave 225. It must not be given together with "-r": 6.1.1
+        # refused that ("-r ... together with a non-CFR -fps_mode"). Other ffmpeg versions (6.0,
+        # 7.0, 7.1 on Linux, anything older than 5.1) are untested.
         for encoder in (None, "h264_nvenc", "h264_amf"):
             with self.subTest(encoder=encoder):
                 cmd = cmd_for(VideoEdit(aspect=None), encoder=encoder)
                 self.assertEqual(after(cmd, "-fps_mode"), "vfr")
                 self.assertNotIn("-r", cmd)
-        # Intel's encoder has to be steady, so it gets "-r" (the average rate) and no -fps_mode, as before.
+        # Intel's encoder has to be steady, so it gets "-r" (the average rate) and no -fps_mode, as
+        # before.
         cmd = cmd_for(VideoEdit(aspect=None), encoder="h264_qsv")
         self.assertIn("-r", cmd)
         self.assertNotIn("-fps_mode", cmd)
@@ -466,7 +471,8 @@ class CliOptionTests(unittest.TestCase):
             clip.write_bytes(b"x")
             with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
                     mock.patch.object(cli, "choose_encoder", return_value=None), \
-                    mock.patch.object(cli, "convert_video", side_effect=lambda f, job, **kw: job.output) as export:
+                    mock.patch.object(cli, "convert_video",
+                                      side_effect=lambda f, job, **kw: job.output) as export:
                 code, _, err = run(clip, *args)
             if not export.called:
                 return code, None, err
@@ -520,7 +526,8 @@ class CliOptionTests(unittest.TestCase):
 
 def make_variable(
         path, width=320, height=180, rates=(30, 120), seconds=1.5, channels=1, audio=True):
-    """A video whose frame rate really changes: `seconds` at each of `rates`, then sound to match."""
+    """A video whose frame rate really changes: `seconds` at each of `rates`, then sound to
+    match."""
     cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y"]
     for rate in rates:
         cmd += [
@@ -614,7 +621,8 @@ class SteadyExportTests(unittest.TestCase):
             FFMPEG, VideoJob(source or self.vfr, self.tmp / name, edit), encoder=encoder)
 
     def check_phone_file(self, path, rate, seconds, level):
-        """Everything a phone is picky about, for a video `seconds` long at `rate` frames a second."""
+        """Everything a phone is picky about, for a video `seconds` long at `rate` frames a
+        second."""
         times = frame_times(path)
         step = Fraction(1) / rate
         self.assertEqual(
@@ -655,11 +663,11 @@ class SteadyExportTests(unittest.TestCase):
             self.export("steady30.mp4", VideoEdit(aspect=None, frame_rate=30)), 30, 3.0, 41)
 
     def test_without_the_setting_the_rate_still_varies(self):
-        # This failed on Linux (ffmpeg 6.1.1, WSL): the export had a single step, 1/120 s, i.e. 360 frames with
-        # copies where the source has 225. The bundled 7.1 on Windows gave 225. Fixed in the app by
-        # "-fps_mode vfr" (see video_codec_args); the command is guarded by
-        # test_a_picture_that_keeps_its_changing_rate_says_so_with_fps_mode_vfr. Why the two builds differ was
-        # not investigated.
+        # This failed on Linux (ffmpeg 6.1.1, WSL): the export had a single step, 1/120 s, i.e. 360
+        # frames with copies where the source has 225. The bundled 7.1 on Windows gave 225. Fixed
+        # in the app by "-fps_mode vfr" (see video_codec_args); the command is guarded by
+        # test_a_picture_that_keeps_its_changing_rate_says_so_with_fps_mode_vfr. Why the two builds
+        # differ was not investigated.
         out = self.export("asis.mp4", VideoEdit(aspect=None))
         self.assertGreater(len({b - a for a, b in zip(frame_times(out), frame_times(out)[1:])}), 1)
 

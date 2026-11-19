@@ -1,4 +1,5 @@
-"""Smooth previews (2.4): which videos get a small preview copy, making it, and playing it in the editor."""
+"""Smooth previews (2.4): which videos get a small preview copy, making it, and playing it in the
+editor."""
 
 import os
 import re
@@ -24,7 +25,9 @@ except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
 from video_converter import proxy
-from video_converter.core import ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, parse_media_info, probe_media
+from video_converter.core import (
+    ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, parse_media_info, probe_media,
+)
 from video_converter.proxy import ProxyMaker, needs_proxy, proxy_command, proxy_size
 
 FFMPEG = find_ffmpeg()
@@ -135,9 +138,10 @@ class DecisionTests(unittest.TestCase):
 
     def test_the_bitrate_is_read_from_ffmpegs_description(self):
         text = (
-            "Input #0, mov,mp4, from 'a.mp4':\n  Duration: 00:00:20.00, start: 0.000000, bitrate: 45123 kb/s\n"
-            "  Stream #0:0[0x1](und): Video: h264 (High), yuv420p, 3840x2160, 44000 kb/s, 30 fps, 30 tbr\n"
-        )
+            "Input #0, mov,mp4, from 'a.mp4':\n  Duration: 00:00:20.00, start: 0.000000, "
+            "bitrate: 45123 kb/s\n"
+            "  Stream #0:0[0x1](und): Video: h264 (High), yuv420p, 3840x2160, 44000 kb/s, 30 "
+            "fps, 30 tbr\n")
         self.assertEqual(parse_media_info(text).bitrate, 45123)
         self.assertIsNone(parse_media_info("Duration: N/A, bitrate: N/A\n").bitrate)
 
@@ -188,7 +192,8 @@ class SizeAndCommandTests(unittest.TestCase):
 
 
 def slowly(*args, **kwargs):
-    """The preview command with a slow x264 preset, so a copy takes long enough to be cancelled midway."""
+    """The preview command with a slow x264 preset, so a copy takes long enough to be cancelled
+    midway."""
     return [
         ("veryslow" if part == "ultrafast" else part) for part in proxy_command(*args, **kwargs)
     ]
@@ -377,7 +382,8 @@ class PlayerSwapTests(unittest.TestCase):
         self.addCleanup(self.player.load, None)
 
     def open(self, path):
-        """Load a file and wait until it is ready to be seeked in (its first frame has been decoded)."""
+        """Load a file and wait until it is ready to be seeked in (its first frame has been
+        decoded)."""
         self.player.load(path)
         self.assertTrue(pump(TIMEOUT, lambda: self.frames), "the first frame never came")
 
@@ -398,7 +404,8 @@ class PlayerSwapTests(unittest.TestCase):
         self.assertEqual(self.player.source, self.small)
 
     def test_a_swap_whose_loading_was_never_reported_still_finishes(self):
-        # Qt sometimes reports the new source as loaded without ever reporting that it started loading.
+        # Qt sometimes reports the new source as loaded without ever reporting that it started
+        # loading.
         self.open(self.original)
         self.assertTrue(pump(TIMEOUT, lambda: self.player.media.duration() > 0))
         from PySide6.QtMultimedia import QMediaPlayer
@@ -485,7 +492,8 @@ class MainWindowPreviewTests(unittest.TestCase):
         cls._tmp.cleanup()
 
     def setUp(self):
-        # "Large" here means anything over 160 x 100 pixels, and the copy is 160 pixels on its long side.
+        # "Large" here means anything over 160 x 100 pixels, and the copy is 160 pixels on its long
+        # side.
         for name, value in (("BIG_PIXELS", 160 * 100), ("PROXY_LONG_SIDE", 160)):
             patcher = mock.patch.object(proxy, name, value)
             patcher.start()
@@ -758,7 +766,8 @@ class MainWindowPreviewTests(unittest.TestCase):
         self.assertIn("original", self.window.statusBar().currentMessage())
 
     def test_the_original_is_never_played_while_its_copy_is_made(self):
-        # Decoding a huge original while the copy was being made crashed Qt: it waits for the copy instead.
+        # Decoding a huge original while the copy was being made crashed Qt: it waits for the copy
+        # instead.
         release = self.hold_copies()
         loaded = []
         real_load = self.window.player.load

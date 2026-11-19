@@ -72,16 +72,18 @@ if sys.platform == "win32":
 
 
 class ProcessJob:
-    """A Windows job object that holds an ffmpeg and everything it starts. Ending the job ends them all at
-    once (no walking the tree with taskkill, which takes a second or two), and Windows ends them too when
-    the last handle to the job closes, so a crash of the app can't leave an ffmpeg running."""
+    """A Windows job object that holds an ffmpeg and everything it starts. Ending the job ends them
+    all at once (no walking the tree with taskkill, which takes a second or two), and Windows ends
+    them too when the last handle to the job closes, so a crash of the app can't leave an ffmpeg
+    running."""
 
     def __init__(self, handle: int):
         self._handle: Optional[int] = handle
 
     @classmethod
     def create(cls) -> Optional["ProcessJob"]:
-        """A new job that kills what is in it when it is closed, or None where that isn't possible."""
+        """A new job that kills what is in it when it is closed, or None where that isn't
+        possible."""
         if sys.platform != "win32":
             return None
         try:
@@ -99,8 +101,8 @@ class ProcessJob:
             return None
 
     def add(self, proc: subprocess.Popen) -> bool:
-        """Put the running `proc` in the job. False when Windows says no (the app itself may run in a
-        job that doesn't allow another)."""
+        """Put the running `proc` in the job. False when Windows says no (the app itself may run in
+        a job that doesn't allow another)."""
         if self._handle is None:
             return False
         process = _k32.OpenProcess(_PROCESS_SET_QUOTA | _PROCESS_TERMINATE, False, proc.pid)
@@ -116,9 +118,9 @@ class ProcessJob:
         return self._handle is not None and bool(_k32.TerminateJobObject(self._handle, 1))
 
     def wait_until_empty(self, timeout: float) -> bool:
-        """Wait up to `timeout` seconds for every process in the job to be gone; True when they are. Ending a
-        job only starts ending its processes, and a real ffmpeg behind a launcher keeps its files open until
-        it is gone, after the launcher itself has ended."""
+        """Wait up to `timeout` seconds for every process in the job to be gone; True when they
+        are. Ending a job only starts ending its processes, and a real ffmpeg behind a launcher
+        keeps its files open until it is gone, after the launcher itself has ended."""
         if self._handle is None:
             return False
         info = _Accounting()

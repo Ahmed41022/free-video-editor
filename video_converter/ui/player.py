@@ -23,15 +23,18 @@ from . import theme
 
 log = logging.getLogger(__name__)
 
-# Frames are turned into pictures on the CPU anyway, so the graphics card is never asked to decode them. Qt reads
-# this when the first player is made, so it is set as soon as this module is loaded (the app sets it even earlier).
+# Frames are turned into pictures on the CPU anyway, so the graphics card is never asked to decode
+# them. Qt reads this when the first player is made, so it is set as soon as this module is loaded
+# (the app sets it even earlier).
 force_software_decoding()
 
 ZOOM_MIN, ZOOM_MAX = 1.0, 3.0
 WHEEL_MERGE_MS = 600  # wheel turns this close together are one zoom, and one undo step
-PAINT_PATIENCE = 0.25  # seconds a new frame may wait for the previous one to be drawn before it is shown anyway
+# seconds a new frame may wait for the previous one to be drawn before it is shown anyway
+PAINT_PATIENCE = 0.25
 SETTLE_MS = 40  # after frames were skipped, show the newest one this long after the last arrived
-SWAP_BACKSTOP_MS = 1000  # a swap whose new source was never seen loading is finished after this long
+# a swap whose new source was never seen loading is finished after this long
+SWAP_BACKSTOP_MS = 1000
 MIN_FRAME_SIDE = 480  # frames are never shrunk below this many pixels on their longer side
 
 
@@ -81,16 +84,17 @@ class Player(QObject):
         self.media.mediaStatusChanged.connect(self._on_status)
         self.segments: list[Segment] = []  # what the export keeps; [] = everything
         self.source: Optional[Path] = None
-        # Frames of a preview copy are already upright (ffmpeg turned them when making it), whatever
-        # rotation the original file asks for.
+        # Frames of a preview copy are already upright (ffmpeg turned them when making it),
+        # whatever rotation the original file asks for.
         self.upright = False
         self._resume: Optional[tuple[
             int, bool, bool]] = None  # position (ms), playing, upright: set while swapping
         self._new_source_loading = False
         self._pending_seek: Optional[
             int] = None  # a position (ms) asked for before the file finished loading
-        # How big a picture the view can use, in pixels on the longer side (None = no limit): bigger frames are
-        # shrunk as they arrive, which saves the work of rotating and drawing pixels nobody sees.
+        # How big a picture the view can use, in pixels on the longer side (None = no limit):
+        # bigger frames are shrunk as they arrive, which saves the work of rotating and drawing
+        # pixels nobody sees.
         self.frame_limit: Optional[Callable[[], int]] = None
         self.dropped = 0  # frames skipped because the previous one wasn't drawn yet
         self._awaiting_paint = False  # a frame was handed to the view and hasn't been drawn
@@ -124,8 +128,9 @@ class Player(QObject):
         self._resume = None
         self._pending_seek = None
         self._awaiting_paint = False
-        # No stop() first: setSource() ends the playback itself, and a stop() on a player that was paused while its
-        # file was still loading hangs inside Qt's media backend (the app freezes when files are switched quickly).
+        # No stop() first: setSource() ends the playback itself, and a stop() on a player that was
+        # paused while its file was still loading hangs inside Qt's media backend (the app freezes
+        # when files are switched quickly).
         self.source, self.upright = path, upright and path is not None
         self.media.setSource(QUrl.fromLocalFile(str(path)) if path else QUrl())
         if path:
@@ -133,8 +138,8 @@ class Player(QObject):
             self.media.pause()
 
     def swap_source(self, path: Path, upright: bool) -> None:
-        """Carry on from the same moment in another copy of the same video (the preview copy once it is
-        ready, or the original again), playing if it was playing."""
+        """Carry on from the same moment in another copy of the same video (the preview copy once
+        it is ready, or the original again), playing if it was playing."""
         if path == self.source:
             return
         if self._resume is not None:  # swapped again before the last one finished
@@ -153,8 +158,8 @@ class Player(QObject):
             self.media.setPosition(ms)
         if self._resume is None:
             return
-        # The old source still reports "loaded" for a moment; only what comes after the new one starts
-        # loading counts.
+        # The old source still reports "loaded" for a moment; only what comes after the new one
+        # starts loading counts.
         if status == QMediaPlayer.MediaStatus.LoadingMedia:
             self._new_source_loading = True
         elif self._new_source_loading and status in (QMediaPlayer.MediaStatus.LoadedMedia,
@@ -171,8 +176,9 @@ class Player(QObject):
             self.media.pause()
 
     def _check_swap(self) -> None:
-        """Backstop: Qt sometimes reports the new source as loaded without ever reporting that it started loading
-        (so `_on_status` can't tell it from the old one). A moment later the status can be trusted."""
+        """Backstop: Qt sometimes reports the new source as loaded without ever reporting that it
+        started loading (so `_on_status` can't tell it from the old one). A moment later the status
+        can be trusted."""
         if self._resume is None:
             return
         if self.media.mediaStatus() in (QMediaPlayer.MediaStatus.LoadedMedia,
@@ -221,7 +227,8 @@ class Player(QObject):
             return
         if self.source is not None and self.media.mediaStatus() in (
                 QMediaPlayer.MediaStatus.NoMedia, QMediaPlayer.MediaStatus.LoadingMedia):
-            self._pending_seek = ms  # Qt drops a position set before the file is loaded: apply it then
+            # Qt drops a position set before the file is loaded: apply it then
+            self._pending_seek = ms
             return
         self.media.setPosition(ms)
 
@@ -232,7 +239,8 @@ class Player(QObject):
         self.audio.setMuted(muted)
 
     def _on_position(self, ms: int) -> None:
-        if self._resume is not None:  # the new source starts at 0 for a moment; not a real position
+        # the new source starts at 0 for a moment; not a real position
+        if self._resume is not None:
             return
         seconds = ms / 1000
         if self.playing and self.segments:
@@ -251,8 +259,9 @@ class Player(QObject):
         self._awaiting_paint = False
 
     def _on_frame(self, frame: QVideoFrame) -> None:
-        # Frames come faster than they can be drawn when the video is big. Skip the ones that arrive before the
-        # last was drawn, rather than queueing work; the newest is shown a moment after they stop (see _show_newest).
+        # Frames come faster than they can be drawn when the video is big. Skip the ones that
+        # arrive before the last was drawn, rather than queueing work; the newest is shown a moment
+        # after they stop (see _show_newest).
         if self._awaiting_paint and time.monotonic() - self._last_delivery < PAINT_PATIENCE:
             self.dropped += 1
             self._settle.start()
@@ -260,7 +269,8 @@ class Player(QObject):
         self._deliver(frame)
 
     def _show_newest(self) -> None:
-        """Frames were skipped: show the newest one now (asked from the sink, so no frame is kept in between)."""
+        """Frames were skipped: show the newest one now (asked from the sink, so no frame is kept
+        in between)."""
         if self._awaiting_paint and time.monotonic() - self._last_delivery < PAINT_PATIENCE:
             self._settle.start()
             return
@@ -419,9 +429,10 @@ class VideoView(QWidget):
     def set_overlays(
             self, texts: list[TextItem], logo: Logo, out_size: Optional[tuple[int, int]],
             time: Optional[float], canvas: bool = False) -> None:
-        """Show these texts and this logo over the output frame (`out_size` is the export's width and
-        height). `time` is the playhead on the export's timeline, which decides which texts show;
-        `canvas` shows the whole output frame, as the export will have it, around a picture that doesn't fill it."""
+        """Show these texts and this logo over the output frame (`out_size` is the export's width
+        and height). `time` is the playhead on the export's timeline, which decides which texts
+        show; `canvas` shows the whole output frame, as the export will have it, around a picture
+        that doesn't fill it."""
         self.texts, self.logo, self.out_size, self.overlay_time, self.canvas = list(
             texts), logo, out_size, time, canvas
         if self.selected and (self.selected[0] == "text" and self.selected[1] >= len(texts)
@@ -440,7 +451,8 @@ class VideoView(QWidget):
             self.update()
 
     def output_rect(self) -> QRectF:
-        """Where the exported frame is drawn: the rendered preview, the crop box, or the picture."""
+        """Where the exported frame is drawn: the rendered preview, the crop box, or the
+        picture."""
         bounds = QRectF(self.rect()).adjusted(8, 8, -8, -8)
         if self.show_after and self.after_image is not None:
             return fit_rect(QSizeF(self.after_image.size()), bounds)
@@ -458,7 +470,8 @@ class VideoView(QWidget):
             item.end is None or self.overlay_time <= item.end)
 
     def _text_rect(self, item: TextItem, out: QRectF) -> QRectF:
-        """The box a text takes up in widget coordinates, kept inside the frame like ffmpeg keeps it."""
+        """The box a text takes up in widget coordinates, kept inside the frame like ffmpeg keeps
+        it."""
         scale = out.height() / self.out_size[1]
         width, height = (v * scale for v in text_box(item, self.out_size))
         left = min(
@@ -503,7 +516,8 @@ class VideoView(QWidget):
         return QRectF(left, top, width, height)
 
     def overlay_rects(self) -> list[tuple[str, int, QRectF]]:
-        """What can be grabbed, bottom to top: the logo, then the texts that show now (and the selected one)."""
+        """What can be grabbed, bottom to top: the logo, then the texts that show now (and the
+        selected one)."""
         out = self.output_rect()
         if out.isEmpty() or self.out_size is None:
             return []
@@ -523,7 +537,8 @@ class VideoView(QWidget):
         return None
 
     def _paint_overlays(self, p: QPainter, content: bool) -> None:
-        """Draw the texts and the logo (`content`; the rendered preview already has them) and a frame around the selected one."""
+        """Draw the texts and the logo (`content`; the rendered preview already has them) and a
+        frame around the selected one."""
         out = self.output_rect()
         rects = self.overlay_rects()
         p.save()
@@ -549,8 +564,8 @@ class VideoView(QWidget):
 
     def _draw_text(
             self, p: QPainter, item: TextItem, rect: QRectF, out: QRectF, opacity: float) -> None:
-        """One text, drawn with Qt's own text layout (so Arabic and other scripts join and run the right way).
-        The export draws it with ffmpeg; this is the live version while editing."""
+        """One text, drawn with Qt's own text layout (so Arabic and other scripts join and run the
+        right way). The export draws it with ffmpeg; this is the live version while editing."""
         scale = out.height() / self.out_size[1]
         wrapped, _, pixels = laid_out(item, self.out_size)
         font = QFont(item.font)
@@ -604,7 +619,8 @@ class VideoView(QWidget):
             self.set_selected_overlay((kind, index))
             self.overlayPicked.emit(kind, index)
             out = self.output_rect()
-            # Where the middle of it is now, as shares of the frame (a logo in a corner starts from there).
+            # Where the middle of it is now, as shares of the frame (a logo in a corner starts from
+            # there).
             x, y = (rect.center().x() - out.left()) / out.width(), (rect.center().y() -
                                                                     out.top()) / out.height()
             self._overlay_drag = (kind, index, event.position(), x, y)
@@ -671,7 +687,8 @@ class VideoView(QWidget):
             target = round(min(max(self.zoom + step, ZOOM_MIN), ZOOM_MAX), 3)
             if target != self.zoom:
                 self.zoomChanged.emit(target)
-            # The zoom is finished only after the wheel has rested: a run of turns is a single undo step.
+            # The zoom is finished only after the wheel has rested: a run of turns is a single undo
+            # step.
             self._wheel_done.start()
 
     def _move_center_to(self, center: QPointF) -> None:

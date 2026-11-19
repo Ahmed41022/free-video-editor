@@ -1,5 +1,5 @@
-"""Automatic captions: cutting words into cues, the .srt file, time mapping through cuts and speed, and the
-whole pipeline with a pretend speech model (no network, no model download)."""
+"""Automatic captions: cutting words into cues, the .srt file, time mapping through cuts and speed,
+and the whole pipeline with a pretend speech model (no network, no model download)."""
 
 import importlib.util
 import subprocess
@@ -13,7 +13,9 @@ from unittest import mock
 from tests.test_speech_models import FILES, FakeServer, tiny_model
 from video_converter import autocaptions as ac
 from video_converter import speech_models as sm
-from video_converter.captions import Cue, Subtitles, format_srt, parse_cues, read_text, retimed_subtitles, write_srt
+from video_converter.captions import (
+    Cue, Subtitles, format_srt, parse_cues, read_text, retimed_subtitles, write_srt,
+)
 from video_converter.core import ConversionCancelled, ConversionError, find_ffmpeg
 
 FFMPEG = find_ffmpeg()
@@ -47,8 +49,10 @@ def assert_well_formed(test: unittest.TestCase, cues: list) -> None:
 
 
 ENGLISH = (
-    "Hello everyone and welcome back to the channel. Today we are going to talk about something really "
-    "interesting, which is how to edit videos quickly and easily without any complicated software. "
+    "Hello everyone and welcome back to the channel. Today we are going to talk about "
+    "something really "
+    "interesting, which is how to edit videos quickly and easily without any complicated "
+    "software. "
     "Let's get started.")
 ARABIC = (
     "مرحبا بكم في قناتنا اليوم سوف نتحدث عن موضوع مهم جدا وهو كيف نقوم بتحرير مقاطع الفيديو بسرعة "
@@ -274,7 +278,8 @@ class SrtTests(unittest.TestCase):
 
 
 class TimeMappingTests(unittest.TestCase):
-    """The cues are in the source video's time; the existing subtitle retiming moves them through the edit."""
+    """The cues are in the source video's time; the existing subtitle retiming moves them through
+    the edit."""
 
     def retime(self, cues, segments, speed=1.0, reverse=False):
         with tempfile.TemporaryDirectory() as tmp:
@@ -561,8 +566,8 @@ class PipelineTests(unittest.TestCase):
 @unittest.skipUnless(
     sm.is_downloaded(sm.MODELS["fast"]), "the Fast speech model hasn't been downloaded on this PC")
 class RealModelTests(unittest.TestCase):
-    """Runs the real Fast model on made-up sound. There is no speech in it to check the words of, so this
-    only shows that the whole chain runs and ends gracefully."""
+    """Runs the real Fast model on made-up sound. There is no speech in it to check the words of,
+    so this only shows that the whole chain runs and ends gracefully."""
 
     @classmethod
     def setUpClass(cls):
@@ -604,8 +609,8 @@ class SelfTestTests(unittest.TestCase):
     def test_the_engine_and_its_voice_detector_load(self):
         self.assertTrue(ac.self_test().startswith("ok:"))
 
-    # It runs the real self test, which loads the engine: on a machine without faster-whisper (the WSL test
-    # setup, where it was not installed) the flag rightly reports a failure and returns 1.
+    # It runs the real self test, which loads the engine: on a machine without faster-whisper (the
+    # WSL test setup, where it was not installed) the flag rightly reports a failure and returns 1.
     @unittest.skipUnless(ENGINE, "the speech engine (faster-whisper) is not installed")
     def test_the_exe_flag_writes_its_result_to_a_file_and_returns_zero(self):
         try:
@@ -765,7 +770,8 @@ class CancelTests(unittest.TestCase):
 
     @staticmethod
     def segments(count, consumed, cancel=None, cancel_at=None):
-        """A generator that does its 'work' as each segment is asked for and notes it in `consumed`."""
+        """A generator that does its 'work' as each segment is asked for and notes it in
+        `consumed`."""
         for n in range(count):
             consumed.append(n)
             if cancel is not None and n == cancel_at:
@@ -786,7 +792,7 @@ class CancelTests(unittest.TestCase):
             ac.transcribe(model, [0.0], cancel_event=cancel)
         model.transcribe.assert_not_called()
 
-    def test_a_cancel_that_comes_while_the_speech_is_being_looked_for_stops_before_the_first_segment(
+    def test_a_cancel_that_comes_while_the_speech_is_being_looked_for_stops_before_the_first_segment(  # noqa: E501
             self):
         cancel, consumed = threading.Event(), []
 

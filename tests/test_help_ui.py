@@ -1,5 +1,5 @@
-"""The 2.4 pieces of the window: the graphics card option, the Help menu, the failed-export details and
-the friendly crash box. Run without a visible window; skipped when PySide6 isn't installed."""
+"""The 2.4 pieces of the window: the graphics card option, the Help menu, the failed-export details
+and the friendly crash box. Run without a visible window; skipped when PySide6 isn't installed."""
 
 import os
 import tempfile
@@ -101,7 +101,9 @@ class FailedExportDetailsTests(unittest.TestCase):
     def failed_job(self):
         job = Job(Path("C:/videos/holiday.mp4"), ClipSettings())
         job.state = JobState.FAILED
-        job.error = "[h264_nvenc @ 0123] Cannot load nvcuda.dll\nError while opening encoder\nConversion failed!"
+        job.error = (
+            "[h264_nvenc @ 0123] Cannot load nvcuda.dll\nError while opening "
+            "encoder\nConversion failed!")
         return job
 
     def test_a_failed_row_has_a_details_button_and_others_do_not(self):
@@ -191,9 +193,10 @@ class WindowTests(unittest.TestCase):
     def new_window(self, encoders=(), name=None):
         from video_converter.ui.main_window import MainWindow
         ini = self.tmp / f"{self.id().split('.')[-1]}.ini"
+        # the stand-in card, not a real one
         with mock.patch.object(gpu, "detect_encoders", return_value=encoders), \
                 mock.patch.object(gpu, "gpu_name", return_value=name), \
-                mock.patch.dict(os.environ, {"VIDEO_EDITOR_NO_GPU_SEARCH": "0"}):       # the stand-in card, not a real one
+                mock.patch.dict(os.environ, {"VIDEO_EDITOR_NO_GPU_SEARCH": "0"}):
             window = MainWindow(FFMPEG, QSettings(str(ini), QSettings.Format.IniFormat))
             window.resize(1000, 700)
             window.show()
@@ -241,8 +244,10 @@ class WindowTests(unittest.TestCase):
                 diagnostics.setup_logging(Path(folder))
                 import logging
                 logging.getLogger("video_converter").info("Export 3 started: holiday.mp4")
-                with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes), \
-                        mock.patch("video_converter.ui.main_window.help.QDesktopServices.openUrl") as opened:
+                with mock.patch.object(QMessageBox, "question",
+                                       return_value=QMessageBox.StandardButton.Yes), \
+                        mock.patch("video_converter.ui.main_window.help.QDesktopServices."
+                                   "openUrl") as opened:
                     window.report_problem()
                 opened.assert_called_once()
                 url = opened.call_args.args[0].toString()
@@ -261,8 +266,10 @@ class WindowTests(unittest.TestCase):
 
     def test_saying_no_sends_the_user_nowhere(self):
         window = self.new_window()
-        with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as asked, \
-                mock.patch("video_converter.ui.main_window.help.QDesktopServices.openUrl") as opened:
+        with mock.patch.object(QMessageBox, "question",
+                               return_value=QMessageBox.StandardButton.No) as asked, \
+                mock.patch("video_converter.ui.main_window.help.QDesktopServices."
+                           "openUrl") as opened:
             window.report_problem()
         asked.assert_called_once()
         self.assertIn("Nothing is sent until you press Submit", asked.call_args.args[2])

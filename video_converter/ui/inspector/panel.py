@@ -174,7 +174,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         rotate_row.addWidget(self.mirror_box)
         rotate_widget = QWidget()
         rotate_widget.setLayout(rotate_row)
-        # The arrows turn the picture counter-clockwise and clockwise: the left button stays on the left.
+        # The arrows turn the picture counter-clockwise and clockwise: the left button stays on the
+        # left.
         rotate_widget.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
         self.frame_section.row(tr("Rotate"), rotate_widget, 4)
 
@@ -431,9 +432,10 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.normalize_box = QCheckBox(tr("Make the loudness even (−14 LUFS)"))
         self.normalize_box.setToolTip(
             tr(
-                "Sets the whole sound to the loudness YouTube and Spotify play at, so it isn't too quiet or too "
-                "loud next to other videos. It measures the sound first, so exporting takes a little longer."
-            ))
+                "Sets the whole sound to the loudness YouTube and Spotify play at, so it isn't "
+                "too quiet or too "
+                "loud next to other videos. It measures the sound first, so exporting takes a "
+                "little longer."))
         self.normalize_box.toggled.connect(
             lambda on: self._edit(lambda s: setattr(s.edit, "normalize", on), tr("Even loudness")))
         self.audio_section.grid.addWidget(self.normalize_box, 3, 0, 1, 2)
@@ -480,7 +482,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.music_slider.setRange(round(MUSIC_VOLUME_MIN), round(MUSIC_VOLUME_MAX))
         self.music_slider.setToolTip(
             tr(
-                "How loud the music is next to the video's own sound. A video with no sound of its own plays "
+                "How loud the music is next to the video's own sound. A video with no sound of "
+                "its own plays "
                 "the music at full volume."))
         self.music_label = QLabel()
         self.music_label.setMinimumWidth(48)
@@ -535,8 +538,10 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
             self.format_box.addItem(tr(fmt.label), key)
         self.format_box.setToolTip(
             tr(
-                "MP4 (H.264) plays on everything. H.265 makes smaller files, but older phones and programs can't "
-                "play it. WebM is for the web. MOV suits Apple's apps and video editors. A GIF is a short, silent, "
+                "MP4 (H.264) plays on everything. H.265 makes smaller files, but older phones "
+                "and programs can't "
+                "play it. WebM is for the web. MOV suits Apple's apps and video editors. A GIF "
+                "is a short, silent, "
                 "looping picture."))
         self.format_box.currentIndexChanged.connect(
             lambda: self._edit(
@@ -550,9 +555,12 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
             self.size_box.addItem(tr(label), value)
         self.size_box.setToolTip(
             tr(
-                "Same as source matches the source's short side, so 1080p makes a 1080x1920 phone video. Phone, "
-                "portrait and square videos are capped at 1080 pixels on the short side, so 4K doesn't make huge "
-                "files. Up to 1080p does the same for any shape, and never makes a smaller video bigger. "
+                "Same as source matches the source's short side, so 1080p makes a 1080x1920 "
+                "phone video. Phone, "
+                "portrait and square videos are capped at 1080 pixels on the short side, so 4K "
+                "doesn't make huge "
+                "files. Up to 1080p does the same for any shape, and never makes a smaller "
+                "video bigger. "
                 "1080p, 720p and 480p set the short side."))
         self.size_box.currentIndexChanged.connect(
             lambda: self._edit(
@@ -563,8 +571,10 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
             self.rate_box.addItem(tr(label), value)
         self.rate_box.setToolTip(
             tr(
-                "Steady makes every frame the same distance apart, which phones need. A steady MP4 or MOV is also "
-                "made phone-safe (H.264 High, AAC sound). A video that is slower than the rate you choose keeps "
+                "Steady makes every frame the same distance apart, which phones need. A steady "
+                "MP4 or MOV is also "
+                "made phone-safe (H.264 High, AAC sound). A video that is slower than the rate "
+                "you choose keeps "
                 "its own rate, so Steady 60 never makes a 30 fps video bigger."))
         self.rate_box.currentIndexChanged.connect(
             lambda: self._edit(
@@ -578,9 +588,10 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.crf_box.addItem(tr(FIT_LABEL), FIT_DATA)
         self.crf_box.setToolTip(
             tr(
-                "Higher quality makes bigger files. Fit in a file size does the opposite: you say how big the file "
-                "may be, for Discord, WhatsApp or email, and the picture gets what is left after the sound."
-            ))
+                "Higher quality makes bigger files. Fit in a file size does the opposite: you "
+                "say how big the file "
+                "may be, for Discord, WhatsApp or email, and the picture gets what is left "
+                "after the sound."))
         self.crf_box.currentIndexChanged.connect(self._quality_chosen)
         row("quality", tr("Quality"), self.crf_box, 6)
         self.limit_box = QComboBox()

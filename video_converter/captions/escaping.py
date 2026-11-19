@@ -6,8 +6,9 @@ from pathlib import Path
 
 
 def filter_value(text: str) -> str:
-    """`text` as the value of a filter option, safe against every character ffmpeg treats specially. It
-    goes through the two levels of escaping the filter syntax has: the option's and the graph's."""
+    """`text` as the value of a filter option, safe against every character ffmpeg treats
+    specially. It goes through the two levels of escaping the filter syntax has: the option's and
+    the graph's."""
     for chars in ("\\':", "\\',;[]"):
         text = "".join("\\" + ch if ch in chars else ch for ch in text)
     return text

@@ -43,12 +43,14 @@ class JoinJob:
     output: Path
     audio_only: bool = False  # True: one MP3 instead of one MP4
     quality: str = DEFAULT_QUALITY  # MP3 quality
-    overwrite: bool = True  # False: the output name was chosen as free, and is made another if it gets taken
+    # False: the output name was chosen as free, and is made another if it gets taken
+    overwrite: bool = True
 
 
 def _join_sound(job: JoinJob) -> tuple[bool, Optional[str]]:
-    """Whether any clip of a join has sound to play, and the background music laid over the whole result.
-    The music is the first clip's, like the video quality; the first clip removing the sound removes it."""
+    """Whether any clip of a join has sound to play, and the background music laid over the whole
+    result. The music is the first clip's, like the video quality; the first clip removing the
+    sound removes it."""
     video = not job.audio_only
     any_audio = any(p.info.has_audio and not (video and p.edit.mute) for p in job.parts)
     return any_audio, music_path(job.parts[0].edit, video)
@@ -61,13 +63,13 @@ def join_command(
     """The ffmpeg command that plays every part back to back, and the result's length.
 
     Each clip is cut, sped up, reframed and faded with its own settings, then fitted into
-    the first clip's frame size and frame rate. The video quality is the first clip's, and so is the
-    steady frame rate if it has one: then the result is phone-safe at that rate (the fastest of the
-    clips' own rates when none is above it), whatever rate the first clip has. The file format and the
-    file size to fit are the first clip's too. Each clip keeps its own
-    volume and noise reduction; the loudness and the background music are the first clip's, applied to
-    the joined sound. With `measure` it is the first loudness pass instead (see `measure_command`);
-    with `first_pass` it is the first of the two passes of a `fit` (the picture only)."""
+    the first clip's frame size and frame rate. The video quality is the first clip's, and so is
+    the steady frame rate if it has one: then the result is phone-safe at that rate (the fastest of
+    the clips' own rates when none is above it), whatever rate the first clip has. The file format
+    and the file size to fit are the first clip's too. Each clip keeps its own volume and noise
+    reduction; the loudness and the background music are the first clip's, applied to the joined
+    sound. With `measure` it is the first loudness pass instead (see `measure_command`); with
+    `first_pass` it is the first of the two passes of a `fit` (the picture only)."""
     parts, video = job.parts, not job.audio_only
     picture = video and not measure
     first = parts[0]
@@ -91,7 +93,8 @@ def join_command(
     if not video and not any_audio and not music:
         raise ConversionError(tr("None of these files have sound."))
     sound = first.edit.sound
-    # The sound goes through the final mix when there is music, or a loudness to apply or to measure.
+    # The sound goes through the final mix when there is music, or a loudness to apply or to
+    # measure.
     mastered = (any_audio or bool(music)) and (
         bool(music) or (sound.normalize and (loudness is not None or measure)))
     voice = "[voice]" if mastered else "[a]"
@@ -120,8 +123,8 @@ def join_command(
                 filters.append(f"[sound{i}]{JOIN_AUDIO}[a{i}]")
             else:  # silence, so the sound stays in step with the pictures
                 filters.append(
-                    f"anullsrc=r=48000:cl=stereo,atrim=duration={graph.duration:.3f},{JOIN_AUDIO}[a{i}]"
-                )
+                    "anullsrc=r=48000:cl=stereo,atrim="
+                    f"duration={graph.duration:.3f},{JOIN_AUDIO}[a{i}]")
             label += f"[a{i}]"
         labels.append(label)
     outputs = ("[v]" if picture else "") + (voice if any_audio else "")
@@ -163,8 +166,9 @@ def join_clips(
     cancel_event: Optional[threading.Event] = None, encoder: Optional[str] = None,
     on_note: Optional[Callable[[str], None]] = None,
 ) -> Path:
-    """Export several clips, in order, as one MP4 (or one MP3 with `job.audio_only`), or in the first
-    clip's other format and file size (see `join_command`). `encoder` and `on_note` work as in `convert_video`."""
+    """Export several clips, in order, as one MP4 (or one MP3 with `job.audio_only`), or in the
+    first clip's other format and file size (see `join_command`). `encoder` and `on_note` work as
+    in `convert_video`."""
     if len(job.parts) < 2:
         raise ConversionError(tr("Joining needs at least two clips."))
     for part in job.parts:
@@ -182,7 +186,8 @@ def join_clips(
     fit = None
     if not job.audio_only and first.target_mb > 0:
         head = job.parts[0]
-        # The picture is the first clip's size and frame rate, so that is what has to be made smaller.
+        # The picture is the first clip's size and frame rate, so that is what has to be made
+        # smaller.
         rates = [source_rate(p.info, p.edit.speed) for p in job.parts if p.info.fps]
         steady = steady_rate(first.frame_rate, max(rates, default=None))
         lowered, fit = plan_fit(

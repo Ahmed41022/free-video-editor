@@ -1,5 +1,5 @@
-"""Telling the user about a newer version: reading versions, the once-a-day check, and the request itself.
-Nothing here uses the network: the request is always replaced."""
+"""Telling the user about a newer version: reading versions, the once-a-day check, and the request
+itself. Nothing here uses the network: the request is always replaced."""
 
 import io
 import json

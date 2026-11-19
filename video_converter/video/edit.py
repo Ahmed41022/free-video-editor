@@ -54,7 +54,8 @@ RESOLUTIONS = {
 # Steady frame rates the user can ask for; None keeps the source's own (which may vary).
 FRAME_RATES = {N_("Same as source"): None, N_("Steady 60 fps"): 60, N_("Steady 30 fps"): 30}
 
-# With "Same as source", phone, portrait and square videos are not made bigger than this (short side).
+# With "Same as source", phone, portrait and square videos are not made bigger than this (short
+# side).
 SHORT_SIDE_CAP = 1080
 
 # x264 CRF: lower = better quality and bigger files.
@@ -81,8 +82,9 @@ LOOKS = {
     "contrast": (N_("High contrast"), ["curves=preset=strong_contrast"]),
 }
 
-# The looks whose filters (colorbalance, curves) only work on RGB pictures: ffmpeg converts the frames to
-# 24-bit RGB for them, twice the size of yuv420p, and a reversed clip holds them like that.
+# The looks whose filters (colorbalance, curves) only work on RGB pictures: ffmpeg converts the
+# frames to 24-bit RGB for them, twice the size of yuv420p, and a reversed clip holds them like
+# that.
 RGB_LOOKS = frozenset({"warm", "cool", "vintage", "contrast"})
 
 # Stabilization strength ->(vidstabdetect shakiness, vidstabtransform smoothing), or None for off.
@@ -132,8 +134,10 @@ class VideoEdit:
     subtitles: Subtitles = field(
         default_factory=Subtitles)  # a subtitle file burned into the picture
     video_format: str = DEFAULT_VIDEO_FORMAT  # an OUTPUT_FORMATS key: MP4, H.265, WebM, MOV or GIF
-    target_mb: float = 0.0  # more than 0: make the file fit in this many megabytes (crf is then ignored)
-    gif_fps: int = GIF_FPS  # a GIF's frame rate and width are limits; a slower, narrower video keeps its own
+    # more than 0: make the file fit in this many megabytes (crf is then ignored)
+    target_mb: float = 0.0
+    # a GIF's frame rate and width are limits; a slower, narrower video keeps its own
+    gif_fps: int = GIF_FPS
     gif_width: int = GIF_WIDTH
 
     @property

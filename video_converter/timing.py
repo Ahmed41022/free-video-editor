@@ -16,7 +16,8 @@ Segment = tuple[float, Optional[float]]  # the end is None only when the length 
 MIN_PART = 0.1  # shortest part the editor makes, in seconds
 SNAP_EDGE = 0.05  # kept ranges this close to the very start or end reach it
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
-CUT_FADE = 0.004  # the sound fades out and in over this long (seconds) at every cut, so there is no click
+# the sound fades out and in over this long (seconds) at every cut, so there is no click
+CUT_FADE = 0.004
 FADE_MAX = 30.0
 _EPS = 1e-6
 
@@ -191,8 +192,9 @@ def snap_segments(segments: list[Segment], fps: Optional[float],
             snapped.append((a, b))
     if snapped or not segments:
         return snapped
-    # Every part is shorter than a frame (a trim of a few milliseconds): none of them would show, and an
-    # export of nothing but the sound is not what was asked for. Keep the one frame at the first part.
+    # Every part is shorter than a frame (a trim of a few milliseconds): none of them would show,
+    # and an export of nothing but the sound is not what was asked for. Keep the one frame at the
+    # first part.
     first = round(segments[0][0] * rate) / rate
     if duration and first + 1 / rate > duration:
         first = max(duration - 1 / rate, 0.0)
@@ -305,9 +307,10 @@ def relative(segments: list[Segment]) -> list[Segment]:
 
 
 def _cut_fades(after_cut: bool, before_cut: bool, length: Optional[float]) -> str:
-    """The short fades of a part of the sound that has a cut at its start (`after_cut`) and/or its end
-    (`before_cut`). Two parts of a wave that don't fit end and begin with a jump, which is heard as a click;
-    a few milliseconds of fade on both sides make it silent. The length of the part stays what it was."""
+    """The short fades of a part of the sound that has a cut at its start (`after_cut`) and/or its
+    end (`before_cut`). Two parts of a wave that don't fit end and begin with a jump, which is
+    heard as a click; a few milliseconds of fade on both sides make it silent. The length of the
+    part stays what it was."""
     span = CUT_FADE if length is None else min(CUT_FADE, length / 2)
     if span < 0.0005:
         return ""
@@ -323,8 +326,8 @@ def select_filters(
         src: str, out: str, segments: list[Segment], audio: bool, tag: str = "",
         margin: float = 0.0) -> list[str]:
     """Filters that keep `segments` (relative to the input start) of stream `src` and play
-    them back to back as `out`. A picture's cuts move `margin` seconds earlier (see `frame_margin`);
-    the sound's never do."""
+    them back to back as `out`. A picture's cuts move `margin` seconds earlier (see
+    `frame_margin`); the sound's never do."""
     setpts = "asetpts" if audio else "setpts"
     if len(segments) <= 1:
         return [f"{src}{setpts}=PTS-STARTPTS{out}"]

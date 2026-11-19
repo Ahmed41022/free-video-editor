@@ -1,5 +1,6 @@
-"""The command line's automatic captions: --auto-captions, --captions-only and the --caption-* options.
-Listening and exporting are faked; what is checked is what the command line passes on and writes."""
+"""The command line's automatic captions: --auto-captions, --captions-only and the --caption-*
+options. Listening and exporting are faked; what is checked is what the command line passes on and
+writes."""
 
 import tempfile
 import unittest
@@ -217,7 +218,7 @@ class CaptionCliTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("only writes the .srt", err)
 
-    def test_the_subtitle_look_options_are_fine_with_auto_captions_and_still_refused_without_either(
+    def test_the_subtitle_look_options_are_fine_with_auto_captions_and_still_refused_without_either(  # noqa: E501
             self):
         code, _, _ = run(
             self.video, "--video", "original", "--auto-captions", "--subtitle-size", "0.07")

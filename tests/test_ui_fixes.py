@@ -1,6 +1,6 @@
-"""Regression tests for editor bugs: keys typed into the settings panel, the mouse wheel, undo and redo across files,
-removing files, audio-only files, files that can't be read, and the export queue. They run without a visible window
-and are skipped when PySide6 isn't installed."""
+"""Regression tests for editor bugs: keys typed into the settings panel, the mouse wheel, undo and
+redo across files, removing files, audio-only files, files that can't be read, and the export
+queue. They run without a visible window and are skipped when PySide6 isn't installed."""
 
 import os
 import subprocess
@@ -167,7 +167,8 @@ class ShortcutKeyTests(WindowTestCase):
         panel = self.add_text()
         box = panel.text_box
         box.setFocus()
-        # a letter key typed on an Arabic layout: Qt reports a non-Latin key but the physical key is "S" (0x53)
+        # a letter key typed on an Arabic layout: Qt reports a non-Latin key but the physical key
+        # is "S" (0x53)
         event = __import__("PySide6.QtGui", fromlist=["QKeyEvent"]).QKeyEvent(
             QEvent.Type.KeyPress, 0x0633, Qt.KeyboardModifier.NoModifier, 0x1f, 0x53, 0, "س")
         QApplication.sendEvent(box, event)
@@ -401,7 +402,8 @@ class AudioOnlyTests(WindowTestCase):
         self.load(self.song)
         window = self.window
         item = window.current
-        # An edit made before the file had finished loading remembers the output the file had by default: video.
+        # An edit made before the file had finished loading remembers the output the file had by
+        # default: video.
         early = ClipSettings()
         self.assertEqual(early.output, OUTPUT_VIDEO)
         later = early.copy()
@@ -765,7 +767,8 @@ class SmallFixesTests(WindowTestCase):
         self.load(self.first)
         window = self.window
         with mock.patch.object(QInputDialog, "getText", return_value=("Mine", True)), \
-                mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as asked:
+                mock.patch.object(QMessageBox, "question",
+                                  return_value=QMessageBox.StandardButton.No) as asked:
             window.save_preset()  # a new name: no question
             asked.assert_not_called()
             self.assertEqual(window.user_presets["Mine"]["edit"]["speed"], 1.0)
@@ -800,8 +803,9 @@ class SmallFixesTests(WindowTestCase):
 
 
 class FakeApplication:
-    """Stands in for the application: it keeps the style sheet and palette it is given and says what was set. The
-    real one was measured to take seconds for each change once many widgets were alive."""
+    """Stands in for the application: it keeps the style sheet and palette it is given and says
+    what was set. The real one was measured to take seconds for each change once many widgets were
+    alive."""
 
     def __init__(self):
         from PySide6.QtGui import QPalette
@@ -826,9 +830,10 @@ class FakeApplication:
 
 
 class ThemeAppliedOnceTests(unittest.TestCase):
-    """Setting a style, a palette or a style sheet on the application again was measured to get slower with every
-    widget a test left alive (seconds per window on Windows), so a window opened with the theme that is already
-    in place must not set them. A different theme, or a change made by something else, is still applied."""
+    """Setting a style, a palette or a style sheet on the application again was measured to get
+    slower with every widget a test left alive (seconds per window on Windows), so a window opened
+    with the theme that is already in place must not set them. A different theme, or a change made
+    by something else, is still applied."""
 
     def setUp(self):
         from video_converter.ui import theme

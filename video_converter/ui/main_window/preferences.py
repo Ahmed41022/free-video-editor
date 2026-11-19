@@ -18,13 +18,15 @@ class PreferencesMixin:
     """Saved preferences, the theme and the language."""
 
     def set_language_choice(self, choice: str) -> None:
-        """Remember the language the user picked. It is used from the next start, so offer to restart now."""
+        """Remember the language the user picked. It is used from the next start, so offer to
+        restart now."""
         self.store.setValue(i18n.SETTING_KEY, choice)
         if i18n.resolve(choice) != i18n.language() and self._ask_restart():
             self.restart_app()
 
     def _ask_restart(self) -> bool:
-        """Say that the language changes at the next start; True if the user wants to restart now."""
+        """Say that the language changes at the next start; True if the user wants to restart
+        now."""
         box = QMessageBox(
             QMessageBox.Icon.Question, tr("Language"),
             tr("The new language is used the next time the app starts."), parent=self)
@@ -40,17 +42,18 @@ class PreferencesMixin:
         return answer
 
     def restart_app(self) -> None:
-        """Start the app again with the same files and close this window (asking first about exports still
-        running). If the new copy can't be started, this window stays open and says so."""
+        """Start the app again with the same files and close this window (asking first about
+        exports still running). If the new copy can't be started, this window stays open and says
+        so."""
         paths = [str(item.path) for item in self.items]
         if self.queue.busy and QMessageBox.question(
                 self, tr("Exports still running"),
                 tr("Some exports haven't finished. Stop them and quit?"
                    )) != QMessageBox.StandardButton.Yes:
             return
-        # Free the "one window per user" name first, so the new copy takes it instead of handing its files to this
-        # window while it closes. Then start the new copy before closing: if it can't be started, this window stays
-        # open (and listens again) instead of just vanishing.
+        # Free the "one window per user" name first, so the new copy takes it instead of handing
+        # its files to this window while it closes. Then start the new copy before closing: if it
+        # can't be started, this window stays open (and listens again) instead of just vanishing.
         if self.instance is not None:
             self.instance.close()
         if not language.restart(paths):
@@ -108,7 +111,8 @@ class PreferencesMixin:
         }.get(value.strip().lower(), default) if isinstance(value, str) else default
 
     def _saved_bytes(self, key: str) -> Optional[QByteArray]:
-        """A saved window layout, or None if there is none or the settings file holds something else."""
+        """A saved window layout, or None if there is none or the settings file holds something
+        else."""
         value = self.store.value(key)
         return QByteArray(value) if isinstance(value, (QByteArray, bytes)) and len(value) else None
 
@@ -124,7 +128,8 @@ class PreferencesMixin:
         self.store.setValue(updates.ENABLED_KEY, self.check_updates)
 
     def toggle_theme(self) -> None:
-        self.theme_choice = "light" if self.theme_mode == "dark" else "dark"  # the button is an explicit choice
+        # the button is an explicit choice
+        self.theme_choice = "light" if self.theme_mode == "dark" else "dark"
         self.theme_mode = theme.apply_theme(QApplication.instance(), self.theme_choice)
         self.refresh_icons()
         for widget in (self.view, self.timeline):

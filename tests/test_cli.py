@@ -16,7 +16,8 @@ SMALL = MediaInfo(duration=2.0, width=320, height=180, has_audio=True, fps=15.0)
 
 
 def run(*args):
-    """Run the CLI in this process: (exit code, stdout, stderr). Option errors raise SystemExit(2)."""
+    """Run the CLI in this process: (exit code, stdout, stderr). Option errors raise
+    SystemExit(2)."""
     out, err = io.StringIO(), io.StringIO()
     with redirect_stdout(out), redirect_stderr(err):
         try:
@@ -69,9 +70,12 @@ class ReverseWarningTests(unittest.TestCase):
                 files.append(Path(tmp) / name)
             with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
                     mock.patch.object(cli, "probe_media", return_value=info), \
-                    mock.patch.object(cli, "convert_video", side_effect=lambda f, job, **kw: job.output) as export, \
-                    mock.patch.object(cli, "convert", side_effect=lambda f, job, **kw: job.output) as mp3, \
-                    mock.patch.object(cli, "join_clips", side_effect=lambda f, job, **kw: job.output) as joined:
+                    mock.patch.object(cli, "convert_video",
+                                      side_effect=lambda f, job, **kw: job.output) as export, \
+                    mock.patch.object(cli, "convert",
+                                      side_effect=lambda f, job, **kw: job.output) as mp3, \
+                    mock.patch.object(cli, "join_clips",
+                                      side_effect=lambda f, job, **kw: job.output) as joined:
                 code, out, err = run(*files, *args, *(["--join"] if join else []))
             return code, err, export, mp3, joined
 

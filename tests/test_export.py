@@ -1,4 +1,5 @@
-"""The 2.9 export options: more formats (H.265, WebM, MOV, GIF), fitting a file size, and saving a frame."""
+"""The 2.9 export options: more formats (H.265, WebM, MOV, GIF), fitting a file size, and saving a
+frame."""
 
 import io
 import os
@@ -20,7 +21,9 @@ from video_converter.core import (
 from video_converter.core.probe import _ffmpeg_info_text
 from video_converter.jobs import Job, JobState, run_job
 from video_converter.output import MB, OUTPUT_FORMATS, SizeFit
-from video_converter.project import OUTPUT_AUDIO, PRESETS, ClipSettings, apply_preset, describe, output_file_for
+from video_converter.project import (
+    OUTPUT_AUDIO, PRESETS, ClipSettings, apply_preset, describe, output_file_for,
+)
 from video_converter.stills import save_frame
 from video_converter.video import (
     JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, edit_fit, fit_summary, format_warning,
@@ -37,8 +40,9 @@ def after(cmd, flag):
 
 
 def make_video(path, width=320, height=180, seconds=2, rate=15, audio=True, hard=False):
-    """A test clip. A `hard` one (a zooming fractal, saved at high quality) is a picture that a file size
-    really limits: it takes about 2 MB for six seconds at 640x360, far more than a test card."""
+    """A test clip. A `hard` one (a zooming fractal, saved at high quality) is a picture that a
+    file size really limits: it takes about 2 MB for six seconds at 640x360, far more than a test
+    card."""
     source = (
         f"mandelbrot=size={width}x{height}:rate={rate}"
         if hard else f"testsrc2=duration={seconds}:size={width}x{height}:rate={rate}")
@@ -166,7 +170,8 @@ class BitrateMathTests(unittest.TestCase):
         self.assertAlmostEqual(again, 8000 * self.AIM / (8 * MB), delta=2)
 
     def test_two_tries_show_how_far_the_bits_reach_and_the_next_one_uses_it(self):
-        # A rate control that gives back only the square root of what is asked: size = c * kbps ** 0.5.
+        # A rate control that gives back only the square root of what is asked: size = c * kbps **
+        # 0.5.
         def size(kbps):
             return int(11 * MB * (kbps / 8000)**0.5)
 
@@ -174,7 +179,8 @@ class BitrateMathTests(unittest.TestCase):
         tries = [(8000, size(8000)), (4000, size(4000))]
         again = output.next_kbps(self.FIT, tries)
         self.assertAlmostEqual(again, exact, delta=exact * 0.01)
-        # One try alone would have guessed too high: it expects the file to shrink as fast as the bitrate.
+        # One try alone would have guessed too high: it expects the file to shrink as fast as the
+        # bitrate.
         self.assertGreater(output.next_kbps(self.FIT, tries[:1]), exact * 1.05)
 
     def test_a_simple_picture_that_does_not_use_the_bits_is_left_alone(self):
@@ -703,7 +709,8 @@ class GraphicsCardH265Tests(unittest.TestCase):
     def test_a_job_asks_for_the_encoders_of_its_format(self):
         asked = []
         job = Job(Path("clip.mp4"), ClipSettings(edit=VideoEdit(video_format="hevc")))
-        with mock.patch("video_converter.jobs.choose_encoder", lambda ffmpeg, use_gpu, codec: asked.append(codec)), \
+        with mock.patch("video_converter.jobs."
+                        "choose_encoder", lambda ffmpeg, use_gpu, codec: asked.append(codec)), \
                 mock.patch("video_converter.jobs.convert_video", return_value=Path("out.mp4")):
             run_job("ffmpeg", job, lambda f: None)
             job.settings.edit.video_format = "webm"
@@ -717,7 +724,8 @@ class GraphicsCardH265Tests(unittest.TestCase):
 
 
 class FittingLoopTests(unittest.TestCase):
-    """What happens after a file comes out: kept, made again smaller, made again bigger, or refused."""
+    """What happens after a file comes out: kept, made again smaller, made again bigger, or
+    refused."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -727,7 +735,8 @@ class FittingLoopTests(unittest.TestCase):
         self.runs = []
 
     def finish(self, sizes, encoder=None, fit=None, prepass=True, fail_encoder=False, notes=None):
-        """Run `_finish` with an ffmpeg that writes a file of the next size each time. Returns the result path."""
+        """Run `_finish` with an ffmpeg that writes a file of the next size each time. Returns the
+        result path."""
         fit = fit or SizeFit(1_000_000, 1000, 128, 8.0)
         sizes = list(sizes)
 
@@ -1041,7 +1050,8 @@ class RealExportTests(unittest.TestCase):
                 self.assertFits(out, 1.0, lowest=0.8)
 
     def test_cuts_and_speed_make_room(self):
-        # Half the video at twice the speed is a second and a half: the picture gets more than four times the bitrate.
+        # Half the video at twice the speed is a second and a half: the picture gets more than four
+        # times the bitrate.
         bitrates = {}
         for name, edit in (("whole", {}), ("quick", {"keep": [(0.0, 3.0)], "speed": 2.0})):
             calls, real = [], video.export.run_ffmpeg
@@ -1440,7 +1450,8 @@ class CommandLineSettingsTests(unittest.TestCase):
         with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
                 mock.patch.object(cli, "choose_encoder", return_value=None), \
                 mock.patch.object(cli, "probe_media", return_value=info), \
-                mock.patch.object(cli, "convert_video", side_effect=ConversionError("This video is too long to fit")):
+                mock.patch.object(cli, "convert_video",
+                                  side_effect=ConversionError("This video is too long to fit")):
             code, _, err = run(self.clip, "--target-size", "1")
         self.assertEqual(code, 1)
         self.assertIn("FAILED - This video is too long to fit", err)

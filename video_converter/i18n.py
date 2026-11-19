@@ -1,19 +1,21 @@
-"""The app's translation layer: the English text is the key, and a language file holds the translations.
+"""The app's translation layer: the English text is the key, and a language file holds the
+translations.
 
     tr("Export")                          -> "تصدير" (Arabic) or "Export" (English)
     tr("Saved as {name}", name=file)      -> placeholders are filled in after translating
     ntr(3, "{n} cut", "{n} cuts")         -> "٣ قصوص" style plurals, with Arabic's six forms
-    N_("Export")                          -> marks a string that is translated later (a table of labels)
+    N_("Export")                          -> marks a string that is translated later (a table of
+    labels)
 
-Why this and not Qt's own tr()/.ts files: the text is produced all over the app, not only in widgets (job
-notes, error messages, summaries in the engine modules), and the engine must not depend on Qt. A plain
-dictionary per language works everywhere, a string with no entry simply shows in English, and the tests can
-scan the source for every key and compare the placeholders (see tests/test_i18n.py). A new string needs only an
-entry in `locales/<language>.json`.
+Why this and not Qt's own tr()/.ts files: the text is produced all over the app, not only in
+widgets (job notes, error messages, summaries in the engine modules), and the engine must not
+depend on Qt. A plain dictionary per language works everywhere, a string with no entry simply shows
+in English, and the tests can scan the source for every key and compare the placeholders (see
+tests/test_i18n.py). A new string needs only an entry in `locales/<language>.json`.
 
-The language is chosen once at start-up (a change asks for a restart), so text may be translated at the moment
-it is produced. The command line never calls `set_language`, so its output stays English.
-"""
+The language is chosen once at start-up (a change asks for a restart), so text may be translated at
+the moment it is produced. The command line never calls `set_language`, so its output stays
+English. """
 
 from __future__ import annotations
 
@@ -37,7 +39,8 @@ _table: dict[str, object] = {}
 
 
 def N_(text: str, /) -> str:
-    """Marks `text` for translation without translating it now (for tables of labels; show them with `tr`)."""
+    """Marks `text` for translation without translating it now (for tables of labels; show them
+    with `tr`)."""
     return text
 
 
@@ -58,7 +61,8 @@ def load_table(code: str) -> dict[str, object]:
 
 
 def set_language(code: str) -> str:
-    """Switch the language every `tr` call uses. An unknown code means English. Returns the code in use."""
+    """Switch the language every `tr` call uses. An unknown code means English. Returns the code in
+    use."""
     global _language, _table
     code = code if code in LANGUAGES else "en"
     _table = load_table(code)
@@ -86,30 +90,32 @@ def tr(text: str, /, **fmt) -> str:
 
 
 def trc(context: str, text: str, /, **fmt) -> str:
-    """`text` for a particular use. English has one word for several things ("Start" a task, the "Start" time;
-    "Remove" a file from a list, "Remove" a logo), another language may need two. The translation of the
-    use is the entry `"<text>|<context>"`; without one the plain translation of `text` is used."""
+    """`text` for a particular use. English has one word for several things ("Start" a task, the
+    "Start" time; "Remove" a file from a list, "Remove" a logo), another language may need two. The
+    translation of the use is the entry `"<text>|<context>"`; without one the plain translation of
+    `text` is used."""
     value = _table.get(f"{text}|{context}")
     if not isinstance(value, str):
         return tr(text, **fmt)
     return value.format(**fmt) if fmt else value
 
 
-# Unicode isolates: a stretch of text between FSI and PDI is laid out on its own, in the direction of its first
-# strong letter, and does not reorder the text around it.
+# Unicode isolates: a stretch of text between FSI and PDI is laid out on its own, in the direction
+# of its first strong letter, and does not reorder the text around it.
 FSI, PDI = "⁨", "⁩"
 
 
 def isolate(text: object) -> str:
-    """`text` kept together in a right-to-left interface, so a file name, a number or "MP4" inside an Arabic
-    sentence keeps its own order. Unchanged in a left-to-right language."""
+    """`text` kept together in a right-to-left interface, so a file name, a number or "MP4" inside
+    an Arabic sentence keeps its own order. Unchanged in a left-to-right language."""
     text = str(text)
     return f"{FSI}{text}{PDI}" if text and is_rtl() else text
 
 
 def join_parts(parts, separator: str = " · ") -> str:
-    """A line made of short parts ("MP4 · 9:16 · crop"). In a right-to-left interface every part is isolated, so
-    the Latin and numeric ones ("MP4", "9:16", "0:05–0:20") are not shuffled between the Arabic ones."""
+    """A line made of short parts ("MP4 · 9:16 · crop"). In a right-to-left interface every part is
+    isolated, so the Latin and numeric ones ("MP4", "9:16", "0:05–0:20") are not shuffled between
+    the Arabic ones."""
     return separator.join(isolate(part) for part in parts)
 
 
@@ -133,9 +139,10 @@ def plural_category(count: int, code: Optional[str] = None) -> str:
 
 
 def ntr(count: int, one: str, other: str, /, **fmt) -> str:
-    """A phrase that depends on a count. `one` and `other` are the English singular and plural, with `{n}`
-    standing for the number; the translation entry is keyed by `one` and holds a form per plural category
-    ("zero", "one", "two", "few", "many", "other"; a missing one falls back to "other")."""
+    """A phrase that depends on a count. `one` and `other` are the English singular and plural,
+    with `{n}` standing for the number; the translation entry is keyed by `one` and holds a form
+    per plural category ("zero", "one", "two", "few", "many", "other"; a missing one falls back to
+    "other")."""
     entry = _table.get(one)
     if isinstance(entry, dict):
         form = entry.get(
@@ -151,7 +158,8 @@ def ntr(count: int, one: str, other: str, /, **fmt) -> str:
 
 
 def system_ui_language() -> str:
-    """The primary language code of Windows' display language ("ar", "en", ...), or "" when it is unknown."""
+    """The primary language code of Windows' display language ("ar", "en", ...), or "" when it is
+    unknown."""
     try:
         if sys.platform == "win32":
             import ctypes
@@ -166,18 +174,21 @@ def system_ui_language() -> str:
 
 
 def system_language() -> str:
-    """The app language that follows Windows: Arabic when Windows' display language is Arabic, else English."""
+    """The app language that follows Windows: Arabic when Windows' display language is Arabic, else
+    English."""
     return "ar" if system_ui_language() == "ar" else "en"
 
 
 def resolve(choice: object) -> str:
-    """The language code to use for a saved choice ("system", "en", "ar"; anything else counts as "system")."""
+    """The language code to use for a saved choice ("system", "en", "ar"; anything else counts as
+    "system")."""
     if isinstance(choice, str) and choice in LANGUAGES:
         return choice
     return system_language()
 
 
 def saved_choice(store) -> str:
-    """The language choice kept in `store` (a QSettings or anything with `.value`): a code or "system"."""
+    """The language choice kept in `store` (a QSettings or anything with `.value`): a code or
+    "system"."""
     value = store.value(SETTING_KEY, SYSTEM)
     return value if isinstance(value, str) and value in LANGUAGES else SYSTEM

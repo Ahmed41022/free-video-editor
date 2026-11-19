@@ -1,4 +1,5 @@
-"""Exporting with the graphics card (2.4): finding encoders that work, their options, and the fallback."""
+"""Exporting with the graphics card (2.4): finding encoders that work, their options, and the
+fallback."""
 
 import io
 import subprocess
@@ -11,7 +12,9 @@ from unittest import mock
 
 from video_converter.cli import run as cli
 from video_converter import gpu
-from video_converter.core import ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media
+from video_converter.core import (
+    ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media,
+)
 from video_converter.jobs import Job, run_job
 from video_converter.project import ClipSettings
 from video_converter.video import (
@@ -371,7 +374,8 @@ class FallbackTests(unittest.TestCase):
         settings = ClipSettings()
         settings.edit.use_gpu = False
         job = Job(self.source, settings, self.tmp, probe_media(FFMPEG, self.source))
-        with mock.patch("video_converter.jobs.convert_video", return_value=Path("x.mp4")) as export, \
+        with mock.patch("video_converter.jobs."
+                        "convert_video", return_value=Path("x.mp4")) as export, \
                 mock.patch.object(gpu, "_encoder_works", return_value=True):
             gpu.forget_detection()
             self.addCleanup(gpu.forget_detection)
@@ -418,8 +422,10 @@ class CommandLineTests(unittest.TestCase):
             source = Path(tmp) / "clip.mp4"
             source.write_bytes(b"x")
             with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
-                    mock.patch.object(cli, "choose_encoder", return_value="h264_nvenc") as choose, \
-                    mock.patch.object(cli, "convert_video", side_effect=lambda f, job, **kw: job.output) as export:
+                    mock.patch.object(cli, "choose_encoder",
+                                      return_value="h264_nvenc") as choose, \
+                    mock.patch.object(cli, "convert_video",
+                                      side_effect=lambda f, job, **kw: job.output) as export:
                 with redirect_stdout(io.StringIO()):
                     code = cli.run_cli([str(source), "--video", "phone", *args])
         return code, choose, export

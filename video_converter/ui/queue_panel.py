@@ -79,7 +79,8 @@ class JobRow(QFrame):
         self.status = QLabel()
         self.status.setObjectName("muted")
         if i18n.is_rtl():
-            # A title that starts with Latin letters and a status in Arabic must line up on the same edge.
+            # A title that starts with Latin letters and a status in Arabic must line up on the
+            # same edge.
             side = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignAbsolute | Qt.AlignmentFlag.AlignVCenter
             self.title.setAlignment(side)
             self.status.setAlignment(side)
@@ -101,8 +102,8 @@ class JobRow(QFrame):
         self.cancel_button.setIcon(icons.icon("close"))
         self.cancel_button.setToolTip(tr("Cancel"))
         self.cancel_button.clicked.connect(lambda: self.cancelRequested.emit(self.job_id))
-        # The buttons sit in a box of one fixed width, so the progress bars of all rows start and end in the same
-        # places whether a row shows Details, the folder button, Cancel or nothing.
+        # The buttons sit in a box of one fixed width, so the progress bars of all rows start and
+        # end in the same places whether a row shows Details, the folder button, Cancel or nothing.
         actions = QWidget()
         actions_row = QHBoxLayout(actions)
         actions_row.setContentsMargins(0, 0, 0, 0)
@@ -173,8 +174,8 @@ class QueuePanel(QFrame):
 
     def on_job_updated(self, job: Job) -> None:
         if not any(known.id == job.id for known in list(self.queue.jobs)):
-            # An update that was still on its way when "Clear finished" removed the job: don't bring its row back
-            # (nothing could clear it again).
+            # An update that was still on its way when "Clear finished" removed the job: don't
+            # bring its row back (nothing could clear it again).
             stale = self.rows.pop(job.id, None)
             if stale is not None:
                 stale.deleteLater()

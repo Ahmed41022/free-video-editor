@@ -24,8 +24,9 @@ class StagedOutput:
 
 
 def part_path(final: Path) -> Path:
-    """"name.part.mp4" for "name.mp4": the real extension stays last, so ffmpeg still knows the format. The
-    name is made now (an empty file), so that a second export into the same folder can't pick it too."""
+    """"name.part.mp4" for "name.mp4": the real extension stays last, so ffmpeg still knows the
+    format. The name is made now (an empty file), so that a second export into the same folder
+    can't pick it too."""
     n = 1
     while True:
         tag = ".part" if n == 1 else f".part{n}"
@@ -41,7 +42,8 @@ def part_path(final: Path) -> Path:
 
 
 def _replace(part: Path, final: Path) -> Path:
-    """Move the finished `part` onto `final`. A final name that stays in use (an open player) gets a number."""
+    """Move the finished `part` onto `final`. A final name that stays in use (an open player) gets
+    a number."""
     deadline = time.monotonic() + 2.0
     while True:
         try:
@@ -62,11 +64,12 @@ def staged_output(final: Path, inputs: Iterable[Path] = (),
                   overwrite: bool = True) -> Iterator[StagedOutput]:
     """Write an export under a temporary name and give it its real one only when it is complete.
 
-    The name `final` is taken at once (an empty file made exclusively, so no other program picks it too);
-    with `overwrite` a file that is already there stays until it is replaced. ffmpeg writes `.part`, which
-    is renamed over `final` when the block ends well and deleted when it ends any other way (an error, or
-    a cancel), so a half-written file never has the real name. `final` is never one of the `inputs`.
-    The yielded StagedOutput's `final` is the name in the end (another one if this was taken meanwhile)."""
+    The name `final` is taken at once (an empty file made exclusively, so no other program picks it
+    too); with `overwrite` a file that is already there stays until it is replaced. ffmpeg writes
+    `.part`, which is renamed over `final` when the block ends well and deleted when it ends any
+    other way (an error, or a cancel), so a half-written file never has the real name. `final` is
+    never one of the `inputs`. The yielded StagedOutput's `final` is the name in the end (another
+    one if this was taken meanwhile)."""
     final = Path(final)
     inputs = [Path(p) for p in inputs]
     check_not_input(final, inputs)

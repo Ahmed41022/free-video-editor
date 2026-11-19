@@ -1,8 +1,9 @@
-"""Running helper programs (ffmpeg) so they can be stopped: a registry that remembers the ones still
-running, a runner with a time limit, and a small pool of threads that never keeps the app from exiting.
+"""Running helper programs (ffmpeg) so they can be stopped: a registry that remembers the ones
+still running, a runner with a time limit, and a small pool of threads that never keeps the app
+from exiting.
 
-Closing the editor has to end the ffmpeg runs that read thumbnails, waveforms and file details, or the
-process lingers until they finish (which can take minutes on a big file on a slow drive)."""
+Closing the editor has to end the ffmpeg runs that read thumbnails, waveforms and file details, or
+the process lingers until they finish (which can take minutes on a big file on a slow drive)."""
 
 from __future__ import annotations
 
@@ -20,8 +21,8 @@ log = logging.getLogger(__name__)
 
 
 class ProcessRegistry:
-    """Remembers the programs that are running so that `kill_all` can end them. After `kill_all(close=True)`
-    nothing new is allowed to start."""
+    """Remembers the programs that are running so that `kill_all` can end them. After
+    `kill_all(close=True)` nothing new is allowed to start."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -63,16 +64,17 @@ class ProcessRegistry:
 def run_tracked(
         cmd: list[str], timeout: Optional[float], registry: Optional[ProcessRegistry] = None,
         text: bool = False) -> subprocess.CompletedProcess:
-    """Like `subprocess.run(cmd, capture_output=True)` with no window and no input, but the program is
-    registered while it runs. Raises `subprocess.TimeoutExpired` (after ending the program and everything
-    it started) when it takes longer than `timeout` seconds, and `ConversionCancelled` when the registry ended it."""
+    """Like `subprocess.run(cmd, capture_output=True)` with no window and no input, but the program
+    is registered while it runs. Raises `subprocess.TimeoutExpired` (after ending the program and
+    everything it started) when it takes longer than `timeout` seconds, and `ConversionCancelled`
+    when the registry ended it."""
     kwargs: dict[str, Any] = {
         "text": True,
         "encoding": "utf-8",
         "errors": "replace"
     } if text else {}
-    # start_process puts the program in a job (Windows), so ending it ends everything it started at once, and the
-    # system ends it if this app dies.
+    # start_process puts the program in a job (Windows), so ending it ends everything it started at
+    # once, and the system ends it if this app dies.
     proc = start_process(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
         creationflags=_NO_WINDOW, **kwargs)
@@ -102,8 +104,8 @@ def run_tracked(
 
 
 class DaemonPool:
-    """A few worker threads that run submitted jobs in order. Unlike `ThreadPoolExecutor`, the threads are
-    daemons, so a job still running when the app exits never holds the exit up.
+    """A few worker threads that run submitted jobs in order. Unlike `ThreadPoolExecutor`, the
+    threads are daemons, so a job still running when the app exits never holds the exit up.
 
     `submit` and `shutdown(wait, cancel_futures)` work like the executor's."""
 
@@ -136,7 +138,8 @@ class DaemonPool:
                 continue
             try:
                 future.set_result(fn(*args))
-            except BaseException as exc:  # a job's failure belongs to its future, not to the thread
+            # a job's failure belongs to its future, not to the thread
+            except BaseException as exc:
                 future.set_exception(exc)
 
     def shutdown(self, wait: bool = True, cancel_futures: bool = False) -> None:

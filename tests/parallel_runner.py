@@ -1,22 +1,22 @@
-"""Run the test suite on several processes at once: `python -m tests` (tests/__main__.py calls main() here).
+"""Run the test suite on several processes at once: `python -m tests` (tests/__main__.py calls
+main() here).
 
-It finds exactly the tests `python -m unittest discover -s tests` finds, and runs each test class as a whole in
-one worker process, so a class's setUpClass fixture still runs once. Every worker is its own process, so it has
-its own QApplication, its own temporary folder (TMP/TEMP/TMPDIR) and its own user name, which the app's single
-instance socket and lock file are named after. The output is like unittest's: the failures with their
-tracebacks, a line "Ran N tests in S", then OK or FAILED; the exit code is 1 for any failure, error or worker
-that died.
+It finds exactly the tests `python -m unittest discover -s tests` finds, and runs each test class
+as a whole in one worker process, so a class's setUpClass fixture still runs once. Every worker is
+its own process, so it has its own QApplication, its own temporary folder (TMP/TEMP/TMPDIR) and its
+own user name, which the app's single instance socket and lock file are named after. The output is
+like unittest's: the failures with their tracebacks, a line "Ran N tests in S", then OK or FAILED;
+the exit code is 1 for any failure, error or worker that died.
 
-    python -m tests                          every test, on as many workers as there are CPUs (at most 8)
-    python -m tests -j 4 -v                  four workers, one line per test
-    python -m tests test_phone test_video.VideoExportTests    only these modules, classes or tests
-    python -m tests --list                   the ids of the tests it would run, one per line
-    python -m tests --durations 15           and the slowest classes and tests, measured
+    python -m tests                          every test, on as many workers as there are CPUs (at
+    most 8) python -m tests -j 4 -v                  four workers, one line per test python -m
+    tests test_phone test_video.VideoExportTests    only these modules, classes or tests python -m
+    tests --list                   the ids of the tests it would run, one per line python -m tests
+    --durations 15           and the slowest classes and tests, measured
 
-A test that runs longer than --timeout seconds (900 by default) gets every thread's stack written to the
-error output and its worker ended, which fails the run: a hung test cannot stall it for ever. Only the
-standard library is used.
-"""
+A test that runs longer than --timeout seconds (900 by default) gets every thread's stack written
+to the error output and its worker ended, which fails the run: a hung test cannot stall it for
+ever. Only the standard library is used. """
 import argparse
 import faulthandler
 import json
@@ -32,7 +32,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-TIMES_FILE = HERE / "class_times.json"  # seconds each class took last time: the slowest are started first
+# seconds each class took last time: the slowest are started first
+TIMES_FILE = HERE / "class_times.json"
 MAX_WORKERS = 8
 DEFAULT_TIMEOUT = 900
 
@@ -43,7 +44,8 @@ def class_key(test) -> str:
 
 
 def discover() -> unittest.TestSuite:
-    """The suite `unittest discover -s tests` builds (the tests folder is also the top level directory)."""
+    """The suite `unittest discover -s tests` builds (the tests folder is also the top level
+    directory)."""
     if str(HERE) not in sys.path:
         sys.path.insert(0, str(HERE))
     return unittest.TestLoader().discover(str(HERE))
@@ -66,8 +68,8 @@ def selected(tests, targets):
 
 
 def plan(tests):
-    """{class key: [test ids]} in the order discover runs them. Tests that failed to import are left out
-    (they are run in the main process, where they simply report their error)."""
+    """{class key: [test ids]} in the order discover runs them. Tests that failed to import are
+    left out (they are run in the main process, where they simply report their error)."""
     groups: dict[str, list[str]] = {}
     broken = []
     for test in tests:
@@ -78,7 +80,7 @@ def plan(tests):
     return groups, broken
 
 
-# ----- a worker ---------------------------------------------------------------------------------------
+# ----- a worker ----------------------------------------------------------------------------------
 
 
 class Recorder(unittest.TestResult):
@@ -190,7 +192,7 @@ def worker(number, tasks, results, timeout, base):
         results.put(("done", number, key, outcome))
 
 
-# ----- the main process -------------------------------------------------------------------------------
+# ----- the main process --------------------------------------------------------------------------
 
 
 def load_times():
@@ -203,7 +205,8 @@ def load_times():
 def run_all(groups, workers, timeout, verbose, quiet, out, in_order=False):
     """Run the groups on `workers` processes. Returns ({key: outcome}, [crash messages])."""
     times = load_times()
-    # Slowest first; classes never seen before are treated as slow, so none of them ends the run alone.
+    # Slowest first; classes never seen before are treated as slow, so none of them ends the run
+    # alone.
     order = list(groups) if in_order else sorted(groups, key=lambda k: -times.get(k, 1e9))
     context = multiprocessing.get_context("spawn")
     tasks, results = context.Queue(), context.Queue()
@@ -240,8 +243,8 @@ def run_all(groups, workers, timeout, verbose, quiet, out, in_order=False):
                 show(outcome, verbose, out)
 
         while len(outcomes) < len(order):
-            # Look at who has ended first, then read every message: whatever a worker sent before it ended is
-            # already in the queue by then.
+            # Look at who has ended first, then read every message: whatever a worker sent before
+            # it ended is already in the queue by then.
             ended = [n for n, p in procs.items() if not p.is_alive()]
             try:
                 handle(results.get(timeout=2))
@@ -251,10 +254,12 @@ def run_all(groups, workers, timeout, verbose, quiet, out, in_order=False):
                 pass
             for number in ended:
                 proc = procs.pop(number)
-                if number in running:  # it died in the middle of a class: that class has not finished
+                # it died in the middle of a class: that class has not finished
+                if number in running:
                     key = running.pop(number)
                     crashes.append(
-                        f"{key}: the worker process ended with exit code {proc.exitcode} before the "
+                        f"{key}: the worker process ended with exit code {proc.exitcode} "
+                        "before the "
                         f"class finished (a hang the guard ended, or a crash; see the stack above)"
                     )
                     outcomes[key] = {"crash": "worker died"}
@@ -315,8 +320,8 @@ def report(outcomes, crashes, started, expected_ids, durations, out):
     for crash in crashes:
         lines.append(f"{'=' * 70}\nERROR: {crash}")
     errors += len(crashes)
-    # The runner's own check: the tests that ran are exactly the ones discovered (setUpClass errors add rows
-    # that are not tests, so only the missing and the unknown ones are compared).
+    # The runner's own check: the tests that ran are exactly the ones discovered (setUpClass errors
+    # add rows that are not tests, so only the missing and the unknown ones are compared).
     missing = sorted(set(expected_ids) - set(ids_run)) if not crashes else []
     extra = sorted(set(ids_run) - set(expected_ids))
     if missing or extra:
@@ -354,7 +359,8 @@ def show_durations(outcomes, count, out):
     for key, outcome in sorted(done.items(), key=lambda kv: -kv[1]["seconds"])[:count]:
         tests = sum(row[3] for row in outcome["rows"])
         print(
-            f"  {outcome['seconds']:8.1f}s  (tests {tests:7.1f}s, fixtures {outcome['seconds'] - tests:6.1f}s, "
+            f"  {outcome['seconds']:8.1f}s  (tests {tests:7.1f}s, fixtures "
+            f"{outcome['seconds'] - tests:6.1f}s, "
             f"{outcome['ran']:3d} tests)  {key}", file=out)
     rows = sorted((row for o in done.values() for row in o["rows"]), key=lambda r: -r[3])[:count]
     print(f"\nThe {count} slowest tests:", file=out)
@@ -384,8 +390,8 @@ def main(argv=None):
         help="start the classes in the order discover runs them, not the slowest first")
     parser.add_argument(
         "--save-times", action="store_true",
-        help="write how long each class took to tests/class_times.json (the order of the next runs)"
-    )
+        help="write how long each class took to tests/class_times.json (the order of the next "
+        "runs)")
     args = parser.parse_args(argv)
     started = time.perf_counter()
     tests = selected(list(flatten(discover())), args.targets)

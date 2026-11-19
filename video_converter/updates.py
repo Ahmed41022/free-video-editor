@@ -18,7 +18,8 @@ log = logging.getLogger(__name__)
 API_URL = "https://api.github.com/repos/Ahmed41022/free-video-editor/releases/latest"
 TIMEOUT = 5.0  # seconds; a slow network never holds anything up
 CHECK_INTERVAL = 24 * 60 * 60  # seconds between two checks
-MAX_BYTES = 1_000_000  # a release's description can be long; the answer is read no further than this
+# a release's description can be long; the answer is read no further than this
+MAX_BYTES = 1_000_000
 
 # The settings kept between runs.
 ENABLED_KEY = "checkForUpdates"
@@ -46,8 +47,9 @@ _VERSION = re.compile(r"^\s*v?(\d+(?:\.\d+)*)(.*)$", re.IGNORECASE)
 
 
 def parse_version(text: str) -> Optional[tuple[tuple[int, ...], bool]]:
-    """Read a tag such as "v2.10.0" or "2.9.0-rc1" as (numbers, is_release); None if it isn't a version.
-    A tag with anything after the numbers ("-rc1", "-beta") is not a release of those numbers yet."""
+    """Read a tag such as "v2.10.0" or "2.9.0-rc1" as (numbers, is_release); None if it isn't a
+    version. A tag with anything after the numbers ("-rc1", "-beta") is not a release of those
+    numbers yet."""
     match = _VERSION.match(text or "")
     if not match:
         return None
@@ -58,7 +60,8 @@ def parse_version(text: str) -> Optional[tuple[tuple[int, ...], bool]]:
 
 
 def is_newer(tag: str, current: str = __version__) -> bool:
-    """Whether the version `tag` is newer than `current`, comparing the numbers (2.10.0 is newer than 2.9.0)."""
+    """Whether the version `tag` is newer than `current`, comparing the numbers (2.10.0 is newer
+    than 2.9.0)."""
     latest, mine = parse_version(tag), parse_version(current)
     if latest is None or mine is None:
         return False
@@ -66,8 +69,8 @@ def is_newer(tag: str, current: str = __version__) -> bool:
 
 
 def release_from(data) -> Optional[Release]:
-    """The release described by GitHub's answer, or None if it isn't one. The page to open is always on
-    this project's own GitHub page, whatever the answer says."""
+    """The release described by GitHub's answer, or None if it isn't one. The page to open is
+    always on this project's own GitHub page, whatever the answer says."""
     if not isinstance(data, dict) or not isinstance(data.get("tag_name"), str):
         return None
     parsed = parse_version(data["tag_name"])
@@ -82,7 +85,8 @@ def release_from(data) -> Optional[Release]:
 
 
 def fetch_latest(timeout: float = TIMEOUT) -> Release:
-    """Ask GitHub for the latest release. Raises OSError, ValueError or a urllib error when that fails."""
+    """Ask GitHub for the latest release. Raises OSError, ValueError or a urllib error when that
+    fails."""
     request = urllib.request.Request(
         API_URL, headers={
             "User-Agent": f"{APP_NAME.replace(' ', '-')}/{__version__}",
@@ -112,9 +116,10 @@ class MemoryStore:
 def check_for_update(
         store: Store, fetch: Optional[Callable[[], Release]] = None,
         now: Optional[float] = None) -> Optional[Release]:
-    """The newer release to tell the user about, or None. Does nothing when update checks are off, when one
-    was made in the last day, when the network fails (that is only logged), or when the newer version is
-    the one the user said "Not now" to. Never raises. `fetch` asks GitHub (see `fetch_latest`)."""
+    """The newer release to tell the user about, or None. Does nothing when update checks are off,
+    when one was made in the last day, when the network fails (that is only logged), or when the
+    newer version is the one the user said "Not now" to. Never raises. `fetch` asks GitHub (see
+    `fetch_latest`)."""
     try:
         if not store.get(ENABLED_KEY, True):
             return None

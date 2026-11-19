@@ -11,9 +11,10 @@ from typing import Iterator, Optional
 
 from .winproc import _NO_WINDOW
 
-# How far inside a frame's time the input is cut. Frames sit exactly on multiples of 1/fps, and a start
-# that is rounded up (0.0416667 -> 0.042) drops the frame there, one that is rounded up at the end keeps
-# one frame too many. Starting and stopping a hair early keeps exactly the frames asked for.
+# How far inside a frame's time the input is cut. Frames sit exactly on multiples of 1/fps, and a
+# start that is rounded up (0.0416667 -> 0.042) drops the frame there, one that is rounded up at
+# the end keeps one frame too many. Starting and stopping a hair early keeps exactly the frames
+# asked for.
 SEEK_SLACK = 0.0005
 
 
@@ -27,15 +28,16 @@ def trim_args(start: Optional[float], end: Optional[float]) -> list[str]:
     return args
 
 
-# A filter graph longer than this goes in a file: the whole command line may not pass 32767 characters on
-# Windows, and a video with many cuts (Remove silences makes hundreds) has a graph of tens of thousands.
+# A filter graph longer than this goes in a file: the whole command line may not pass 32767
+# characters on Windows, and a video with many cuts (Remove silences makes hundreds) has a graph of
+# tens of thousands.
 GRAPH_FILE_MIN = 1500
 _graph_flags: dict[str, str] = {}
 
 
 def _graph_flag(ffmpeg: str) -> str:
-    """The ffmpeg option that reads a filter graph from a file: -/filter_complex since ffmpeg 7, before that
-    -filter_complex_script (which newer versions still know, but call deprecated)."""
+    """The ffmpeg option that reads a filter graph from a file: -/filter_complex since ffmpeg 7,
+    before that -filter_complex_script (which newer versions still know, but call deprecated)."""
     if ffmpeg not in _graph_flags:
         flag = "-/filter_complex"
         try:
@@ -59,7 +61,8 @@ def has_long_graph(cmd: list[str]) -> bool:
 
 
 def with_graph_files(cmd: list[str], folder: Path) -> list[str]:
-    """`cmd` with each long -filter_complex graph written to a file in `folder` and read from there."""
+    """`cmd` with each long -filter_complex graph written to a file in `folder` and read from
+    there."""
     result: list[str] = []
     i = 0
     while i < len(cmd):
@@ -76,7 +79,8 @@ def with_graph_files(cmd: list[str], folder: Path) -> list[str]:
 
 @contextmanager
 def graph_files(cmd: list[str]) -> Iterator[list[str]]:
-    """The command to run for `cmd`: itself, or (when a graph is long) with the graph in a temporary file."""
+    """The command to run for `cmd`: itself, or (when a graph is long) with the graph in a
+    temporary file."""
     if not has_long_graph(cmd):
         yield cmd
         return

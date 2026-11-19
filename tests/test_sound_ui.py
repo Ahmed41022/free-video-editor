@@ -1,4 +1,5 @@
-"""The Sound section of the editor (2.7). Runs without a visible window; skipped without PySide6."""
+"""The Sound section of the editor (2.7). Runs without a visible window; skipped without
+PySide6."""
 
 import os
 import subprocess

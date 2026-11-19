@@ -1,4 +1,5 @@
-"""Remove silences (2.6.0): the range math, reading silencedetect, a real export, the window and the command line."""
+"""Remove silences (2.6.0): the range math, reading silencedetect, a real export, the window and
+the command line."""
 
 import copy
 import io
@@ -26,7 +27,9 @@ except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
 from video_converter.cli import run as cli
-from video_converter.core import ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media
+from video_converter.core import (
+    ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media,
+)
 from video_converter.project import ClipSettings
 from video_converter.silence import (
     detect_silences, parse_silences, plan_silence_removal, silence_cuts, summary,
@@ -64,7 +67,8 @@ def pump(seconds, until=lambda: False):
 
 
 def make_talk(path, tone=2, quiet=2, video=True):
-    """tone, silence, tone, silence, tone: 3 tones of `tone` seconds with `quiet` seconds between."""
+    """tone, silence, tone, silence, tone: 3 tones of `tone` seconds with `quiet` seconds
+    between."""
     pieces = [
         f"sine=frequency=440:duration={tone}:sample_rate=44100",
         f"anullsrc=channel_layout=mono:sample_rate=44100:duration={quiet}"
@@ -115,7 +119,9 @@ class ReadingSilencedetectTests(unittest.TestCase):
         self.assertEqual(parse_silences(SAMPLE)[-1][1], float("inf"))
 
     def test_a_silence_that_ends_at_the_end_is_read_normally(self):
-        text = "[silencedetect @ 0x1] silence_start: 8.5\n[silencedetect @ 0x1] silence_end: 10 | silence_duration: 1.5\n"
+        text = (
+            "[silencedetect @ 0x1] silence_start: 8.5\n[silencedetect @ 0x1] silence_end: "
+            "10 | silence_duration: 1.5\n")
         self.assertEqual(parse_silences(text, 10.0), [(8.5, 10.0)])
 
     def test_output_with_no_silences_gives_nothing(self):
@@ -124,7 +130,9 @@ class ReadingSilencedetectTests(unittest.TestCase):
         self.assertEqual(parse_silences(""), [])
 
     def test_other_lines_that_mention_numbers_are_ignored(self):
-        text = "silence_start: 3\n[silencedetect @ 0x1] silence_start: 5\n[silencedetect @ 0x1] silence_end: 6\n"
+        text = (
+            "silence_start: 3\n[silencedetect @ 0x1] silence_start: 5\n[silencedetect @ "
+            "0x1] silence_end: 6\n")
         self.assertEqual(parse_silences(text, 10.0), [(5.0, 6.0)])
 
 
@@ -192,7 +200,8 @@ class RangeMathTests(unittest.TestCase):
         plan = plan_silence_removal([], silences, 3.0, 9.0, 10.0, 0.0)
         self.assertAlmostEqual(plan.before, 6.0)
         self.assertAlmostEqual(plan.after, 4.0)
-        # Outside the trim nothing is touched, so clearing the trim later shows the video as it was there.
+        # Outside the trim nothing is touched, so clearing the trim later shows the video as it was
+        # there.
         self.assertEqual(plan.keep[0][0], 0.0)
         self.assertEqual(plan.keep[-1][1], 10.0)
         self.assertEqual(plan.keep, [(0.0, 3.0), (4.0, 8.0), (9.0, 10.0)])
@@ -350,7 +359,8 @@ class RealAudioTests(unittest.TestCase):
             music, "--overwrite")
         self.assertEqual(code, 0, err)
         result = probe_media(FFMPEG, out / "talk.mp3")
-        # the music is longer than the talk, so it is cut to the shortened length (about 6.6 s), not 10 or 20
+        # the music is longer than the talk, so it is cut to the shortened length (about 6.6 s),
+        # not 10 or 20
         self.assertAlmostEqual(result.duration, 6.6, delta=0.4)
 
     def test_music_is_cut_to_the_shortened_video(self):
@@ -393,7 +403,8 @@ class CommandLineTests(unittest.TestCase):
     INFO = MediaInfo(duration=10.0, width=160, height=90, has_audio=True, fps=10.0)
 
     def run_with(self, *args, info=INFO, silences=((2.0, 4.0), (6.0, 8.0))):
-        """Run the CLI on clip.mp4 with listening, probing and exporting faked: (code, err, listen calls, job)."""
+        """Run the CLI on clip.mp4 with listening, probing and exporting faked: (code, err, listen
+        calls, job)."""
         jobs, listened = [], []
 
         def fake_convert(ffmpeg, job, on_progress=None, **kwargs):
@@ -410,7 +421,8 @@ class CommandLineTests(unittest.TestCase):
 
         with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
                 mock.patch.object(cli, "probe_media", return_value=info), \
-                mock.patch("video_converter.cli.editing.detect_silences", side_effect=fake_detect), \
+                mock.patch("video_converter.cli.editing."
+                           "detect_silences", side_effect=fake_detect), \
                 mock.patch.object(cli, "convert", side_effect=fake_convert), \
                 mock.patch.object(cli, "convert_video", side_effect=fake_video), \
                 mock.patch.object(cli, "choose_encoder", return_value=None), \
@@ -481,7 +493,8 @@ class CommandLineTests(unittest.TestCase):
         jobs = []
         with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
                 mock.patch.object(cli, "probe_media", return_value=self.INFO), \
-                mock.patch("video_converter.cli.editing.detect_silences", return_value=[(2.0, 4.0)]), \
+                mock.patch("video_converter.cli.editing."
+                           "detect_silences", return_value=[(2.0, 4.0)]), \
                 mock.patch.object(cli, "join_clips", side_effect=lambda ffmpeg, job, **kw: jobs.append(job) or Path("j.mp3")), \
                 mock.patch.object(cli, "choose_encoder", return_value=None), \
                 mock.patch.object(Path, "is_file", return_value=True):

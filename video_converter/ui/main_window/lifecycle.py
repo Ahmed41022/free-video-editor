@@ -20,8 +20,8 @@ class LifecycleMixin:
         instance.pathsReceived.connect(self.open_forwarded)
 
     def open_forwarded(self, paths: list) -> None:
-        """Another copy of the app was started (for example "Open with" on some files): add its files and come
-        to the front."""
+        """Another copy of the app was started (for example "Open with" on some files): add its
+        files and come to the front."""
         if self.closed:
             return
         if self.isMinimized():
@@ -65,8 +65,8 @@ class LifecycleMixin:
         event.accept()
 
     def _remove_tmpdir(self) -> None:
-        """Remove the temp folder. The player lets go of a preview copy a moment after it is told to, and
-        Windows won't delete a file that is still open, so keep trying briefly."""
+        """Remove the temp folder. The player lets go of a preview copy a moment after it is told
+        to, and Windows won't delete a file that is still open, so keep trying briefly."""
         for _ in range(40):
             shutil.rmtree(self.tmpdir, ignore_errors=True)
             if not self.tmpdir.exists():

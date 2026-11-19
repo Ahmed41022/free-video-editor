@@ -1,4 +1,5 @@
-"""Building blocks of the panel: a collapsible section, a guard for the mouse wheel, short texts."""
+"""Building blocks of the panel: a collapsible section, a guard for the mouse wheel, short
+texts."""
 
 from __future__ import annotations
 
@@ -22,9 +23,9 @@ def _short_name(name: str, longest: int = 24) -> str:
 
 
 class WheelGuard(QObject):
-    """Makes the mouse wheel scroll the settings panel instead of changing a value by accident. A combo box, spin
-    box or slider only takes the wheel while it has the keyboard focus (click it or Tab to it first); otherwise
-    the wheel is passed on to the scrolling panel."""
+    """Makes the mouse wheel scroll the settings panel instead of changing a value by accident. A
+    combo box, spin box or slider only takes the wheel while it has the keyboard focus (click it or
+    Tab to it first); otherwise the wheel is passed on to the scrolling panel."""
 
     def __init__(self, parent: QObject):
         super().__init__(parent)
@@ -39,7 +40,8 @@ class WheelGuard(QObject):
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if event.type() != QEvent.Type.Wheel or not isinstance(obj, QWidget) or obj.hasFocus():
             return False
-        # Hand the turn to the scrolling panel ourselves: an ignored event is not reliably passed on from here.
+        # Hand the turn to the scrolling panel ourselves: an ignored event is not reliably passed
+        # on from here.
         area = obj.parentWidget()
         while area is not None and not isinstance(area, QAbstractScrollArea):
             area = area.parentWidget()
@@ -84,7 +86,8 @@ class Section(QFrame):
 
     @staticmethod
     def _arrow(expanded: bool) -> Qt.ArrowType:
-        """Down when open; when closed it points the way the text reads on (left in a right-to-left language)."""
+        """Down when open; when closed it points the way the text reads on (left in a right-to-left
+        language)."""
         if expanded:
             return Qt.ArrowType.DownArrow
         rtl = QApplication.layoutDirection() == Qt.LayoutDirection.RightToLeft

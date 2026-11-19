@@ -35,7 +35,8 @@ def plan_geometry(width: int, height: int, edit: VideoEdit) -> Geometry:
     The output's short side is `edit.resolution` when that is set (a negative one, UP_TO_1080, is a
     limit: smaller pictures keep their size). Otherwise it is the source's
     short side, so a 1080p video makes a standard 1080x1920 phone video, and phone, portrait and
-    square videos stop at SHORT_SIDE_CAP, so a 4K source doesn't turn into a huge 2160x3840 file."""
+    square videos stop at SHORT_SIDE_CAP, so a 4K source doesn't turn into a huge 2160x3840
+    file."""
     w, h = oriented_size(width, height, edit.rotate)
     aw, ah = edit.aspect or (w, h)
     ratio = aw / ah
@@ -67,7 +68,8 @@ def plan_geometry(width: int, height: int, edit: VideoEdit) -> Geometry:
         if edit.aspect and ratio <= 1:
             short = min(short, SHORT_SIDE_CAP)
     short = _even(short)
-    # The other side follows from the exact ratio (360 -> 640 for 9:16), not from an odd source size.
+    # The other side follows from the exact ratio (360 -> 640 for 9:16), not from an odd source
+    # size.
     if ratio < 1:
         out_w, out_h = short, _even(short * ah / aw)
     else:

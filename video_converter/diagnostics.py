@@ -36,7 +36,8 @@ _handler: Optional[logging.Handler] = None
 
 
 def log_folder() -> Path:
-    """Where the log goes: %LOCALAPPDATA%\\Free Video Editor\\logs, or the temp folder if that can't be used."""
+    """Where the log goes: %LOCALAPPDATA%\\Free Video Editor\\logs, or the temp folder if that
+    can't be used."""
     base = os.environ.get("LOCALAPPDATA")
     candidates = [Path(base) / APP_NAME / "logs"] if base else []
     candidates.append(Path(tempfile.gettempdir()) / f"{APP_NAME} logs")
@@ -106,7 +107,8 @@ def recent_log_lines(count: int = REPORT_LOG_LINES, path: Optional[Path] = None)
 
 
 def windows_version() -> str:
-    """e.g. "Windows 11 (build 26300)". Python reports Windows 11 as "10", so the build number decides."""
+    """e.g. "Windows 11 (build 26300)". Python reports Windows 11 as "10", so the build number
+    decides."""
     if sys.platform != "win32":
         return platform.platform()
     try:
@@ -207,7 +209,8 @@ REPORT_TITLE = f"Problem with {APP_NAME} {__version__}"
 
 
 def report_body(system: list[str], log_lines: list[str]) -> str:
-    """The text that starts a GitHub issue: a place to describe the problem, this PC, and the end of the log."""
+    """The text that starts a GitHub issue: a place to describe the problem, this PC, and the end
+    of the log."""
     details = "\n".join(f"- {line}" for line in system)
     shown = "\n".join(
         line[:MAX_LINE].replace("```", "'''") for line in log_lines) or "(the log is empty)"
@@ -244,9 +247,9 @@ LICENSES_URL = f"{REPO_URL}/tree/main/licenses"
 
 
 def licenses_folder() -> Optional[Path]:
-    """The folder with the license texts and third-party notices that ship with the app: next to the program
-    when it was installed, inside the bundle for the portable single file, the repository's own folder when run
-    from source. None if it can't be found."""
+    """The folder with the license texts and third-party notices that ship with the app: next to
+    the program when it was installed, inside the bundle for the portable single file, the
+    repository's own folder when run from source. None if it can't be found."""
     if getattr(sys, "frozen", False):
         candidates = [Path(sys.executable).resolve().parent / "licenses"]
         bundle = getattr(sys, "_MEIPASS", None)
@@ -261,7 +264,8 @@ def licenses_folder() -> Optional[Path]:
 
 
 def licenses_link() -> str:
-    """Where the About box's "Third-party licenses" link goes: the local folder, or the one on GitHub."""
+    """Where the About box's "Third-party licenses" link goes: the local folder, or the one on
+    GitHub."""
     folder = licenses_folder()
     return folder.as_uri() if folder is not None else LICENSES_URL
 
@@ -271,7 +275,8 @@ def about_text() -> str:
     return (
         f"<h3>{APP_NAME} {__version__}</h3>"
         "<p>" + tr(
-            "A free video editor for your PC: reshape videos for phones, crop, cut, join, speed up, "
+            "A free video editor for your PC: reshape videos for phones, crop, cut, join, "
+            "speed up, "
             "color and stabilize them, or turn them into MP3s. Everything happens on your "
             "computer.") + "</p>"
         "<p>" + tr("Released under the MIT License.") + "<br>" +

@@ -15,9 +15,9 @@ log = logging.getLogger(__name__)
 
 
 def start_process(cmd: list[str], **kwargs) -> subprocess.Popen:
-    """`subprocess.Popen(cmd, **kwargs)`, with the process put in its own job on Windows (see ProcessJob).
-    A program that can't be started (not there, or a command line longer than Windows allows) is a
-    ConversionError with a message to show."""
+    """`subprocess.Popen(cmd, **kwargs)`, with the process put in its own job on Windows (see
+    ProcessJob). A program that can't be started (not there, or a command line longer than Windows
+    allows) is a ConversionError with a message to show."""
     try:
         proc = subprocess.Popen(cmd, **kwargs)
     except OSError as exc:

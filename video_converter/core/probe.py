@@ -17,7 +17,8 @@ _BITRATE_RE = re.compile(r"bitrate:\s*(\d+)\s*kb/s")
 _ROTATION_RE = re.compile(r"rotation of (-?\d+(?:\.\d+)?) degrees")
 _FPS_RE = re.compile(r"(\d+(?:\.\d+)?) fps")
 _TBR_RE = re.compile(r"(\d+(?:\.\d+)?)(k?) tbr")
-# A declared rate this many times the average means the frame rate changes; see MediaInfo.variable_frame_rate.
+# A declared rate this many times the average means the frame rate changes; see
+# MediaInfo.variable_frame_rate.
 VARIABLE_RATIO = 1.25
 STANDARD_RATES = (24000 / 1001, 24.0, 25.0, 30000 / 1001, 30.0, 50.0, 60000 / 1001, 60.0)
 
@@ -47,8 +48,8 @@ class MediaInfo:
         """Whether the picture's frame rate changes: the average is well below the highest rate the
         stream declares, like the 57.97 fps average of a game recording that declares 120.
 
-        Constant videos sometimes declare exactly twice their rate (25 fps, 50 tbr: the fields of an
-        interlaced picture), so a standard average rate is never counted as variable."""
+        Constant videos sometimes declare exactly twice their rate (25 fps, 50 tbr: the fields of
+        an interlaced picture), so a standard average rate is never counted as variable."""
         if not self.fps or not self.max_fps or self.max_fps < self.fps * VARIABLE_RATIO:
             return False
         return not any(abs(self.fps - rate) <= 0.02 for rate in STANDARD_RATES)

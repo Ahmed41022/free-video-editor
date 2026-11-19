@@ -67,7 +67,9 @@ def build_filter_graph(
 
     fit_inside = f"scale={tw}:{th}:force_original_aspect_ratio=decrease:force_divisible_by=2"
     if edit.fit == "bars":
-        return f"{src}{pre}{fit_inside},pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1{out}"
+        return (
+            f"{src}{pre}{fit_inside},pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2:color=black,setsar="
+            f"1{out}")
 
     # Blurred background: a zoomed-in, blurred copy fills the frame behind the whole video.
     # The blur runs at quarter size, which looks the same and is much faster.
@@ -102,11 +104,12 @@ def clip_graph(
     The input must start at the first segment (see `input_args`), and `segments` should come from
     `edit.segments(duration, fps)` so their edges sit on whole frames. `frame` and `fps` force the
     output size and frame rate, for joining clips (and `fps` for a steady frame rate): a clip whose
-    shape differs is fitted inside that frame with black bars. The `fps` filter comes after the cuts
-    and the speed change, so every frame the export keeps lands on the steady grid in its final time.
-    `transforms` names the file from the stabilizer's detect pass, relative to ffmpeg's working folder.
-    With `upright` the input's rotation metadata is turned into a rotation of the picture here, in the graph
-    (the input is opened with `rotation_args`, which leaves it to the graph)."""
+    shape differs is fitted inside that frame with black bars. The `fps` filter comes after the
+    cuts and the speed change, so every frame the export keeps lands on the steady grid in its
+    final time. `transforms` names the file from the stabilizer's detect pass, relative to ffmpeg's
+    working folder. With `upright` the input's rotation metadata is turned into a rotation of the
+    picture here, in the graph (the input is opened with `rotation_args`, which leaves it to the
+    graph)."""
     tag = str(index)
     rel = relative(segments)
     speed = clamp_speed(edit.speed)
@@ -116,7 +119,8 @@ def clip_graph(
         timed = f"[t{tag}]"
         source = f"[{index}:v:0]"
         if upright and info.display_rotation:
-            # The input was opened without ffmpeg's own rotation (see `rotation_args`): turn it here.
+            # The input was opened without ffmpeg's own rotation (see `rotation_args`): turn it
+            # here.
             filters.append(f"{source}{','.join(ROTATE_FILTERS[info.display_rotation])}[up{tag}]")
             source = f"[up{tag}]"
         filters += select_filters(
@@ -126,14 +130,14 @@ def clip_graph(
         if transforms and strength:
             # Right after the cuts, so the frames match the ones the detect pass saw.
             tempo.append(
-                f"vidstabtransform=input={transforms}:smoothing={strength[1]}:optzoom=1:interpol=bicubic"
-            )
+                f"vidstabtransform=input={transforms}:smoothing={strength[1]}:optzoom=1:"
+                "interpol=bicubic")
         # A faster clip would otherwise have more frames per second than its source.
         rate = fps or (native_rate(info.fps) if speed != 1.0 and info.fps else None)
         if speed != 1.0:
-            # The sped-up frames sit exactly half way between two slots of the output rate (every other
-            # frame at 2x), and which way the fps filter rounds those ties changes at every cut. A
-            # quarter of an output frame later puts each one clearly in a slot.
+            # The sped-up frames sit exactly half way between two slots of the output rate (every
+            # other frame at 2x), and which way the fps filter rounds those ties changes at every
+            # cut. A quarter of an output frame later puts each one clearly in a slot.
             nudge = f"+{0.25 / float(rate):.6f}/TB" if rate else ""
             tempo.append(f"setpts=PTS/{speed:.6g}{nudge}")
         if rate:
@@ -174,10 +178,10 @@ ROTATE_FILTERS = {90: ["transpose=1"], 180: ["hflip", "vflip"], 270: ["transpose
 
 
 def rotation_args(info: MediaInfo) -> list[str]:
-    """Input options that stop ffmpeg turning a rotated input (and then marking the output as rotated).
-    With several inputs ffmpeg turns each picture upright, but writes the first input's rotation into the
-    result as well, which makes a player turn the file a second time. So the rotation is ignored here
-    and done in the graph (see clip_graph's `upright`)."""
+    """Input options that stop ffmpeg turning a rotated input (and then marking the output as
+    rotated). With several inputs ffmpeg turns each picture upright, but writes the first input's
+    rotation into the result as well, which makes a player turn the file a second time. So the
+    rotation is ignored here and done in the graph (see clip_graph's `upright`)."""
     if not info.display_rotation:
         return []
     return ["-noautorotate", "-display_rotation:v:0", "0"]

@@ -74,7 +74,8 @@ def detect_silences(
     proc = start_process(
         cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8",
         errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
-    # silencedetect reports on stderr; read it on another thread so ffmpeg never waits on a full pipe.
+    # silencedetect reports on stderr; read it on another thread so ffmpeg never waits on a full
+    # pipe.
     lines: deque[str] = deque()
     reader = threading.Thread(target=lambda: lines.extend(proc.stderr), daemon=True)
     reader.start()
@@ -111,17 +112,19 @@ def detect_silences(
 def silence_cuts(
         silences: Iterable[Range], start: Optional[float], end: Optional[float], duration: float,
         padding: float = DEFAULT_PAD) -> list[Range]:
-    """The parts to cut out: each silence inside the trim, less `padding` on the sides that touch speech.
+    """The parts to cut out: each silence inside the trim, less `padding` on the sides that touch
+    speech.
 
     Cuts shorter than the editor's smallest part are dropped, and bits of speech shorter than that
-    between two cuts (a click, a cough) are cut too. If everything inside the trim is silent, nothing is
-    cut: there would be nothing left."""
+    between two cuts (a click, a cough) are cut too. If everything inside the trim is silent,
+    nothing is cut: there would be nothing left."""
     low = start or 0.0
     high = min(end, duration) if end is not None else duration
     padding = max(padding, 0.0)
     cuts: list[list[float]] = []
     for a, b in sorted(silences):
-        lead, trail = a <= low + SNAP_EDGE, b >= high - SNAP_EDGE  # no speech on that side to protect
+        # no speech on that side to protect
+        lead, trail = a <= low + SNAP_EDGE, b >= high - SNAP_EDGE
         a, b = max(a, low), min(b, high)
         if b <= a:
             continue

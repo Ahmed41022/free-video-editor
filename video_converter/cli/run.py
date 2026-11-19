@@ -81,7 +81,8 @@ def run_cli(argv: list[str]) -> int:
     video.add_argument("--video-quality", choices=CLI_VIDEO_QUALITY, default="balanced")
     video.add_argument(
         "--format", choices=list(OUTPUT_FORMATS),
-        help="mp4 = H.264 (plays everywhere, the default), hevc = H.265 in an MP4 (smaller, but older "
+        help="mp4 = H.264 (plays everywhere, the default), hevc = H.265 in an MP4 (smaller, "
+        "but older "
         "phones can't play it), webm = VP9 and Opus, mov = H.264 in a MOV, gif = a looping "
         "picture with no sound. Without --video this makes a video of the original shape")
     video.add_argument(
@@ -116,8 +117,8 @@ def run_cli(argv: list[str]) -> int:
         help="fade out to black and silence")
     timing.add_argument(
         "--remove-silences", action="store_true",
-        help="cut out the pauses (stretches with no sound), keeping a little silence around the speech"
-    )
+        help="cut out the pauses (stretches with no sound), keeping a little silence around "
+        "the speech")
     timing.add_argument(
         "--silence-db", type=_between("--silence-db", *DB_RANGE), default=None, metavar="DB",
         help=f"sound quieter than this is silence, {DB_RANGE[0]:g} to {DB_RANGE[1]:g} "
@@ -187,8 +188,10 @@ def run_cli(argv: list[str]) -> int:
         "--stabilize", choices=STABILIZE, default="off", help="steady shaky footage (slower)")
     captions = parser.add_argument_group(
         "text, logo and subtitles (with --video)",
-        "Text times are on the exported video (after cuts and speed); with --join each clip gets the same text and "
-        "logo, timed within the clip. Subtitle times are those of the original video and are moved through "
+        "Text times are on the exported video (after cuts and speed); with --join each clip "
+        "gets the same text and "
+        "logo, timed within the clip. Subtitle times are those of the original video and are "
+        "moved through "
         "cuts and speed. Positions are shares of the frame, 0 to 1 from the left and top.")
     captions.add_argument(
         "--text", metavar="TEXT", help="write this text on the video (\\n starts a new line)")
@@ -203,7 +206,8 @@ def run_cli(argv: list[str]) -> int:
     captions.add_argument(
         "--text-size", type=_between("--text-size",
                                      *TEXT_SIZE), default=TextItem().size, metavar="N",
-        help=f"the text's height as a share of the video's height, {TEXT_SIZE[0]:g} to {TEXT_SIZE[1]:g} "
+        help=f"the text's height as a share of the video's height, {TEXT_SIZE[0]:g} to "
+        f"{TEXT_SIZE[1]:g} "
         f"(default: {TextItem().size:g})")
     captions.add_argument(
         "--text-color", type=_color, default=TextItem().color, metavar="COLOR",
@@ -216,11 +220,13 @@ def run_cli(argv: list[str]) -> int:
         help="a picture (a PNG with see-through parts works best) to show over the video")
     captions.add_argument(
         "--logo-pos", type=_logo_position, default="bottom-right", metavar="WHERE",
-        help="top-left, top-right, bottom-left, bottom-right, center, or X,Y for the middle of the "
+        help="top-left, top-right, bottom-left, bottom-right, center, or X,Y for the middle of "
+        "the "
         "logo (default: bottom-right)")
     captions.add_argument(
         "--logo-size", type=_between("--logo-size", *LOGO_SIZE), default=Logo().size, metavar="N",
-        help=f"the logo's width as a share of the video's width, {LOGO_SIZE[0]:g} to {LOGO_SIZE[1]:g} "
+        help=f"the logo's width as a share of the video's width, {LOGO_SIZE[0]:g} to "
+        f"{LOGO_SIZE[1]:g} "
         f"(default: {Logo().size:g})")
     captions.add_argument(
         "--logo-opacity", type=_between("--logo-opacity", *LOGO_OPACITY), default=Logo().opacity,
@@ -239,13 +245,15 @@ def run_cli(argv: list[str]) -> int:
         help="#RRGGBB, or a name like white, yellow (default: white)")
     speech = parser.add_argument_group(
         "automatic captions (listen to the speech and write it down)",
-        "Runs on this PC. The first use of each accuracy level downloads its speech model once (75, 141 or 464 MB "
-        "from huggingface.co); after that nothing needs the internet. The captions are saved next to the video as "
+        "Runs on this PC. The first use of each accuracy level downloads its speech model once "
+        "(75, 141 or 464 MB "
+        "from huggingface.co); after that nothing needs the internet. The captions are saved "
+        "next to the video as "
         "name.srt (or in -o), and with --video they are also burned into the picture.")
     speech.add_argument(
         "--auto-captions", action="store_true",
-        help="make captions from the speech and burn them in (needs --video; or use --captions-only)"
-    )
+        help="make captions from the speech and burn them in (needs --video; or use "
+        "--captions-only)")
     speech.add_argument(
         "--captions-only", action="store_true",
         help="only write the .srt file; no video is exported")
@@ -277,12 +285,14 @@ def run_cli(argv: list[str]) -> int:
             parser.error("--auto-captions can't be used with --frame-at")
         if args.captions_only and (args.video or args.format or args.target_size is not None):
             parser.error(
-                "--captions-only only writes the .srt file; leave out --video, --format and --target-size, "
+                "--captions-only only writes the .srt file; leave out --video, --format and "
+                "--target-size, "
                 "or use --auto-captions to export a video as well")
         if not args.captions_only and not (args.video or args.format
                                            or args.target_size is not None):
             parser.error(
-                "--auto-captions burns the captions into a video, so it needs --video (e.g. --video "
+                "--auto-captions burns the captions into a video, so it needs --video (e.g. "
+                "--video "
                 "original); use --captions-only to just write the .srt")
 
     if args.start is not None and args.end is not None and args.end <= args.start:
@@ -303,7 +313,8 @@ def run_cli(argv: list[str]) -> int:
     if args.format == "gif" and args.target_size is not None:
         parser.error(
             "--target-size doesn't work for a GIF; lower --gif-width or --gif-fps, or shorten it")
-    # A format, a file size or a frame is about the picture: without --video it is the original shape.
+    # A format, a file size or a frame is about the picture: without --video it is the original
+    # shape.
     if not args.video and (args.format or args.target_size is not None or frame_mode):
         args.video = "original"
     picture_values = {name: getattr(args, name) for name in (*ADJUSTMENTS, "look", "stabilize")}
@@ -450,8 +461,8 @@ def run_cli(argv: list[str]) -> int:
                 saved = _make_srt(ffmpeg, source, info, args, note)
                 if saved is None:
                     note(
-                        f"{source.name}: no speech was found, so the video is exported without captions"
-                    )
+                        f"{source.name}: no speech was found, so the video is exported without "
+                        "captions")
                 else:
                     file_edit.subtitles = Subtitles(
                         file=str(saved), size=args.subtitle_size, color=args.subtitle_color,

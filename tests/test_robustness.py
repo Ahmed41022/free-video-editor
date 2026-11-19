@@ -1,5 +1,6 @@
-"""Playback, loading and app-lifecycle fixes (3.0.1): software decoding, frame handling, files that never finish
-loading, processes that outlive the window, temp folders, the single running copy, and a few cheap limits.
+"""Playback, loading and app-lifecycle fixes (3.0.1): software decoding, frame handling, files that
+never finish loading, processes that outlive the window, temp folders, the single running copy, and
+a few cheap limits.
 
 Everything runs offscreen, decodes on the CPU and uses small files."""
 
@@ -66,7 +67,8 @@ def make_video(path, seconds=2):
 
 
 def in_thread(fn, *args):
-    """Run `fn` on another thread while the test keeps the Qt event loop going; returns (thread, result list)."""
+    """Run `fn` on another thread while the test keeps the Qt event loop going; returns (thread,
+    result list)."""
     result = []
     thread = threading.Thread(target=lambda: result.append(fn(*args)), daemon=True)
     thread.start()
@@ -88,16 +90,17 @@ SECOND_START = (
     "kept = si.claim([Path(p) for p in sys.argv[4:]], sys.argv[2], Path(sys.argv[3]))\n"
     "print('exit' if kept is None else 'listening' if kept.listening else 'alone', flush=True)\n"
     "if kept is not None and kept.listening:\n"
-    "    import time; end = time.monotonic() + 1.5      # stays the running copy for a moment, as the real app would\n"
+    "    import time; end = time.monotonic() + 1.5      # stays the running copy for a moment, "
+    "as the real app would\n"
     "    while time.monotonic() < end:\n"
     "        app.processEvents(); time.sleep(0.01)\n"
     "    kept.close()\n")
 
 
 def second_start(name, lock_dir, *paths, fast=False):
-    """What a second start of the app does, as a real separate process: returns the process, which prints
-    `exit` (it gave its files to the running copy), `listening` (it became the running copy) or `alone` (it
-    runs on its own)."""
+    """What a second start of the app does, as a real separate process: returns the process, which
+    prints `exit` (it gave its files to the running copy), `listening` (it became the running copy)
+    or `alone` (it runs on its own)."""
     return subprocess.Popen(
         [
             sys.executable, "-c", SECOND_START, "fast" if fast else "normal", name,
@@ -108,7 +111,8 @@ def second_start(name, lock_dir, *paths, fast=False):
 
 
 def outcome(proc, seconds=60):
-    """The word the second start printed, once it ended (the test keeps Qt's events going meanwhile)."""
+    """The word the second start printed, once it ended (the test keeps Qt's events going
+    meanwhile)."""
     pump(seconds, lambda: proc.poll() is not None)
     if proc.poll() is None:
         proc.kill()
@@ -116,7 +120,7 @@ def outcome(proc, seconds=60):
         return proc.stdout.read().strip()
 
 
-# ----- 1a: software decoding --------------------------------------------------------------------------------------
+# ----- 1a: software decoding ---------------------------------------------------------------------
 
 
 class DecodingTests(unittest.TestCase):
@@ -125,7 +129,8 @@ class DecodingTests(unittest.TestCase):
         with mock.patch.dict(os.environ):
             os.environ.pop(decoding.HW_DEVICES_VARIABLE, None)
             decoding.force_software_decoding()
-            # Qt ignores a name it doesn't know, so "none" means no device; an empty value would be dropped by Windows.
+            # Qt ignores a name it doesn't know, so "none" means no device; an empty value would be
+            # dropped by Windows.
             self.assertEqual(os.environ[decoding.HW_DEVICES_VARIABLE], "none")
             self.assertEqual(os.environ["QT_DISABLE_HW_TEXTURES_CONVERSION"], "1")
 
@@ -133,8 +138,8 @@ class DecodingTests(unittest.TestCase):
     def test_the_player_module_sets_it_when_it_is_loaded(self):
         code = (
             "import os; os.environ.pop('QT_FFMPEG_DECODING_HW_DEVICE_TYPES', None);"
-            "import video_converter.ui.player; print(os.environ.get('QT_FFMPEG_DECODING_HW_DEVICE_TYPES'))"
-        )
+            "import video_converter.ui.player; "
+            "print(os.environ.get('QT_FFMPEG_DECODING_HW_DEVICE_TYPES'))")
         shown = subprocess.run(
             [sys.executable, "-c", code], capture_output=True, text=True,
             cwd=Path(__file__).resolve().parents[1], env={
@@ -149,14 +154,16 @@ class DecodingTests(unittest.TestCase):
         fake_app = mock.MagicMock()
         fake_qt = mock.MagicMock()
         fake_qt.instance.side_effect = lambda: order.append("application") or fake_app
-        with mock.patch.object(app_module, "force_software_decoding", side_effect=lambda: order.append("software")), \
+        with mock.patch.object(app_module, "force_software_decoding",
+                               side_effect=lambda: order.append("software")), \
                 mock.patch.object(app_module, "QApplication", fake_qt), \
-                mock.patch.object(app_module.single_instance, "claim", side_effect=lambda paths: order.append("claim")):
+                mock.patch.object(app_module.single_instance, "claim",
+                                  side_effect=lambda paths: order.append("claim")):
             self.assertEqual(app_module.main([]), 0)
         self.assertEqual(order, ["software", "application", "claim"])
 
 
-# ----- 1c: frames ---------------------------------------------------------------------------------------------------
+# ----- 1c: frames --------------------------------------------------------------------------------
 
 
 def video_frame(width, height):
@@ -259,7 +266,7 @@ class FrameTests(unittest.TestCase):
         QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
-# ----- 3: a file never stays on "Loading…" -----------------------------------------------------------------------
+# ----- 3: a file never stays on "Loading…" -------------------------------------------------------
 
 
 class MediaTimeoutTests(unittest.TestCase):
@@ -290,7 +297,8 @@ class MediaTimeoutTests(unittest.TestCase):
 
     def test_the_thumbnail_reading_has_a_limit_and_gives_up_quietly(self):
         with tempfile.TemporaryDirectory() as folder, \
-                mock.patch.object(media, "run_tracked", side_effect=subprocess.TimeoutExpired("ffmpeg", 1)) as run:
+                mock.patch.object(media, "run_tracked",
+                                  side_effect=subprocess.TimeoutExpired("ffmpeg", 1)) as run:
             self.assertEqual(
                 media.extract_thumbnails("ffmpeg", Path("a.mp4"), Path(folder), 60.0), [])
         self.assertEqual(run.call_count, 1, "it should stop after the first run that timed out")
@@ -431,7 +439,7 @@ class PartialExportTests(unittest.TestCase):
         self.assertTrue(is_media_file(Path("departure.mp4")))
 
 
-# ----- 4: closing stops the work ------------------------------------------------------------------------------------
+# ----- 4: closing stops the work -----------------------------------------------------------------
 
 
 class ProcessTests(unittest.TestCase):
@@ -606,7 +614,7 @@ class ClosingTests(WindowCase):
         self.assertFalse(folders[0].exists(), "the removed file's thumbnails were left behind")
 
 
-# ----- 6: before/after pile-up --------------------------------------------------------------------------------------
+# ----- 6: before/after pile-up -------------------------------------------------------------------
 
 
 class BeforeAfterTests(WindowCase):
@@ -656,7 +664,7 @@ class BeforeAfterTests(WindowCase):
         self.assertFalse(self.window._after_busy)
 
 
-# ----- 7: temp folders ----------------------------------------------------------------------------------------------
+# ----- 7: temp folders ---------------------------------------------------------------------------
 
 
 class TempFolderTests(WindowCase):
@@ -764,7 +772,7 @@ class SweepTests(unittest.TestCase):
             QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
-# ----- 8: one running copy ------------------------------------------------------------------------------------------
+# ----- 8: one running copy -----------------------------------------------------------------------
 
 
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")
@@ -912,8 +920,9 @@ class WindowInstanceTests(WindowCase):
         self.assertEqual(outcome(second_start(self.name, self.lock_dir)), "listening")
 
     def test_a_restart_frees_the_name_before_the_new_copy_starts(self):
-        """The language restart starts the new copy first and closes this one after: the new copy must not find
-        this window still listening, or it would hand its files to a window that is closing and exit."""
+        """The language restart starts the new copy first and closes this one after: the new copy
+        must not find this window still listening, or it would hand its files to a window that is
+        closing and exit."""
         from video_converter.ui import language
         started = []
 
@@ -939,7 +948,7 @@ class WindowInstanceTests(WindowCase):
         self.assertEqual(outcome(second_start(self.name, self.lock_dir)), "exit")
 
 
-# ----- 9, 10, 11 and the graphics-card search ---------------------------------------------------------------------
+# ----- 9, 10, 11 and the graphics-card search ----------------------------------------------------
 
 
 class LimitsTests(WindowCase):
@@ -979,7 +988,8 @@ class LimitsTests(WindowCase):
             with mock.patch.object(Path, "resolve", counting):
                 self.window.add_paths([self.junk("one-more.mp4")[0]])
                 self.assertEqual(self.window.add_paths(paths), 0)
-        # One new file once, and the 8 known files once each to see they are known: no look-up of the 9 items again.
+        # One new file once, and the 8 known files once each to see they are known: no look-up of
+        # the 9 items again.
         self.assertLessEqual(len(calls), 1 + len(paths))
 
     def test_the_search_for_graphics_cards_waits_for_the_first_file(self):
@@ -1025,8 +1035,10 @@ class FileLockTests(unittest.TestCase):
 
     def test_another_process_is_kept_out_too(self):
         code = (
-            "import sys; from pathlib import Path; from video_converter.locks import FileLock, LockTimeout\n"
-            "try:\n    FileLock(Path(sys.argv[1]), timeout=0.3, poll=0.05).acquire(); print('got')\n"
+            "import sys; from pathlib import Path; from video_converter.locks import FileLock, "
+            "LockTimeout\n"
+            "try:\n    FileLock(Path(sys.argv[1]), timeout=0.3, poll=0.05).acquire(); "
+            "print('got')\n"
             "except LockTimeout:\n    print('blocked')\n")
         with FileLock(self.path, timeout=5):
             shown = subprocess.run(

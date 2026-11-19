@@ -38,7 +38,8 @@ def is_partial_export(path: Path) -> bool:
 
 
 def is_media_file(path: Path) -> bool:
-    """A video or an audio file, by its extension. An export that is still being written is not one yet."""
+    """A video or an audio file, by its extension. An export that is still being written is not one
+    yet."""
     return path.suffix.lower(
     ) in VIDEO_EXTENSIONS + AUDIO_EXTENSIONS and not is_partial_export(path)
 
@@ -64,8 +65,9 @@ def same_file(a: Path, b: Path) -> bool:
 
 
 def unique_output_path(path: Path, avoid: Iterable[Path] = ()) -> Path:
-    """Return `path`, or `name (1).mp3`, `name (2).mp3`, ... if it already exists or is one of `avoid`
-    (the files of the same run, whose names are taken even though nothing has been written there yet)."""
+    """Return `path`, or `name (1).mp3`, `name (2).mp3`, ... if it already exists or is one of
+    `avoid` (the files of the same run, whose names are taken even though nothing has been written
+    there yet)."""
     taken = {_path_key(p) for p in avoid}
     if not path.exists() and _path_key(path) not in taken:
         return path
@@ -84,9 +86,9 @@ def output_path_for(
     """Where to save the result for `source`. `name_tag` is appended to the file name,
     e.g. " (edited)", so an exported MP4 never replaces the original video.
 
-    The result is never `source` itself, nor any of `avoid` (the other inputs of the run, and the outputs
-    already chosen in it): a name that would land on one of them gets a number instead, even with
-    `overwrite`, which only replaces files that are neither."""
+    The result is never `source` itself, nor any of `avoid` (the other inputs of the run, and the
+    outputs already chosen in it): a name that would land on one of them gets a number instead,
+    even with `overwrite`, which only replaces files that are neither."""
     target = (output_dir or source.parent) / f"{source.stem}{name_tag}{suffix}"
     protected = [source, *avoid]
     if overwrite and not any(same_file(target, p) for p in protected):
@@ -103,8 +105,9 @@ def input_files(cmd: list[str], cwd: Optional[Path] = None) -> list[Path]:
 
 
 def remove_file(path: Path, seconds: float = 2.0) -> None:
-    """Delete `path` if it exists. Windows refuses while ffmpeg, a virus scanner or the indexer still
-    has the file open, so keep trying for a moment; a file that stays locked is left behind."""
+    """Delete `path` if it exists. Windows refuses while ffmpeg, a virus scanner or the indexer
+    still has the file open, so keep trying for a moment; a file that stays locked is left
+    behind."""
     deadline = time.monotonic() + seconds
     while True:
         try:
@@ -118,9 +121,9 @@ def remove_file(path: Path, seconds: float = 2.0) -> None:
 
 
 def remove_folder(folder: Path, seconds: float = 2.0) -> None:
-    """Delete `folder` and everything in it, trying again for a moment while a file in it is still in use (a
-    stopped ffmpeg can hold its files a little after it has ended). Whatever stays is left for the start-up
-    sweep of old work folders (tempclean.py)."""
+    """Delete `folder` and everything in it, trying again for a moment while a file in it is still
+    in use (a stopped ffmpeg can hold its files a little after it has ended). Whatever stays is
+    left for the start-up sweep of old work folders (tempclean.py)."""
     deadline = time.monotonic() + seconds
     while True:
         try:
@@ -138,8 +141,9 @@ def remove_folder(folder: Path, seconds: float = 2.0) -> None:
 
 @contextmanager
 def work_folder(prefix: str) -> Iterator[str]:
-    """A new temporary folder (its path, like `tempfile.TemporaryDirectory`) that is removed afterwards with
-    `remove_folder`, so a file that is still in use never turns a finished or cancelled export into an error."""
+    """A new temporary folder (its path, like `tempfile.TemporaryDirectory`) that is removed
+    afterwards with `remove_folder`, so a file that is still in use never turns a finished or
+    cancelled export into an error."""
     folder = tempfile.mkdtemp(prefix=prefix)
     try:
         yield folder
@@ -148,8 +152,8 @@ def work_folder(prefix: str) -> Iterator[str]:
 
 
 def check_not_input(output: Path, inputs: Iterable[Path]) -> None:
-    """Refuse an `output` that is one of the files being read: ffmpeg would write over its own input, and a
-    failed or cancelled export would delete it."""
+    """Refuse an `output` that is one of the files being read: ffmpeg would write over its own
+    input, and a failed or cancelled export would delete it."""
     for source in inputs:
         if same_file(output, source):
             raise ConversionError(

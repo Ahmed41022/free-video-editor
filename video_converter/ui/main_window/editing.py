@@ -21,7 +21,8 @@ class EditingMixin:
         """Set a file's settings and refresh whatever shows them (used by undo/redo too)."""
         item.settings = settings.copy()
         if item.info is not None and item.info.has_audio and not item.info.has_video:
-            item.settings.output = OUTPUT_AUDIO  # a sound-only file has no picture to export, whatever an old undo step says
+            # a sound-only file has no picture to export, whatever an old undo step says
+            item.settings.output = OUTPUT_AUDIO
         if item.list_item is not None:
             self._show_item_text(item)
         if item is self.current:
@@ -144,7 +145,8 @@ class EditingMixin:
         self.push_settings(new, label)
 
     def remove_silences(self) -> None:
-        """Ask how quiet and how long a pause is, then cut the pauses out as one undoable change."""
+        """Ask how quiet and how long a pause is, then cut the pauses out as one undoable
+        change."""
         item = self.current
         if item is None or item.info is None or not item.info.duration:
             return

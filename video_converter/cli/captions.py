@@ -63,7 +63,8 @@ def _logo_position(text: str):
 
 
 def _caption_edit(args, parser: argparse.ArgumentParser) -> dict:
-    """The text, logo and subtitles options as VideoEdit fields (checked against the other options)."""
+    """The text, logo and subtitles options as VideoEdit fields (checked against the other
+    options)."""
     used = [
         name for name, on in (
             ("--text", args.text), ("--logo", args.logo), ("--subtitles", args.subtitles)) if on
@@ -123,19 +124,20 @@ def _language(text: str) -> str:
     if code in LANGUAGES:
         return code
     raise argparse.ArgumentTypeError(
-        f"not a language code: {text!r} (use auto, or one of {', '.join(k for k in LANGUAGES if k)})"
-    )
+        f"not a language code: {text!r} (use auto, or one of "
+        f"{', '.join(k for k in LANGUAGES if k)})")
 
 
 def _make_srt(ffmpeg: str, source: Path, info, args, note) -> Path | None:
-    """Listen to `source` (inside the --start/--end trim) and save its captions as an .srt, using the
-    --caption-* options. Returns the file, or None when no speech was found."""
+    """Listen to `source` (inside the --start/--end trim) and save its captions as an .srt, using
+    the --caption-* options. Returns the file, or None when no speech was found."""
     if not info.has_audio:
         raise ConversionError("This file has no sound, so there is nothing to make captions from.")
     model = MODELS[args.caption_model]
     if not is_downloaded(model):
         note(
-            f"{source.name}: downloading the {model.label} speech model ({model.size_text}), once; after this "
+            f"{source.name}: downloading the {model.label} speech model ({model.size_text}), "
+            "once; after this "
             f"captions work offline")
     last = [""]
 

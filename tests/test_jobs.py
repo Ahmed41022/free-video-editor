@@ -7,7 +7,9 @@ import unittest
 from array import array
 from pathlib import Path
 
-from video_converter.core import ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media
+from video_converter.core import (
+    ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media,
+)
 from video_converter.jobs import Clip, Job, JobQueue, JobState
 from video_converter.project import OUTPUT_AUDIO, ClipSettings, describe, describe_join
 from video_converter.video import REVERSE_BASE_BYTES, VideoEdit
@@ -397,7 +399,8 @@ class CancelTests(QueueTestCase):
         self.wait_started(job)
         queue.cancel(job.id)
         self.assertTrue(job.cancel_event.is_set())
-        # A runner that ignores the request still finishes normally; the queue doesn't invent a state.
+        # A runner that ignores the request still finishes normally; the queue doesn't invent a
+        # state.
         gate.set()
         self.wait_all()
         self.assertIn(job.state, (JobState.CANCELLED, JobState.DONE))
@@ -749,7 +752,8 @@ class UpdateCallbackRobustnessTests(unittest.TestCase):
 
         queue = JobQueue("f", on_update=on_update, runner=lambda f, j, p: Path("x"))
         old_hook = threading.excepthook
-        threading.excepthook = lambda args: None  # keep the expected traceback out of the test output
+        # keep the expected traceback out of the test output
+        threading.excepthook = lambda args: None
         try:
             queue.add(make_job("explode.mp4"))
             later = queue.add(make_job("later.mp4"))
@@ -987,7 +991,8 @@ class ReverseMemoryJobTests(unittest.TestCase):
             Job(Path("a.mp4"), settings, info=self.HD).reverse_memory, 100 * 48000 * 2 * 4)
 
     def test_a_join_needs_what_its_biggest_clip_needs(self):
-        # Each clip is reversed on its own, so a short clip reversed next to a long one adds nothing.
+        # Each clip is reversed on its own, so a short clip reversed next to a long one adds
+        # nothing.
         clips = [
             Clip(Path("a.mp4"), self.reversed_settings(), self.SHORT),
             Clip(Path("b.mp4"), self.reversed_settings(), self.HD),

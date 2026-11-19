@@ -31,8 +31,9 @@ class SelectionMixin:
         self.frame_action.setEnabled(False)  # until the file's details say it has a picture
         self._update_list_actions()
         if changed:
-            # Don't keep a queue of big copies for files the user has already moved on from. A file that can't
-            # play until its copy is ready must not wait behind another file's copy either.
+            # Don't keep a queue of big copies for files the user has already moved on from. A file
+            # that can't play until its copy is ready must not wait behind another file's copy
+            # either.
             if item is not None and self._awaiting_copy(item):
                 cancelled = [
                     other for other in self.items
@@ -62,8 +63,8 @@ class SelectionMixin:
         info = item.info
         self.timeline.setDuration(info.duration or 0.0 if info else 0.0)
         self.time_label.setText(
-            f"{format_time(self.player.position)} / {format_time(info.duration or 0 if info else 0)}"
-        )
+            f"{format_time(self.player.position)} / "
+            f"{format_time(info.duration or 0 if info else 0)}")
         self.timeline.setThumbnails(item.thumbs)
         self.timeline.setWaveform(item.waveform, loading=item.loading)
         if info is not None and not info.has_video:
@@ -72,7 +73,8 @@ class SelectionMixin:
         self._prepare_preview_copy(item)
 
     def _show_export_state(self, item: Optional[MediaItem]) -> None:
-        """Export is off for no file and for a file that couldn't be read, and its tooltip says why."""
+        """Export is off for no file and for a file that couldn't be read, and its tooltip says
+        why."""
         broken = item is not None and bool(item.error)
         self.export_button.setEnabled(item is not None and not broken)
         self.export_button.setToolTip(
@@ -118,7 +120,8 @@ class SelectionMixin:
             self._after_timer.start()
 
     def _overlay_time(self, item: MediaItem) -> Optional[float]:
-        """Where the playhead is on the export's timeline, or None when it is on a part that is cut out."""
+        """Where the playhead is on the export's timeline, or None when it is on a part that is cut
+        out."""
         edit, info = item.settings.edit, item.info
         if info is None or not info.duration:
             return None
@@ -133,7 +136,8 @@ class SelectionMixin:
             self.timeline.setTexts([])
             return
         geometry = plan_geometry(info.width, info.height, edit)
-        # In the fit modes the export's frame is bigger than the picture, so the preview shows the frame.
+        # In the fit modes the export's frame is bigger than the picture, so the preview shows the
+        # frame.
         self.view.set_overlays(
             edit.texts, edit.logo, (geometry.out_width, geometry.out_height),
             self._overlay_time(item), canvas=not edit.crops and bool(edit.texts or edit.logo.file))

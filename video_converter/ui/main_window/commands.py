@@ -54,9 +54,10 @@ class SettingsCommand(QUndoCommand):
 
 
 class CaptionsFileCommand(QUndoCommand):
-    """One undoable rewrite of a subtitle file: undo puts back the bytes it had. The file as it was is
-    kept once, next to it as `name.srt.bak`, before the first time it is overwritten (the rewrite is UTF-8,
-    and the original may have been in an old code page or a form of Unicode that can't be got back exactly)."""
+    """One undoable rewrite of a subtitle file: undo puts back the bytes it had. The file as it was
+    is kept once, next to it as `name.srt.bak`, before the first time it is overwritten (the
+    rewrite is UTF-8, and the original may have been in an old code page or a form of Unicode that
+    can't be got back exactly)."""
 
     def __init__(
             self, window: "MainWindow", item: MediaItem, path: Path, before: bytes, after: bytes,
@@ -102,8 +103,8 @@ class CaptionsFileCommand(QUndoCommand):
 
 
 class RemoveFilesCommand(QUndoCommand):
-    """Taking files out of the list, which undo puts back: each at the row it was in, with its settings and
-    thumbnails (the items themselves are kept)."""
+    """Taking files out of the list, which undo puts back: each at the row it was in, with its
+    settings and thumbnails (the items themselves are kept)."""
 
     def __init__(self, window: "MainWindow", entries: list[tuple[int, MediaItem]], label: str):
         super().__init__(label)

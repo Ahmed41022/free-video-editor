@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QContextMenuEvent, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import (
+    QBrush, QColor, QContextMenuEvent, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap,
+)
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ..core import format_time
@@ -48,8 +50,8 @@ def normalize_trim(start: Optional[float], end: Optional[float],
 def ruler_label_left(
         x: float, text_width: float, widget_width: float, gap: float = 3,
         edge: float = 2) -> float:
-    """Where a ruler label starts: just right of its tick, but slid left when that would run it off the widget,
-    so the last label is not cut off."""
+    """Where a ruler label starts: just right of its tick, but slid left when that would run it off
+    the widget, so the last label is not cut off."""
     return max(min(x + gap, widget_width - edge - text_width), 0.0)
 
 
@@ -161,8 +163,8 @@ class Timeline(QWidget):
             self.update()
 
     def setTexts(self, spans: list[list[Range]], selected: int = -1) -> None:
-        """Show when the texts are on screen: `spans[i]` are the parts of the source (in source seconds)
-        text i plays over, `selected` the one being edited."""
+        """Show when the texts are on screen: `spans[i]` are the parts of the source (in source
+        seconds) text i plays over, `selected` the one being edited."""
         self.text_spans, self.text_selected = [list(s) for s in spans], selected
         self.update()
 
@@ -172,8 +174,8 @@ class Timeline(QWidget):
         self.update()
 
     def _scaled_thumbnail(self, pix: QPixmap, width: int) -> QPixmap:
-        """`pix` scaled to fill a slot `width` wide, remembered: painting happens many times a second while
-        playing, and smooth scaling of every thumbnail each time cost over 10 ms."""
+        """`pix` scaled to fill a slot `width` wide, remembered: painting happens many times a
+        second while playing, and smooth scaling of every thumbnail each time cost over 10 ms."""
         key = (pix.cacheKey(), width)
         scaled = self._thumb_cache.get(key)
         if scaled is None:
@@ -186,8 +188,8 @@ class Timeline(QWidget):
         return scaled
 
     def setWaveform(self, levels: list[float], loading: bool = False) -> None:
-        """Show the sound's levels. `loading` says they are still being read, so an empty lane means "wait"
-        rather than "this file has no sound"."""
+        """Show the sound's levels. `loading` says they are still being read, so an empty lane
+        means "wait" rather than "this file has no sound"."""
         self.waveform = levels
         self.waveform_loading = loading
         self.update()
@@ -228,7 +230,8 @@ class Timeline(QWidget):
         return best
 
     def hit_test(self, x: float) -> str:
-        """What a press at `x` grabs: trim handles win over cut edges, which win over the playhead."""
+        """What a press at `x` grabs: trim handles win over cut edges, which win over the
+        playhead."""
         if self.duration <= 0:
             return "none"
         in_x, out_x = self._x(self._in_time()), self._x(self._out_time())

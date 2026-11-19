@@ -27,8 +27,8 @@ def text_pixels(item: TextItem, frame: tuple[int, int]) -> int:
 
 
 def clean_text(text: str) -> str:
-    """`text` without the characters that only draw an empty box: control characters (C0 and C1) are
-    dropped, a tab becomes a space and the odd line separators become a line break."""
+    """`text` without the characters that only draw an empty box: control characters (C0 and C1)
+    are dropped, a tab becomes a space and the odd line separators become a line break."""
     text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\u2028",
                                                                   "\n").replace("\u2029", "\n")
     text = text.replace("\t", " ")
@@ -36,9 +36,9 @@ def clean_text(text: str) -> str:
 
 
 def drawable_text(text: str) -> str:
-    """`text` as it is drawn: clean, with no blank lines at the start or the end (drawtext draws nothing
-    at all for a text that starts with a line break) and a single space on each blank line in the middle,
-    so that the blank line keeps its height."""
+    """`text` as it is drawn: clean, with no blank lines at the start or the end (drawtext draws
+    nothing at all for a text that starts with a line break) and a single space on each blank line
+    in the middle, so that the blank line keeps its height."""
     lines = clean_text(text).split("\n")
     while lines and not lines[0].strip():
         lines.pop(0)
@@ -48,8 +48,8 @@ def drawable_text(text: str) -> str:
 
 
 def laid_out(item: TextItem, frame: tuple[int, int]) -> tuple[str, Optional[str], float]:
-    """(the text with its line breaks, the font file, the text size in pixels) for drawing `item` in a
-    `frame` (width, height). The preview and the export both draw exactly this text."""
+    """(the text with its line breaks, the font file, the text size in pixels) for drawing `item`
+    in a `frame` (width, height). The preview and the export both draw exactly this text."""
     pixels = text_pixels(item, frame)
     text = drawable_text(item.text)
     path = pick_font(item.font, item.bold, text)
@@ -59,8 +59,9 @@ def laid_out(item: TextItem, frame: tuple[int, int]) -> tuple[str, Optional[str]
 
 
 def text_box(item: TextItem, frame: tuple[int, int]) -> tuple[float, float]:
-    """About how big the drawn text is in a `frame` (width, height), padding and outline included: what
-    the editor draws its handle around. ffmpeg does the exact drawing, so this is close, not exact."""
+    """About how big the drawn text is in a `frame` (width, height), padding and outline included:
+    what the editor draws its handle around. ffmpeg does the exact drawing, so this is close, not
+    exact."""
     wrapped, path, pixels = laid_out(item, frame)
     width, height = text_size(wrapped, load_font(path) if path else None, pixels)
     pad = (BOX_PADDING if item.box else item.outline) * pixels
@@ -72,11 +73,12 @@ RTL_START, RTL_END = "‫", "‬"  # the embedding marks that start and end a ri
 
 
 def mark_right_to_left(text: str) -> str:
-    """`text` with each line that starts in a right-to-left script (Arabic, Hebrew...) wrapped in an
-    embedding mark. drawtext lays every line out as left to right unless told otherwise, which would put
-    the Latin words and numbers of an Arabic sentence on the wrong side of it; with the mark the line is
-    ordered right to left, like any other program shows it. The marks themselves are not drawn. The
-    subtitles filter (libass) has the same habit, so subtitle lines get the marks too."""
+    """`text` with each line that starts in a right-to-left script (Arabic, Hebrew...) wrapped in
+    an embedding mark. drawtext lays every line out as left to right unless told otherwise, which
+    would put the Latin words and numbers of an Arabic sentence on the wrong side of it; with the
+    mark the line is ordered right to left, like any other program shows it. The marks themselves
+    are not drawn. The subtitles filter (libass) has the same habit, so subtitle lines get the
+    marks too."""
     lines = []
     for line in text.split("\n"):
         words = _TAGS.sub("", line)  # <i> and {\i1} are markup, not letters
@@ -88,9 +90,10 @@ def mark_right_to_left(text: str) -> str:
 
 
 def text_filter(item: TextItem, frame: tuple[int, int], total: Optional[float]) -> str:
-    """The drawtext filter for one text item on a `frame` (width, height) video `total` seconds long
-    (None if unknown), or "" when it draws nothing. The text goes through a file, so no character in
-    it can upset the filter syntax; `expansion=none` stops drawtext reading "%{...}" as a command."""
+    """The drawtext filter for one text item on a `frame` (width, height) video `total` seconds
+    long (None if unknown), or "" when it draws nothing. The text goes through a file, so no
+    character in it can upset the filter syntax; `expansion=none` stops drawtext reading "%{...}"
+    as a command."""
     if not drawable(item):
         return ""
     wrapped, path, pixels = laid_out(item, frame)
@@ -114,7 +117,8 @@ def text_filter(item: TextItem, frame: tuple[int, int], total: Optional[float]) 
         pad = max(pad, spread)
     if "\n" in wrapped and item.align != "left":
         options.append(f"text_align={item.align}")
-    # The middle of the text sits at (x, y), but the text (with its box and outline) stays inside the frame.
+    # The middle of the text sits at (x, y), but the text (with its box and outline) stays inside
+    # the frame.
     options.append(f"x='max({_n(pad)},min(w-text_w-{_n(pad)},w*{_n(item.x)}-text_w/2))'")
     options.append(f"y='max({_n(pad)},min(h-text_h-{_n(pad)},h*{_n(item.y)}-text_h/2))'")
     end = item.end if item.end is not None else total
@@ -132,7 +136,8 @@ def _fade_alpha(item: TextItem, end: Optional[float]) -> str:
     """The expression that fades a text in and out over the time it is shown, or "" for no fade."""
     shown = (end - item.start) if end is not None else None
     fade_in, fade_out = item.fade_in, item.fade_out if end is not None else 0.0
-    if shown is not None and fade_in + fade_out > shown and shown > 0:  # two fades can't be longer than the text
+    # two fades can't be longer than the text
+    if shown is not None and fade_in + fade_out > shown and shown > 0:
         fade_in, fade_out = fade_in * shown / (fade_in +
                                                fade_out), fade_out * shown / (fade_in + fade_out)
     parts = []

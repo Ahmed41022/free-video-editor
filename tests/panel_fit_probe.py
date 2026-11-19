@@ -1,6 +1,7 @@
-"""Measures the settings panel (Inspector) on the real Windows platform, where fonts and the style give the true
-widths, and prints the result as JSON. Run by tests/test_i18n.py in a separate process, because the rest of the
-test suite runs on Qt's "offscreen" platform, which has no fonts and so cannot say what fits.
+"""Measures the settings panel (Inspector) on the real Windows platform, where fonts and the style
+give the true widths, and prints the result as JSON. Run by tests/test_i18n.py in a separate
+process, because the rest of the test suite runs on Qt's "offscreen" platform, which has no fonts
+and so cannot say what fits.
 
 Nothing is shown on the screen: the panel is created with Qt.WA_DontShowOnScreen."""
 
@@ -69,8 +70,9 @@ def measure(code: str, window, name: str, settings: ClipSettings) -> dict:
     wide = [
         (section.header.text(), section.minimumSizeHint().width()) for section in panel.sections
     ]
-    # What the viewport is when the panel is as narrow as it can be made (a 1024x700 window): the minimum width
-    # less the frame and the scroll bar, which shows whenever the sections are taller than the window.
+    # What the viewport is when the panel is as narrow as it can be made (a 1024x700 window): the
+    # minimum width less the frame and the scroll bar, which shows whenever the sections are taller
+    # than the window.
     narrowest = panel.minimumWidth() - 2 * panel.frameWidth() - panel.verticalScrollBar().sizeHint(
     ).width()
     return {
@@ -113,7 +115,8 @@ def run(code: str) -> list:
 
 
 if __name__ == "__main__":
-    # One language per process: a second window in the same process can hang inside Qt's Windows multimedia.
+    # One language per process: a second window in the same process can hang inside Qt's Windows
+    # multimedia.
     theme.apply_theme(app, "light")
     code = sys.argv[1]
     results = run(code)
@@ -125,7 +128,8 @@ if __name__ == "__main__":
         sys.stdout.write(text + chr(10))
         sys.stdout.flush()
     sys.stdout.flush()
-    # Leave at once: closing Qt's Windows multimedia down the usual way can hang this process for good.
+    # Leave at once: closing Qt's Windows multimedia down the usual way can hang this process for
+    # good.
     import ctypes
 
     ctypes.windll.kernel32.TerminateProcess(ctypes.windll.kernel32.GetCurrentProcess(), 0)

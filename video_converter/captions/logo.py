@@ -17,7 +17,8 @@ from .scratch import _publish, scratch_dir
 
 
 def logo_source(logo: Logo) -> Path:
-    """A copy of the logo's image under a plain name (so odd characters in its path can't matter)."""
+    """A copy of the logo's image under a plain name (so odd characters in its path can't
+    matter)."""
     path = Path(logo.file)
     if not path.is_file():
         raise ConversionError(
@@ -60,12 +61,13 @@ def logo_graph(src: str, out: str, logo: Logo, frame: tuple[int, int], tag: str)
     opacity = f",colorchannelmixer=aa={_n(logo.opacity, 3)}" if logo.opacity < 1 else ""
     x, y = logo_position(logo, frame)
     source = logo_source(logo)
-    # A "%" in the path (a user name or a temp folder can have one) would be read as an image2 file-number
-    # pattern, so say it is a plain file. (The logo picker offers still pictures only: a .gif or a video chosen
-    # another way would show its first play and then freeze; looping it made ffmpeg run forever.)
+    # A "%" in the path (a user name or a temp folder can have one) would be read as an image2
+    # file-number pattern, so say it is a plain file. (The logo picker offers still pictures only:
+    # a .gif or a video chosen another way would show its first play and then freeze; looping it
+    # made ffmpeg run forever.)
     options = "" if source.suffix.lower(
     ) == ".gif" else ":format_opts=pattern_type\\=none"  # gif has its own demuxer
     return [
-        f"movie=filename={_path_value(source)}{options},scale={width}:-1:flags=lanczos,format=rgba{opacity}[logo{tag}]",
-        f"{src}[logo{tag}]overlay=x='{x}':y='{y}'{out}",
+        f"movie=filename={_path_value(source)}{options},scale={width}:-1:flags=lanczos,format="
+        f"rgba{opacity}[logo{tag}]", f"{src}[logo{tag}]overlay=x='{x}':y='{y}'{out}",
     ]

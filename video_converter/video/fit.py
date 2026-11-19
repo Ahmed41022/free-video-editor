@@ -19,10 +19,11 @@ from .rates import output_rate
 def plan_fit(
         edit: VideoEdit, info: MediaInfo, seconds: Optional[float], sound: bool,
         fps: Optional[float] = None) -> tuple[VideoEdit, Optional[SizeFit]]:
-    """Work out how to fit an export of `edit` (a result `seconds` long, `sound` whether it has any,
-    running at `fps`) into `edit.target_mb`. Returns the edit to export, which has a smaller size when the
-    picture had to be lowered (720p, then 480p, 360p), and the SizeFit, or (edit, None) when there is
-    no file size to fit. Raises ConversionError when not even the smallest size leaves the picture enough."""
+    """Work out how to fit an export of `edit` (a result `seconds` long, `sound` whether it has
+    any, running at `fps`) into `edit.target_mb`. Returns the edit to export, which has a smaller
+    size when the picture had to be lowered (720p, then 480p, 360p), and the SizeFit, or (edit,
+    None) when there is no file size to fit. Raises ConversionError when not even the smallest size
+    leaves the picture enough."""
     fmt = edit.output_format
     if edit.target_mb <= 0 or fmt.codec == "gif":
         return edit, None
@@ -43,7 +44,8 @@ def plan_fit(
 
 
 def edit_fit(edit: VideoEdit, info: MediaInfo) -> tuple[VideoEdit, Optional[SizeFit]]:
-    """`plan_fit` for exporting `info` with `edit`: the length, sound and frame rate come from them."""
+    """`plan_fit` for exporting `info` with `edit`: the length, sound and frame rate come from
+    them."""
     segments = edit.segments(info.duration, info.fps)
     rate = output_rate(edit, info)
     sound = (info.has_audio and not edit.mute) or bool(music_path(edit))
@@ -53,8 +55,8 @@ def edit_fit(edit: VideoEdit, info: MediaInfo) -> tuple[VideoEdit, Optional[Size
 
 
 def fit_summary(edit: VideoEdit, info: MediaInfo) -> tuple[str, bool]:
-    """What to tell the user about fitting `info` into `edit.target_mb`, and whether it can't be done:
-    ("", False) when no file size is asked for."""
+    """What to tell the user about fitting `info` into `edit.target_mb`, and whether it can't be
+    done: ("", False) when no file size is asked for."""
     if edit.target_mb <= 0 or edit.output_format.codec == "gif" or not info.has_video:
         return "", False
     try:
@@ -70,7 +72,8 @@ def format_warning(edit: VideoEdit, info: MediaInfo) -> str:
     seconds = output_duration(edit.segments(info.duration, info.fps), edit.speed)
     if not info.has_video:
         return gif_warning(seconds)
-    # The size follows from the picture's size and frame rate too: a short clip can be as heavy as a long one.
+    # The size follows from the picture's size and frame rate too: a short clip can be as heavy as
+    # a long one.
     geometry = plan_geometry(info.width, info.height, edit)
     width = min(edit.gif_width, geometry.out_width)
     height = max(round(geometry.out_height * width / geometry.out_width), 1)

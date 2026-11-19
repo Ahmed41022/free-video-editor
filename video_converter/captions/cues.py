@@ -37,8 +37,8 @@ def subtitle_kind(path: Path, text: str) -> str:
 
 
 def _next_cue_start(lines: list[str], timing: int, floor: int) -> int:
-    """Where the cue whose timing line is `timing` begins: that line, or the number / name line just above it
-    (`floor` is the line the previous cue's timing is on)."""
+    """Where the cue whose timing line is `timing` begins: that line, or the number / name line
+    just above it (`floor` is the line the previous cue's timing is on)."""
     above = timing - 1
     if above > floor and lines[above].strip():
         if lines[above].strip().isdigit() or above - 1 <= floor or not lines[above - 1].strip():
@@ -47,9 +47,10 @@ def _next_cue_start(lines: list[str], timing: int, floor: int) -> int:
 
 
 def parse_cues(text: str, kind: str = "srt") -> list[Cue]:
-    """The cues of an SRT or WebVTT file, in file order. A block with no usable time is skipped. Times may
-    have any number of decimals or none. In an SRT file a cue's text may hold a blank line: the cue goes on until
-    the next cue (its number or its time) starts; in WebVTT a blank line always ends it."""
+    """The cues of an SRT or WebVTT file, in file order. A block with no usable time is skipped.
+    Times may have any number of decimals or none. In an SRT file a cue's text may hold a blank
+    line: the cue goes on until the next cue (its number or its time) starts; in WebVTT a blank
+    line always ends it."""
     lines = text.replace("\r\n", "\n").replace("\r", "\n").strip("﻿\n").split("\n")
     timings = []
     for i, line in enumerate(lines):
@@ -84,8 +85,8 @@ def _srt_time(seconds: float) -> str:
 
 
 def format_srt(cues: list[Cue]) -> str:
-    """The text of an .srt file for `cues`, numbered in order. A blank line inside a cue would end it
-    early in the file, so those are dropped."""
+    """The text of an .srt file for `cues`, numbered in order. A blank line inside a cue would end
+    it early in the file, so those are dropped."""
     blocks = []
     for number, cue in enumerate(cues, 1):
         body = "\n".join(
@@ -95,13 +96,14 @@ def format_srt(cues: list[Cue]) -> str:
 
 
 def encode_srt(cues: list[Cue]) -> bytes:
-    """The bytes of an .srt file for `cues`: UTF-8 with a byte order mark, which Windows players and TVs
-    need to read Arabic and other scripts correctly."""
+    """The bytes of an .srt file for `cues`: UTF-8 with a byte order mark, which Windows players
+    and TVs need to read Arabic and other scripts correctly."""
     return b"\xef\xbb\xbf" + format_srt(cues).encode("utf-8")
 
 
 def write_srt(cues: list[Cue], path: Path) -> None:
-    """Save `cues` as a UTF-8 .srt file at `path` (written aside first, so a failure can't leave half a file)."""
+    """Save `cues` as a UTF-8 .srt file at `path` (written aside first, so a failure can't leave
+    half a file)."""
     temp = path.with_name(path.name + ".part")
     try:
         temp.write_bytes(encode_srt(cues))

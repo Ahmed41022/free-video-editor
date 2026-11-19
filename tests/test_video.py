@@ -80,8 +80,8 @@ class MediaInfoParsingTests(unittest.TestCase):
     def test_cover_art_is_not_a_video_track(self):
         info = parse_media_info(
             "  Duration: 00:00:08.05\n  Stream #0:0: Audio: mp3 (mp3float), 44100 Hz, mono\n"
-            "  Stream #0:1: Video: mjpeg (Baseline), yuvj420p, 300x300 [SAR 1:1 DAR 1:1], 90k tbr (attached pic)\n"
-        )
+            "  Stream #0:1: Video: mjpeg (Baseline), yuvj420p, 300x300 [SAR 1:1 DAR 1:1], 90k "
+            "tbr (attached pic)\n")
         self.assertFalse(info.has_video)
         self.assertTrue(info.has_audio)
         # A real video stream after the cover art still counts.
@@ -177,7 +177,8 @@ class OutputSizeTests(unittest.TestCase):
         self.assertEqual(self.size(1920, 1080, aspect=None, resolution=480), (854, 480))
 
     def test_odd_source_sizes_keep_the_exact_shape(self):
-        # 641x359 as 9:16 used to give 360x638 (the odd 359 was rounded after the ratio was applied).
+        # 641x359 as 9:16 used to give 360x638 (the odd 359 was rounded after the ratio was
+        # applied).
         self.assertEqual(self.size(641, 359, aspect=(9, 16), fit="blur"), (360, 640))
         self.assertEqual(self.size(641, 359, aspect=(9, 16), fit="bars"), (360, 640))
         self.assertEqual(self.size(359, 641, aspect=(16, 9), fit="blur"), (640, 360))
@@ -192,7 +193,8 @@ class OutputSizeTests(unittest.TestCase):
                         with self.subTest(size=size, aspect=aspect, fit=fit, zoom=zoom):
                             out_w, out_h = self.size(*size, aspect=aspect, fit=fit, zoom=zoom)
                             self.assertEqual((out_w % 2, out_h % 2), (0, 0))
-                            # Off by less than one pixel on the long side, the best even sizes can do.
+                            # Off by less than one pixel on the long side, the best even sizes can
+                            # do.
                             long_side = max(out_w, out_h)
                             exact = long_side * min(aspect) / max(aspect)
                             self.assertLessEqual(
@@ -212,7 +214,8 @@ class ReverseMemoryTests(unittest.TestCase):
         self.assertEqual(reverse_memory(VideoEdit(aspect=None), self.HD), 0)
 
     def test_every_frame_is_held_at_the_exported_size(self):
-        # 10 s at 30 fps of 1920x1080, about 3 bytes a pixel (the yuv420p frame and ffmpeg's buffers around it).
+        # 10 s at 30 fps of 1920x1080, about 3 bytes a pixel (the yuv420p frame and ffmpeg's
+        # buffers around it).
         edit = VideoEdit(aspect=None, reverse=True, start=0.0, end=10.0)
         self.assertEqual(reverse_memory(edit, self.HD), 300 * 1920 * 1080 * 3 + REVERSE_BASE_BYTES)
 
@@ -286,7 +289,8 @@ class VideoCommandTests(unittest.TestCase):
 
     def test_cut_times_are_relative_to_the_seek_point(self):
         graph = graph_of(command_for(VideoEdit(keep=[(1.0, 2.0), (3.0, 5.0)])))
-        # The sound is cut exactly; the picture half a frame (1/30 s at 15 fps) early, between two frames.
+        # The sound is cut exactly; the picture half a frame (1/30 s at 15 fps) early, between two
+        # frames.
         self.assertIn("[vin0_0]trim=start=0:end=0.966667,", graph)
         self.assertIn("[vin0_1]trim=start=1.966667:end=3.966667,", graph)
         self.assertIn("atrim=start=0:end=1,", graph)
@@ -598,9 +602,10 @@ class VideoExportTests(unittest.TestCase):
                 self.assertTrue(info.has_audio)
 
     def stream_lengths(self, path, rate):
-        """(seconds of picture, seconds of sound) of an exported file: the picture counted in frames,
-        the sound decoded to the sample."""
-        # Decoded, not copied: ffmpeg 6.1.1 (WSL) printed no "frame=" count for a stream copy, the Windows 7.1 did.
+        """(seconds of picture, seconds of sound) of an exported file: the picture counted in
+        frames, the sound decoded to the sample."""
+        # Decoded, not copied: ffmpeg 6.1.1 (WSL) printed no "frame=" count for a stream copy, the
+        # Windows 7.1 did.
         shown = subprocess.run(
             [FFMPEG, "-i", str(path), "-map", "0:v:0", "-f", "null", "-"], capture_output=True,
             text=True)
@@ -613,8 +618,9 @@ class VideoExportTests(unittest.TestCase):
         return frames / rate, len(sound.stdout) / 2 / 48000
 
     def test_many_cuts_off_the_frame_grid_keep_picture_and_sound_together(self):
-        # Thirty parts of 0.21 s (5.25 frames at 25 fps) that start 0.8 of a frame past a frame. The sound
-        # is cut to the sample but the picture in whole frames, so unsnapped they drifted ~0.3 s apart.
+        # Thirty parts of 0.21 s (5.25 frames at 25 fps) that start 0.8 of a frame past a frame.
+        # The sound is cut to the sample but the picture in whole frames, so unsnapped they drifted
+        # ~0.3 s apart.
         source = self.tmp / "grid.mp4"
         make_video(FFMPEG, source, width=160, height=90, seconds=12, rate=25)
         keep = [(0.4 * i + 0.032, 0.4 * i + 0.242) for i in range(30)]
@@ -688,7 +694,8 @@ class VideoExportTests(unittest.TestCase):
 
 
 def raw_gray(path, at=None):
-    """Frames of `path` shrunk to 16x9 grayscale, as bytes (FRAME_BYTES each). With `at`, only the frame there."""
+    """Frames of `path` shrunk to 16x9 grayscale, as bytes (FRAME_BYTES each). With `at`, only the
+    frame there."""
     cmd = [FFMPEG, "-hide_banner", "-loglevel", "error"]
     if at is not None:
         cmd += ["-ss", str(at)]
@@ -720,7 +727,8 @@ def mono_samples(path):
 
 
 def audio_end(path):
-    """When the last sound packet of `path` ends, by its timestamps (not by how much sound there is)."""
+    """When the last sound packet of `path` ends, by its timestamps (not by how much sound there
+    is)."""
     out = subprocess.run(
         [
             FFMPEG, "-hide_banner", "-loglevel", "error", "-i",
@@ -927,7 +935,8 @@ class JoinExportTests(unittest.TestCase):
 
     def test_the_second_clip_is_fitted_with_black_bars(self):
         output = self.join("bars.mp4", [self.wide, self.boxy])
-        # A 4:3 clip in a 16:9 frame leaves black bars left and right; the first clip fills the frame.
+        # A 4:3 clip in a 16:9 frame leaves black bars left and right; the first clip fills the
+        # frame.
         first = raw_gray(output, 0.5)
         second = raw_gray(output, 3.0)
         columns = lambda frame, x: [frame[y * 16 + x] for y in range(9)]

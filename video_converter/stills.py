@@ -17,9 +17,9 @@ JPEG_QUALITY = "2"  # ffmpeg's scale runs from 2 (best) to 31
 def save_frame(
         ffmpeg: str, source: Path, output: Path, at: float, edit: VideoEdit,
         info: MediaInfo) -> Path:
-    """Save the frame at source time `at` as a PNG or JPG (by `output`'s extension), reframed, adjusted,
-    faded and stamped like the export, at the size the export has: not the preview's smaller one.
-    Stabilization is left out, as in the preview, since it needs the whole clip."""
+    """Save the frame at source time `at` as a PNG or JPG (by `output`'s extension), reframed,
+    adjusted, faded and stamped like the export, at the size the export has: not the preview's
+    smaller one. Stabilization is left out, as in the preview, since it needs the whole clip."""
     extension = output.suffix.lower()
     if extension not in IMAGE_EXTENSIONS:
         raise ConversionError(

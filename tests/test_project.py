@@ -44,7 +44,8 @@ def custom_settings() -> ClipSettings:
 class RoundTripTests(unittest.TestCase):
 
     def test_custom_settings_cover_every_field(self):
-        # Guards the round-trip tests below: a new VideoEdit field must be added to custom_settings().
+        # Guards the round-trip tests below: a new VideoEdit field must be added to
+        # custom_settings().
         defaults, custom = VideoEdit(), custom_settings().edit
         for f in fields(VideoEdit):
             with self.subTest(field=f.name):
@@ -275,21 +276,23 @@ class DefensiveLoadingTests(unittest.TestCase):
     # `value in <dict>` test and raise TypeError instead of being ignored.
 
     def test_unhashable_audio_quality_is_ignored(self):
-        # Bug: project.py ClipSettings.from_dict does `data.get("audio_quality") in QUALITY_PRESETS`.
-        # Input {"audio_quality": ["128 kbps"]} raises TypeError (unhashable list); expected: default kept.
+        # Bug: project.py ClipSettings.from_dict does `data.get("audio_quality") in
+        # QUALITY_PRESETS`. Input {"audio_quality": ["128 kbps"]} raises TypeError (unhashable
+        # list); expected: default kept.
         loaded = ClipSettings.from_dict({"audio_quality": ["128 kbps"]})
         self.assertEqual(loaded.audio_quality, DEFAULT_QUALITY)
 
     def test_unhashable_fit_is_ignored(self):
         # Bug: project.py ClipSettings.from_dict does `value not in FIT_MODES` for "fit".
-        # Input {"edit": {"fit": ["crop"]}} raises TypeError (unhashable list); expected: default kept.
+        # Input {"edit": {"fit": ["crop"]}} raises TypeError (unhashable list); expected: default
+        # kept.
         loaded = self.load(fit=["crop"])
         self.assertEqual(loaded.edit.fit, VideoEdit().fit)
 
     def test_non_mapping_edit_section_is_ignored(self):
         # Bug: project.py ClipSettings.from_dict only guards `edit` with `or {}`.
-        # Input {"edit": 5} raises TypeError ("argument of type 'int' is not iterable"); {"edit": "fit"}
-        # raises TypeError too. Expected: defaults.
+        # Input {"edit": 5} raises TypeError ("argument of type 'int' is not iterable"); {"edit":
+        # "fit"} raises TypeError too. Expected: defaults.
         for edit in (5, "fit", 1.5):
             with self.subTest(edit=edit):
                 self.assertEqual(ClipSettings.from_dict({"edit": edit}), ClipSettings())

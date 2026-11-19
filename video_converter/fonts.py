@@ -1,14 +1,14 @@
 """Finding the font file for a family name, and measuring text with it.
 
 ffmpeg draws text from a font FILE, but the editor lists font FAMILIES (what a person picks
-from a menu). On Windows the registry says which file belongs to which family; `font_file` reads it.
-A family that is missing, or that has no glyph for the text (Impact has no Arabic), falls back to a
-font that does, so the text never turns into boxes.
+from a menu). On Windows the registry says which file belongs to which family; `font_file` reads
+it. A family that is missing, or that has no glyph for the text (Impact has no Arabic), falls back
+to a font that does, so the text never turns into boxes.
 
 The measuring reads just the few tables of a TrueType/OpenType file it needs (character map,
-advance widths, line height), so it is the same on every machine and needs no graphics toolkit. It is
-only used to wrap long lines and to size the boxes drawn over the preview; ffmpeg does the real drawing.
-"""
+advance widths, line height), so it is the same on every machine and needs no graphics toolkit. It
+is only used to wrap long lines and to size the boxes drawn over the preview; ffmpeg does the real
+drawing. """
 
 from __future__ import annotations
 
@@ -57,7 +57,8 @@ def _split_style(name: str) -> tuple[str, bool, bool]:
 
 
 def _registry_entries() -> list[tuple[str, str]]:
-    """(font name, file) pairs from the registry's list of installed fonts: the machine's, then the user's."""
+    """(font name, file) pairs from the registry's list of installed fonts: the machine's, then the
+    user's."""
     if sys.platform != "win32":
         return []
     try:
@@ -87,7 +88,8 @@ def _build_index() -> dict[str, dict[tuple[bool, bool], str]]:
             folder / file if folder else Path(file))
         if path.suffix.lower() not in _FONT_EXTENSIONS or not path.is_file():
             continue
-        # "(TrueType)" says how the font is stored; a collection lists several families: "MS Gothic & MS UI Gothic".
+        # "(TrueType)" says how the font is stored; a collection lists several families: "MS Gothic
+        # & MS UI Gothic".
         name = name.rsplit("(", 1)[0].strip()
         for part in name.split(" & ")[:1 if path.suffix.lower() == ".ttc" else None]:
             family, bold, italic = _split_style(part.strip())
@@ -123,7 +125,8 @@ def forget_installed_fonts() -> None:
 
 
 def font_file(family: str, bold: bool = False, italic: bool = False) -> Optional[str]:
-    """The file of `family` in the wanted style, or the closest style it has, or None for an unknown family."""
+    """The file of `family` in the wanted style, or the closest style it has, or None for an
+    unknown family."""
     styles = installed_fonts().get((family or "").strip().lower())
     if not styles:
         return None
@@ -160,18 +163,20 @@ def pick_font(family: str, bold: bool = False, text: str = "") -> Optional[str]:
 
 # ----- the font for burned-in subtitles ---------------------------------------------
 
-# Tried after the chosen family when it can't draw the subtitles' text (Arial and Times New Roman can't draw
-# a clean Arabic lam-alef; Impact has no Arabic at all).
+# Tried after the chosen family when it can't draw the subtitles' text (Arial and Times New Roman
+# can't draw a clean Arabic lam-alef; Impact has no Arabic at all).
 SUBTITLE_FALLBACKS = ("Segoe UI", "Tahoma", "Calibri", "Microsoft Sans Serif")
-# libass joins "ل" + "ا" into a ligature and fills the second place with U+FEFF; a font with no glyph for that
-# draws an empty box after every lam-alef. The ligature forms and the joiner are needed as well.
+# libass joins "ل" + "ا" into a ligature and fills the second place with U+FEFF; a font with no
+# glyph for that draws an empty box after every lam-alef. The ligature forms and the joiner are
+# needed as well.
 _ARABIC_NEEDS = (0xFEFB, 0xFEF5, 0xFEF7, 0xFEF9, 0xFEFF, 0x200D)
 _STYLE_KEY_JUNK = str.maketrans("", "", ",=:'\\\r\n\t{}")
 
 
 def safe_font_name(name: object) -> str:
-    """A font family name that can't break the `force_style` list or the filter syntax: the characters
-    that separate or assign style keys (`,` `=` `:` `'` `\\` and the like) are removed."""
+    """A font family name that can't break the `force_style` list or the filter syntax: the
+    characters that separate or assign style keys (`,` `=` `:` `'` `\\` and the like) are
+    removed."""
     return " ".join(str(name or "").translate(_STYLE_KEY_JUNK).split())
 
 
@@ -187,8 +192,8 @@ def is_right_to_left(ch: str) -> bool:
 
 
 def needed_glyphs(text: str) -> set[int]:
-    """The character codes a font has to have a glyph for to draw `text` through libass: its letters, and
-    for Arabic the lam-alef ligature forms and the joiner too."""
+    """The character codes a font has to have a glyph for to draw `text` through libass: its
+    letters, and for Arabic the lam-alef ligature forms and the joiner too."""
     codes = {
         ord(ch)
         for ch in text if not ch.isspace() and unicodedata.category(ch) not in ("Cf", "Cc")
@@ -199,16 +204,17 @@ def needed_glyphs(text: str) -> set[int]:
 
 
 def font_covers(family: str, bold: bool, codes: set[int]) -> bool:
-    """Whether the installed font `family` has a glyph for every code in `codes` (False for an unknown family)."""
+    """Whether the installed font `family` has a glyph for every code in `codes` (False for an
+    unknown family)."""
     path = font_file(family, bold)
     font = load_font(path) if path else None
     return font is not None and all(font.has_char(code) for code in codes)
 
 
 def subtitle_font(family: str, bold: bool, text: str) -> str:
-    """The font family to give libass to draw `text`: `family` itself when it can show every character
-    (including what Arabic needs), otherwise the first of Segoe UI, Tahoma... that can, otherwise whichever
-    of them covers the most."""
+    """The font family to give libass to draw `text`: `family` itself when it can show every
+    character (including what Arabic needs), otherwise the first of Segoe UI, Tahoma... that can,
+    otherwise whichever of them covers the most."""
     family = safe_font_name(family) or DEFAULT_FONT
     codes = needed_glyphs(text)
     if not codes:
@@ -303,7 +309,8 @@ def _lookup(kind: int, data, code: int) -> int:
 
 
 def _parse_cmap(blob: bytes) -> list:
-    """The Unicode character maps of a 'cmap' table (formats 4 and 12), the full-range one first."""
+    """The Unicode character maps of a 'cmap' table (formats 4 and 12), the full-range one
+    first."""
     if len(blob) < 4:
         return []
     count = struct.unpack(">H", blob[2:4])[0]
@@ -385,9 +392,9 @@ def load_font(path: str) -> Optional[Font]:
 
 
 def wrap_text(text: str, font: Optional[Font], size: float, max_width: float) -> str:
-    """`text` with line breaks added so no line is wider than `max_width` pixels at text size `size`.
-    Lines the person broke themselves stay; a single word that is too long is left alone. Without a
-    font the text is returned as it is."""
+    """`text` with line breaks added so no line is wider than `max_width` pixels at text size
+    `size`. Lines the person broke themselves stay; a single word that is too long is left alone.
+    Without a font the text is returned as it is."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     if font is None or max_width <= 0:
         return text

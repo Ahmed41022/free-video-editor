@@ -62,7 +62,8 @@ def crash_box(summary: str, parent=None) -> QMessageBox:
         QMessageBox.StandardButton.Close, parent)
     box.setInformativeText(
         tr(
-            "It has been written to the log, so it can be looked at. You can carry on, but if the app starts "
+            "It has been written to the log, so it can be looked at. You can carry on, but if "
+            "the app starts "
             "behaving oddly, save your work and restart it.\n\nThe log is here:\n{path}\n\n"
             "To tell the developer, use Help > Report a problem.", path=diagnostics.log_path()))
     box.setDetailedText(summary)
@@ -70,7 +71,8 @@ def crash_box(summary: str, parent=None) -> QMessageBox:
 
 
 def choose_language(store, app: QApplication) -> str:
-    """Use the language saved in `store` (by default the one Windows uses) for everything the app shows."""
+    """Use the language saved in `store` (by default the one Windows uses) for everything the app
+    shows."""
     code = i18n.set_language(i18n.resolve(i18n.saved_choice(store)))
     language.apply_to_app(app)
     return code
@@ -80,9 +82,9 @@ CAPTIONS_SELF_TEST = "--self-test-captions"
 
 
 def captions_self_test(report: Optional[str] = None) -> int:
-    """Check that the speech engine behind automatic captions works in this build, without opening a window:
-    0 if it does. The one-line result (or the error) is written to the file `report`, since the built program
-    has no console to print to."""
+    """Check that the speech engine behind automatic captions works in this build, without opening
+    a window: 0 if it does. The one-line result (or the error) is written to the file `report`,
+    since the built program has no console to print to."""
     try:
         from ..autocaptions import self_test
 
@@ -107,8 +109,9 @@ def main(paths: Optional[list[str]] = None) -> int:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("VideoConverter.Editor")
         except (OSError, AttributeError):
             pass
-    # The preview turns frames into pictures on the CPU, so the graphics card must not decode them (Qt reads this
-    # when the first player is made, so it has to be set before anything multimedia exists).
+    # The preview turns frames into pictures on the CPU, so the graphics card must not decode them
+    # (Qt reads this when the first player is made, so it has to be set before anything multimedia
+    # exists).
     force_software_decoding()
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
@@ -123,7 +126,8 @@ def main(paths: Optional[list[str]] = None) -> int:
 
     try:
         log_file = diagnostics.setup_logging()
-        # A crash in Qt's or ffmpeg's own code can't be caught; this at least notes where it happened.
+        # A crash in Qt's or ffmpeg's own code can't be caught; this at least notes where it
+        # happened.
         faulthandler.enable(open(log_file.with_name("crashes.log"), "a", encoding="utf-8"))
     except (OSError, ValueError, RuntimeError):
         pass  # no log is better than no app

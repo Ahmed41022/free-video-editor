@@ -23,7 +23,8 @@ def parse_time(text: str) -> Optional[float]:
     except ValueError:
         raise ValueError(
             tr("Invalid time: {text} (use seconds, m:ss or h:mm:ss)", text=repr(text))) from None
-    # float() takes "nan" and "inf" (and "1e999"), which are not times and would break everything after them.
+    # float() takes "nan" and "inf" (and "1e999"), which are not times and would break everything
+    # after them.
     if not math.isfinite(seconds) or seconds < 0:
         raise ValueError(tr("Invalid time: {text}", text=repr(text)))
     return seconds

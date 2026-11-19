@@ -1,6 +1,7 @@
-"""Regression tests for the engine / export / audio fixes of 3.0.1: frame rate and level of the exports,
-joins with rotated clips, loudness of joins, long filter graphs, output names and part files, stopping ffmpeg,
-the limiter, noise reduction, cuts, trims and the rest. Each test failed before its fix."""
+"""Regression tests for the engine / export / audio fixes of 3.0.1: frame rate and level of the
+exports, joins with rotated clips, loudness of joins, long filter graphs, output names and part
+files, stopping ffmpeg, the limiter, noise reduction, cuts, trims and the rest. Each test failed
+before its fix."""
 
 import io
 import math
@@ -65,7 +66,8 @@ def loudness(path):
 
 
 def level_idc(path, box, offset):
-    """The level an MP4 says its picture needs: the byte `offset` into the avcC (H.264) or hvcC (H.265) box."""
+    """The level an MP4 says its picture needs: the byte `offset` into the avcC (H.264) or hvcC
+    (H.265) box."""
     data = Path(path).read_bytes()
     start = data.index(box) + 4
     return data[start + offset]
@@ -87,13 +89,15 @@ def difference(a, b):
 
 
 def counter_clip(path, seconds=4, rate="15"):
-    """A tiny clip whose frame number N is its brightness (N * 4), so the frames an export kept can be read."""
-    # "-color_range pc" says the gray levels are the full 0..255. Measured with ffprobe: without it, ffmpeg 6.1.1
-    # (Ubuntu 24.04, in WSL) wrote this clip as yuv420p with no range, and the bundled 7.1 essentials build on
-    # Windows wrote yuvj420p/pc. Read back from the 6.1.1 file, the levels were stretched: brightness 0..16 all
-    # came out as 0, so frames 0-4 looked alike and the other numbers were off by a few. That made the
-    # frame-number tests fail on Linux; the export was fine. With the range said, the tests pass on both
-    # builds. Other ffmpeg builds and platforms: untested.
+    """A tiny clip whose frame number N is its brightness (N * 4), so the frames an export kept can
+    be read."""
+    # "-color_range pc" says the gray levels are the full 0..255. Measured with ffprobe: without
+    # it, ffmpeg 6.1.1 (Ubuntu 24.04, in WSL) wrote this clip as yuv420p with no range, and the
+    # bundled 7.1 essentials build on Windows wrote yuvj420p/pc. Read back from the 6.1.1 file, the
+    # levels were stretched: brightness 0..16 all came out as 0, so frames 0-4 looked alike and the
+    # other numbers were off by a few. That made the frame-number tests fail on Linux; the export
+    # was fine. With the range said, the tests pass on both builds. Other ffmpeg builds and
+    # platforms: untested.
     ff(
         "-f", "lavfi", "-i",
         f"color=gray:size=16x16:rate={rate}:duration={seconds},format=gray,geq=lum='mod(N,64)*4'",
@@ -106,9 +110,9 @@ def frame_numbers(path):
 
 
 def count_frames(path):
-    # The picture is decoded, not copied. Measured: for a stream copy, ffmpeg 6.1.1 (Ubuntu 24.04, WSL) prints
-    # no "frame=" count, only a size and a time, while the bundled 7.1 on Windows does. Decoding printed it on
-    # both, and the tests pass on both. Other builds: untested.
+    # The picture is decoded, not copied. Measured: for a stream copy, ffmpeg 6.1.1 (Ubuntu 24.04,
+    # WSL) prints no "frame=" count, only a size and a time, while the bundled 7.1 on Windows does.
+    # Decoding printed it on both, and the tests pass on both. Other builds: untested.
     result = text_of("-i", path, "-map", "0:v:0", "-f", "null", "-")
     return int(re.findall(r"frame=\s*(\d+)", result)[-1])
 
@@ -166,15 +170,16 @@ class LevelCommandTests(unittest.TestCase):
         self.assertIn("level-idc=5.0", after(cmd, "-x265-params"))
 
     def test_x265_is_told_the_highest_rate_of_a_changing_one_so_it_accepts_the_level(self):
-        # Without it x265 works a rate of 1000 or more out of the time base and refuses: "frame rate is out of
-        # range for specified level".
+        # Without it x265 works a rate of 1000 or more out of the time base and refuses: "frame
+        # rate is out of range for specified level".
         cmd = cmd_for(
             VideoEdit(aspect=None, video_format="hevc"), info_of(1728, 1080, 60.4, max_fps=120.0))
         self.assertEqual(after(cmd, "-x265-params").split(":"), ["level-idc=5.0", "fps=120"])
         self.assertNotIn("-r", cmd)
 
     def test_intel_graphics_keep_the_frames_of_a_changing_rate(self):
-        # Intel's encoder makes the picture steady at the rate it is told: 30 dropped half of a 60 fps recording.
+        # Intel's encoder makes the picture steady at the rate it is told: 30 dropped half of a 60
+        # fps recording.
         vfr = info_of(1728, 1080, 60.4, max_fps=120.0)
         for name, video_format in (("h264_qsv", "mp4"), ("hevc_qsv", "hevc")):
             edit = VideoEdit(aspect=None, use_gpu=True, video_format=video_format)
@@ -462,12 +467,13 @@ class OutputNameTests(unittest.TestCase):
             self.assertEqual(target.name, "song (1).mp3")
             shouted = output_path_for(Path(tmp) / "SONG.MP3", overwrite=True).name
             if (Path(tmp) / "SONG.MP3").exists():
-                # A case-insensitive file system (Windows NTFS, where this was run; macOS is untested):
-                # SONG.MP3 is song.mp3, so it is not replaced.
+                # A case-insensitive file system (Windows NTFS, where this was run; macOS is
+                # untested): SONG.MP3 is song.mp3, so it is not replaced.
                 self.assertEqual(shouted, "SONG (1).mp3")
             else:
-                # A case-sensitive one (Linux, measured in WSL Ubuntu; the file system type was not checked):
-                # SONG.MP3 is another file than song.mp3, which does not exist, so SONG.mp3 is free to be written.
+                # A case-sensitive one (Linux, measured in WSL Ubuntu; the file system type was not
+                # checked): SONG.MP3 is another file than song.mp3, which does not exist, so
+                # SONG.mp3 is free to be written.
                 self.assertEqual(shouted, "SONG.mp3")
 
     def test_the_other_inputs_and_the_outputs_so_far_are_not_picked_either(self):
@@ -650,15 +656,17 @@ class JobObjectTests(unittest.TestCase):
         proc.fve_job.close()
 
     def test_a_file_the_child_has_open_can_be_removed_as_soon_as_it_is_stopped(self):
-        # Like ffmpeg behind a Chocolatey or Scoop launcher: the launcher ends first, the real program with the
-        # open file a moment later. A cancelled export removes its temporary folder right after stopping.
+        # Like ffmpeg behind a Chocolatey or Scoop launcher: the launcher ends first, the real
+        # program with the open file a moment later. A cancelled export removes its temporary
+        # folder right after stopping.
         with tempfile.TemporaryDirectory() as tmp:
             held, ready = Path(tmp) / "passlog.temp", Path(tmp) / "ready"
             child = (
                 f"f = open({str(held)!r}, 'w'); open({str(ready)!r}, 'w').close(); "
                 "import time; time.sleep(60)")
             launcher = (
-                f"import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', {child!r}]); "
+                "import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', "
+                f"{child!r}]); "
                 "time.sleep(60)")
             proc = start_process([sys.executable, "-c", launcher], stdout=subprocess.DEVNULL)
             deadline = time.monotonic() + 20
@@ -667,13 +675,13 @@ class JobObjectTests(unittest.TestCase):
             self.assertTrue(ready.exists())
             stop_process(proc)
             self.assertTrue(proc.fve_job.wait_until_empty(0), "the real program was still running")
-            # Windows may count a process as gone a moment before it lets go of its files: the folder is still
-            # removed within the moment remove_folder allows.
+            # Windows may count a process as gone a moment before it lets go of its files: the
+            # folder is still removed within the moment remove_folder allows.
             remove_folder(Path(tmp))
             self.assertFalse(held.exists())
             proc.fve_job.close()
 
-    def test_a_work_folder_whose_file_is_still_in_use_is_removed_once_it_is_free_and_raises_nothing(
+    def test_a_work_folder_whose_file_is_still_in_use_is_removed_once_it_is_free_and_raises_nothing(  # noqa: E501
             self):
         with work_folder("fve-test-") as folder:
             held = open(Path(folder) / "passlog.temp", "w")
@@ -792,7 +800,8 @@ class LimiterExportTests(unittest.TestCase):
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class NoiseReductionTests(unittest.TestCase):
-    """A voice-like signal (a 140 Hz harmonic tone in syllables) from 2.5 s to 9.5 s over white noise at -36 dB."""
+    """A voice-like signal (a 140 Hz harmonic tone in syllables) from 2.5 s to 9.5 s over white
+    noise at -36 dB."""
 
     @classmethod
     def setUpClass(cls):
@@ -840,7 +849,7 @@ class NoiseReductionTests(unittest.TestCase):
         self.assertLess(pause_before - self.rms(out, 0.5, 2.0), 3.0)
 
 
-# ----- 10. clicks at cuts -------------------------------------------------------------------------
+# ----- 10. clicks at cuts ------------------------------------------------------------------------
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
@@ -852,7 +861,8 @@ class CutClickTests(unittest.TestCase):
             ff(
                 "-f", "lavfi", "-i", "sine=frequency=1000:duration=3:sample_rate=48000", "-ac",
                 "1", tone)
-            # 1/15 s cut out: 66.67 periods of 1000 Hz, so the wave comes back two thirds of a period later
+            # 1/15 s cut out: 66.67 periods of 1000 Hz, so the wave comes back two thirds of a
+            # period later
             graph = audio_filters("[0:a:0]", "[a]", [(0.0, 1.0), (1.0 + 1 / 15, 2.0)])
             out = Path(tmp) / "cut.wav"
             ff("-i", tone, "-filter_complex", graph, "-map", "[a]", "-c:a", "pcm_s16le", out)
@@ -883,7 +893,7 @@ class CutFadeTests(unittest.TestCase):
             "[0:a:0]asetpts=PTS-STARTPTS[a]")
 
 
-# ----- 11. times ----------------------------------------------------------------------------------
+# ----- 11. times ---------------------------------------------------------------------------------
 
 
 class TimeTests(unittest.TestCase):
@@ -898,7 +908,7 @@ class TimeTests(unittest.TestCase):
         self.assertEqual(parse_time("1e2"), 100)
 
 
-# ----- 12. a frame at the very end ----------------------------------------------------------------
+# ----- 12. a frame at the very end ---------------------------------------------------------------
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
@@ -936,7 +946,7 @@ class LastFrameTests(unittest.TestCase):
         self.assertFalse(target.exists())
 
 
-# ----- 13 and 14. speed, cuts and the steady rate ---------------------------------------------------
+# ----- 13 and 14. speed, cuts and the steady rate ------------------------------------------------
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
@@ -960,7 +970,8 @@ class SpeedCadenceTests(unittest.TestCase):
         return frame_numbers(out)
 
     def steps(self, numbers):
-        """The distance between neighbours that belong to the same piece of the source (not across a cut)."""
+        """The distance between neighbours that belong to the same piece of the source (not across
+        a cut)."""
         return [b - a for a, b in zip(numbers, numbers[1:]) if (a < 30) == (b < 30)]
 
     def test_double_speed_with_cuts_takes_every_other_frame(self):
@@ -1028,7 +1039,7 @@ class SlowMotionRateTests(unittest.TestCase):
                 self.assertAlmostEqual(probe_media(FFMPEG, out).fps, 30.0, delta=0.5)
 
 
-# ----- 15 and 16. the edges of a trim --------------------------------------------------------------
+# ----- 15 and 16. the edges of a trim ------------------------------------------------------------
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
@@ -1085,7 +1096,7 @@ class TrimEdgeTests(unittest.TestCase):
         self.assertEqual(count_frames(out), 1)
 
 
-# ----- 17. memory for reverse -------------------------------------------------------------------------
+# ----- 17. memory for reverse --------------------------------------------------------------------
 
 
 class ReverseMemoryLooksTests(unittest.TestCase):
@@ -1106,8 +1117,8 @@ class ReverseMemoryLooksTests(unittest.TestCase):
                 plain + video.REVERSE_BASE_BYTES)
 
     def test_the_estimate_covers_what_real_reverses_used(self):
-        # Peak memory of ffmpeg measured on 5 s reverses (1080p60, 4K30, 4K30 with the Warm look): the estimate
-        # may be a little above, never far below.
+        # Peak memory of ffmpeg measured on 5 s reverses (1080p60, 4K30, 4K30 with the Warm look):
+        # the estimate may be a little above, never far below.
         for width, height, fps, look, measured_gb in ((1920, 1080, 60.0, "none",
                                                        1.61), (3840, 2160, 30.0, "none", 3.77),
                                                       (3840, 2160, 30.0, "warm", 5.62)):
@@ -1117,7 +1128,7 @@ class ReverseMemoryLooksTests(unittest.TestCase):
             self.assertLess(estimate, measured_gb * 1.5, (width, look))
 
 
-# ----- 18. fitting a size, and what is said when it can't be done ---------------------------------------
+# ----- 18. fitting a size, and what is said when it can't be done --------------------------------
 
 
 class FitMessageTests(unittest.TestCase):
@@ -1140,8 +1151,8 @@ class FitMessageTests(unittest.TestCase):
         self.assertNotIn("0:00.0", str(caught.exception))
 
     def test_the_sound_goes_below_48_kbps_before_the_fit_is_given_up(self):
-        # 10 MB over 700 s is about 111 kbps for everything: 48 kbps of sound leaves the picture 63, under the
-        # 80 it needs at least; 24 kbps leaves it 87
+        # 10 MB over 700 s is about 111 kbps for everything: 48 kbps of sound leaves the picture
+        # 63, under the 80 it needs at least; 24 kbps leaves it 87
         rungs = [(None, 128, 72)]
         roomy = output.fit_plan(output.target_bytes(10), 100, "h264", "aac", 10.0, rungs)
         self.assertEqual(roomy.audio_kbps, 128)
@@ -1174,7 +1185,7 @@ class GifWarningTests(unittest.TestCase):
         self.assertEqual(video.format_warning(VideoEdit(aspect=None, video_format="gif"), big), "")
 
 
-# ----- 19. the graphics cards -------------------------------------------------------------------------
+# ----- 19. the graphics cards --------------------------------------------------------------------
 
 
 class GraphicsCardCalibrationTests(unittest.TestCase):
@@ -1222,7 +1233,7 @@ class GraphicsCardCalibrationTests(unittest.TestCase):
             self.assertEqual(make(23, 30.0)[-2:], ["-tag:v", "hvc1"])
 
 
-# ----- 20. memory of a 4K export -----------------------------------------------------------------------
+# ----- 20. memory of a 4K export -----------------------------------------------------------------
 
 
 class BigPictureTests(unittest.TestCase):
@@ -1248,7 +1259,7 @@ class BigPictureTests(unittest.TestCase):
         self.assertLessEqual(video.ENCODER_THREADS, 12)
 
 
-# ----- 21. the command line -----------------------------------------------------------------------------
+# ----- 21. the command line ----------------------------------------------------------------------
 
 
 class CommandLineFixTests(unittest.TestCase):

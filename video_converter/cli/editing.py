@@ -25,7 +25,8 @@ def frame_mode_requested(args) -> bool:
 
 def _warn_reverse(
         name: str, edit: VideoEdit, info, sound_only: bool, fps: float | None = None) -> None:
-    """Say so on stderr when playing `edit` backwards will need a lot of memory. The export still runs."""
+    """Say so on stderr when playing `edit` backwards will need a lot of memory. The export still
+    runs."""
     warning = reverse_warning(reverse_memory(edit, info, fps, sound_only))
     if warning:
         print(f"\r{name}: warning - {warning}", file=sys.stderr)
@@ -44,7 +45,8 @@ def _with_cuts(
 
 
 def _without_silences(edit: VideoEdit, ffmpeg: str, source: Path, info, args, note) -> VideoEdit:
-    """A copy of `edit` with the silences of `source` cut out (inside its trim, next to any cuts it has)."""
+    """A copy of `edit` with the silences of `source` cut out (inside its trim, next to any cuts it
+    has)."""
     if not info.duration:
         raise ConversionError("Can't remove silences: this file's length is unknown.")
     if not info.has_audio:

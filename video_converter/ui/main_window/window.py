@@ -64,22 +64,24 @@ class MainWindow(LayoutMixin, PreferencesMixin, LibraryMixin, SelectionMixin, Ed
         self.user_presets: dict[str, dict] = {}
         self.merge_open = False
         self.theme_mode = "dark"  # the theme in use: "dark" or "light"
-        self.theme_choice = "system"  # the theme asked for: "system", "dark" or "light" (what is saved)
+        # the theme asked for: "system", "dark" or "light" (what is saved)
+        self.theme_choice = "system"
         self.models_root: Optional[
             Path] = None  # where the speech models are kept (None = the app's own folder)
         self.tmpdir = Path(tempfile.mkdtemp(prefix="videoconverter-"))
         tempclean.mark_owner(
             self.tmpdir)  # so a later start doesn't sweep this folder up while the window is open
         self.closed = False
-        self._restarting = False  # closing to start the app again, after the user agreed to stop exports
+        # closing to start the app again, after the user agreed to stop exports
+        self._restarting = False
         self.confirm_heavy_exports = True  # ask before an export that needs a lot of memory
         self.smooth_previews = True  # play a small copy of big videos (View menu)
         self.check_updates = True  # look for a newer version once a day (Help menu)
         self.update_release: Optional[
             updates.Release] = None  # the newer version the banner is about
         self.gpu_encoders: Optional[tuple[str, ...]] = None  # None until the search has finished
-        # Daemon threads, and the ffmpeg runs they start are remembered so closing can end them: neither may keep the
-        # process alive after the window is gone.
+        # Daemon threads, and the ffmpeg runs they start are remembered so closing can end them:
+        # neither may keep the process alive after the window is gone.
         self.loader = DaemonPool(2, "media-loader")
         self.procs = ProcessRegistry()
         self.instance = None  # listens for other copies of the app (see watch_for_other_copies)

@@ -1,8 +1,9 @@
 """Clearing out the temp folders earlier runs left behind.
 
-The editor keeps its previews and thumbnails in a `videoconverter-*` folder of the Windows temp folder and
-removes it when the window closes. A crash, or a PC that was switched off, leaves it behind, and so do the
-`fve-*` folders exports and captions work in. At start-up the ones older than a day are removed."""
+The editor keeps its previews and thumbnails in a `videoconverter-*` folder of the Windows temp
+folder and removes it when the window closes. A crash, or a PC that was switched off, leaves it
+behind, and so do the `fve-*` folders exports and captions work in. At start-up the ones older than
+a day are removed."""
 
 from __future__ import annotations
 
@@ -20,7 +21,8 @@ log = logging.getLogger(__name__)
 
 PREFIXES = ("videoconverter-", "fve-")
 MAX_AGE = 24 * 3600  # seconds a folder must have been left alone before it counts as abandoned
-OWNER_FILE = "owner.pid"  # the editor's folder says which process uses it, so a long session's folder is kept
+# the editor's folder says which process uses it, so a long session's folder is kept
+OWNER_FILE = "owner.pid"
 
 
 def mark_owner(folder: Path) -> None:
@@ -89,8 +91,9 @@ def _last_touched(folder: Path) -> float:
 def sweep_stale(
     root: Optional[Path] = None, max_age: float = MAX_AGE, now: Optional[float] = None,
     keep: Iterable[Path] = ()) -> list[Path]:
-    """Delete the editor's leftover folders in `root` (the temp folder) that are older than `max_age` seconds and
-    that no running copy uses. Best effort: whatever can't be deleted is left. Returns the folders removed."""
+    """Delete the editor's leftover folders in `root` (the temp folder) that are older than
+    `max_age` seconds and that no running copy uses. Best effort: whatever can't be deleted is
+    left. Returns the folders removed."""
     root = Path(root) if root is not None else Path(tempfile.gettempdir())
     now = time.time() if now is None else now
     keep_set = {Path(k) for k in keep}

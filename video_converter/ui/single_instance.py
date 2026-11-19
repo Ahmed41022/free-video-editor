@@ -1,9 +1,11 @@
-"""One editor window per user. Starting the app a second time (for example "Open with" on several files) hands
-its file names to the window that is already open, which adds them and comes to the front, and the new copy exits.
+"""One editor window per user. Starting the app a second time (for example "Open with" on several
+files) hands its file names to the window that is already open, which adds them and comes to the
+front, and the new copy exits.
 
-The copies talk through a local socket (a named pipe on Windows) named after the user. Which copy is the running one
-is decided by a lock file the operating system holds for it: a copy that takes the lock is the running one (and
-keeps it until it quits or crashes), so two copies started at the same moment can't both win."""
+The copies talk through a local socket (a named pipe on Windows) named after the user. Which copy
+is the running one is decided by a lock file the operating system holds for it: a copy that takes
+the lock is the running one (and keeps it until it quits or crashes), so two copies started at the
+same moment can't both win."""
 
 from __future__ import annotations
 
@@ -29,11 +31,13 @@ MAX_MESSAGE = 4 * 1024 * 1024  # a longer "list of files" is not something a per
 CONNECT_MS = 800  # how long a second copy waits for the first to answer
 ANSWER_MS = 3000
 HANDOVER_SECONDS = 5.0  # how long a second copy keeps trying while the first one is still starting
-DISABLE_VARIABLE = "VIDEO_EDITOR_ALLOW_SEVERAL"  # set to 1 to run several copies at once (for developers)
+# set to 1 to run several copies at once (for developers)
+DISABLE_VARIABLE = "VIDEO_EDITOR_ALLOW_SEVERAL"
 
 
 def instance_name() -> str:
-    """The socket name: the same for every copy run by the same user, different for another user."""
+    """The socket name: the same for every copy run by the same user, different for another
+    user."""
     try:
         user = getpass.getuser()
     except Exception:
@@ -66,8 +70,8 @@ def decode_paths(message: bytes) -> list[str]:
 def send_paths(
         name: str, paths: list[Path | str], connect_ms: Optional[int] = None,
         answer_ms: Optional[int] = None) -> bool:
-    """Hand `paths` to the copy that listens on `name`. True once it has taken them. False when no copy answers
-    (nobody listens, or a crashed one left its name behind)."""
+    """Hand `paths` to the copy that listens on `name`. True once it has taken them. False when no
+    copy answers (nobody listens, or a crashed one left its name behind)."""
     connect_ms = CONNECT_MS if connect_ms is None else connect_ms
     answer_ms = ANSWER_MS if answer_ms is None else answer_ms
     socket = QLocalSocket()
@@ -86,8 +90,8 @@ def send_paths(
 
 
 class SingleInstance(QObject):
-    """Listens for other copies of the app. `pathsReceived` carries the file names they were started with
-    (an empty list when they had none: the window should just come to the front)."""
+    """Listens for other copies of the app. `pathsReceived` carries the file names they were
+    started with (an empty list when they had none: the window should just come to the front)."""
 
     pathsReceived = Signal(list)
 
@@ -108,9 +112,9 @@ class SingleInstance(QObject):
         return self.server.isListening()
 
     def listen(self) -> bool:
-        """Become the running copy: take the lock (which the operating system gives up when this program ends, so a
-        crash leaves nothing behind) and listen for the others. Qt's own listen() would not do as the lock on
-        Windows: it lets several servers share one name."""
+        """Become the running copy: take the lock (which the operating system gives up when this
+        program ends, so a crash leaves nothing behind) and listen for the others. Qt's own
+        listen() would not do as the lock on Windows: it lets several servers share one name."""
         try:
             self.lock.acquire()
         except LockTimeout:
@@ -127,7 +131,8 @@ class SingleInstance(QObject):
         return False
 
     def close(self) -> None:
-        """Stop being the running copy, so a copy started next (as a restart does) can take over."""
+        """Stop being the running copy, so a copy started next (as a restart does) can take
+        over."""
         if self.server.isListening():
             self.server.close()
         QLocalServer.removeServer(self.name)
@@ -168,15 +173,16 @@ def claim(paths: list[Path | str], name: Optional[str] = None,
           lock_folder: Optional[Path] = None) -> Optional[SingleInstance]:
     """Become the one running copy, or hand `paths` to it.
 
-    Returns the `SingleInstance` to keep alive (listening; or, when another copy holds the lock but never answers,
-    one that is not, and this copy simply runs on its own), or None when another copy took the paths and this
-    one should exit."""
+    Returns the `SingleInstance` to keep alive (listening; or, when another copy holds the lock but
+    never answers, one that is not, and this copy simply runs on its own), or None when another
+    copy took the paths and this one should exit."""
     instance = SingleInstance(name, lock_folder)
     if os.environ.get(DISABLE_VARIABLE) == "1":
         return instance
     if instance.listen():
         return instance
-    # Another copy is the running one. It may still be starting up and not listening yet, so ask for a few seconds.
+    # Another copy is the running one. It may still be starting up and not listening yet, so ask
+    # for a few seconds.
     allow_foreground()
     deadline = time.monotonic() + HANDOVER_SECONDS
     while True:
@@ -195,8 +201,8 @@ def claim(paths: list[Path | str], name: Optional[str] = None,
 
 
 def allow_foreground() -> None:
-    """Let the copy that receives the files bring its window to the front (Windows only lets the process
-    that is in front, or one it allows, do that)."""
+    """Let the copy that receives the files bring its window to the front (Windows only lets the
+    process that is in front, or one it allows, do that)."""
     if sys.platform != "win32":
         return
     try:

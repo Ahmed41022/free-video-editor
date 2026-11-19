@@ -9,7 +9,8 @@ from typing import Optional
 
 # Tried in this order; the first of equal scores wins, so plain Western text stays Windows-1252.
 LEGACY_CODEPAGES = ("cp1252", "cp1256", "cp1255", "cp1251", "cp1253", "cp1254")
-# The most used letters of a language: text decoded in the right code page is full of them, text decoded in the wrong one is not.
+# The most used letters of a language: text decoded in the right code page is full of them, text
+# decoded in the wrong one is not.
 _COMMON_LETTERS = {
     "ARABIC": set("اليمونرتبةهعدسىأ"),
     "HEBREW": set("יוהלארבתמשנע"),
@@ -29,13 +30,13 @@ def _script(ch: str) -> str:
 
 
 def code_page_score(text: str) -> float:
-    """How much `text` (some bytes read in one code page) looks like real writing, 0..1 (negative when it
-    holds control or replacement characters): ASCII-only text is fine; accented Latin letters are a small
-    part of a text; other scripts are one script, made of that language's usual letters, with capitals only
-    at the start of words."""
+    """How much `text` (some bytes read in one code page) looks like real writing, 0..1 (negative
+    when it holds control or replacement characters): ASCII-only text is fine; accented Latin
+    letters are a small part of a text; other scripts are one script, made of that language's usual
+    letters, with capitals only at the start of words."""
     letters = [ch for ch in text if ch.isalpha()]
-    # Control and replacement characters never belong in subtitles; the direction marks Windows-1256 turns
-    # Turkish ı and ş into (bytes FD and FE) are about as unlikely.
+    # Control and replacement characters never belong in subtitles; the direction marks
+    # Windows-1256 turns Turkish ı and ş into (bytes FD and FE) are about as unlikely.
     odd = sum(1 for ch in text if ch in "�‎‏" or "\x80" <= ch <= "\x9f")
     high = [ch for ch in letters if ord(ch) > 127]
     if not high:
@@ -55,7 +56,8 @@ def code_page_score(text: str) -> float:
             1.0,
             sum(ch.lower() in common for ch in same) / len(same) / 0.55)
         words = [w for w in re.split(r"\W+", text) if w]
-        # A word of Latin and Arabic (or Cyrillic...) letters together ("cafי") means the wrong code page.
+        # A word of Latin and Arabic (or Cyrillic...) letters together ("cafי") means the wrong
+        # code page.
         with_script = [w for w in words if any(_script(ch) == script for ch in w)]
         mixed = sum(1 for w in with_script if any(ch.isascii() and ch.isalpha() for ch in w))
         plausible *= 1.0 - mixed / max(len(with_script), 1)
@@ -71,9 +73,10 @@ def code_page_score(text: str) -> float:
 
 
 def decode_text(data: bytes) -> tuple[str, str]:
-    """(the text of subtitle `data`, the encoding it was in): a byte order mark says it outright, a file
-    with the NUL bytes of UTF-16 is UTF-16 without one, valid UTF-8 is UTF-8, and anything else is read in
-    the Windows code page (Arabic, Hebrew, Cyrillic, Greek, Turkish or Western) that makes the most sense of it."""
+    """(the text of subtitle `data`, the encoding it was in): a byte order mark says it outright, a
+    file with the NUL bytes of UTF-16 is UTF-16 without one, valid UTF-8 is UTF-8, and anything
+    else is read in the Windows code page (Arabic, Hebrew, Cyrillic, Greek, Turkish or Western)
+    that makes the most sense of it."""
     if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
         return data.decode("utf-32", errors="replace"), "utf-32"
     if data.startswith(b"\xef\xbb\xbf"):
@@ -108,7 +111,8 @@ def decode_text(data: bytes) -> tuple[str, str]:
         try:
             turkish = data.decode("cp1254")
             if code_page_score(turkish) >= best[0] - 1e-9:
-                return turkish, "cp1254"  # Ğ ş ı... are there and nothing else tells Icelandic from Turkish
+                # Ğ ş ı... are there and nothing else tells Icelandic from Turkish
+                return turkish, "cp1254"
         except UnicodeDecodeError:
             pass
     return best[2], best[1]
@@ -120,5 +124,6 @@ def read_text_with_encoding(path: Path) -> tuple[str, str]:
 
 
 def read_text(path: Path) -> str:
-    """The text of a file, whatever Unicode form or Windows code page it is in (see `decode_text`)."""
+    """The text of a file, whatever Unicode form or Windows code page it is in (see
+    `decode_text`)."""
     return read_text_with_encoding(path)[0]

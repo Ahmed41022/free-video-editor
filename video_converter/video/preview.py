@@ -22,9 +22,9 @@ def _grab_frames(
         info: Optional[MediaInfo] = None) -> None:
     """Run `graph` on the frame at `at` seconds, saving each labelled output as a PNG.
 
-    `at` is held to the last frame of the video (when `info` says how long it is): a seek to or past the
-    end finds no frame at all. Pictures from an earlier run are deleted first, so a run that fails can't
-    leave an old one to be taken for its result."""
+    `at` is held to the last frame of the video (when `info` says how long it is): a seek to or
+    past the end finds no frame at all. Pictures from an earlier run are deleted first, so a run
+    that fails can't leave an old one to be taken for its result."""
     at = max(at, 0.0)
     if info and info.duration:
         at = min(at, max(info.duration - 1.0 / (info.fps or DEFAULT_FPS), 0.0))
@@ -55,8 +55,8 @@ def _grab_frames(
 
     result = attempt(["-ss", f"{max(at - SEEK_SLACK, 0.0):.6f}"], once=True)
     if result.returncode != 0 or not all(png.is_file() for png in outputs.values()):
-        # Nothing at that time (a video whose last frame is earlier than it says): take the last frame
-        # of its final second, which is what writing every frame to the same file ends with.
+        # Nothing at that time (a video whose last frame is earlier than it says): take the last
+        # frame of its final second, which is what writing every frame to the same file ends with.
         result = attempt(["-sseof", "-1"], once=False)
     if result.returncode != 0 or not all(png.is_file() for png in outputs.values()):
         raise ConversionError(
@@ -75,9 +75,9 @@ def render_frame(
 
     The frame is reframed and adjusted like the export, then stamped with the time it will have
     in the export and run through the export's own fade filters, so fades look the same too.
-    The text, logo and subtitles are drawn at the export's size before the frame is shrunk, with the
-    same filters, so they match the export. A frame that is cut out of the export gets only the logo.
-    Stabilization is left out: it needs the whole clip."""
+    The text, logo and subtitles are drawn at the export's size before the frame is shrunk, with
+    the same filters, so they match the export. A frame that is cut out of the export gets only the
+    logo. Stabilization is left out: it needs the whole clip."""
     geometry = plan_geometry(info.width, info.height, edit)
     graph = build_filter_graph(geometry, edit, out="[framed]")
     segments = edit.segments(info.duration)
@@ -112,5 +112,7 @@ def render_source_frames(
     The editor shows the dimmed copy with the bright crop area drawn on top.
     """
     pre = "".join(f"{f}," for f in orientation_filters(edit))
-    graph = f"[0:v]{pre}{_shrink(max_size)},split=2[n][d];[d]eq=brightness=-0.3:saturation=0.5[dim]"
+    graph = (
+        f"[0:v]{pre}{_shrink(max_size)},split=2[n][d];[d]eq=brightness=-0.3:saturation=0."
+        "5[dim]")
     _grab_frames(ffmpeg, source, at, graph, {"n": normal_png, "dim": dimmed_png}, info)

@@ -13,12 +13,12 @@ def overlay_graph(
         src: str, out: str, texts: list[TextItem], logo: Logo, subtitles: Subtitles,
         frame: tuple[int, int], segments: list[Segment], speed: float = 1.0, reverse: bool = False,
         tag: str = "") -> list[str]:
-    """Graph statements that draw the logo, the subtitles and the texts (in that order, so text is on
-    top) over stream `src`, ending in `out`. [] when there is nothing to draw.
+    """Graph statements that draw the logo, the subtitles and the texts (in that order, so text is
+    on top) over stream `src`, ending in `out`. [] when there is nothing to draw.
 
     `frame` is the video's width and height at this point, `segments` the kept parts of the source
-    (see `VideoEdit.segments`), which the subtitles' source times are moved through. The texts' times
-    are already on the export's timeline."""
+    (see `VideoEdit.segments`), which the subtitles' source times are moved through. The texts'
+    times are already on the export's timeline."""
     chain = []
     if subtitles.file:
         chain.append(subtitle_filter(subtitles, segments, speed, reverse))

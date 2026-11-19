@@ -1,6 +1,6 @@
-"""The "Text and logo" controls: a list of texts with an editor for the selected one, the logo, and the
-subtitle file. It is shown inside a section of the inspector and reports every change as a function
-that edits a copy of the settings (see `Inspector._edit`)."""
+"""The "Text and logo" controls: a list of texts with an editor for the selected one, the logo, and
+the subtitle file. It is shown inside a section of the inspector and reports every change as a
+function that edits a copy of the settings (see `Inspector._edit`)."""
 
 from __future__ import annotations
 
@@ -219,8 +219,8 @@ class CaptionsPanel(QWidget):
         self.box_opacity.valueChanged.connect(
             lambda v: self._edit_text(
                 lambda t: setattr(t, "box_opacity", round(v / 100, 3)), tr("Box opacity")))
-        # Two lines: the check box with its long name, then the color and opacity under it. Side by side they
-        # needed more than the settings panel is wide at the smallest window.
+        # Two lines: the check box with its long name, then the color and opacity under it. Side by
+        # side they needed more than the settings panel is wide at the smallest window.
         row(tr("Box"), self.box_check)
         row("", _row(self.box_button, self.box_opacity))
         self.align_group = QButtonGroup(self)
@@ -641,8 +641,9 @@ class CaptionsPanel(QWidget):
         def apply(settings) -> None:
             if index < len(settings.edit.texts):
                 twin = copy.deepcopy(settings.edit.texts[index])
-                # A little lower, so the copy doesn't hide the original; a text near the bottom has no room
-                # for that (the copies would stack on top of each other there), so its copy goes above.
+                # A little lower, so the copy doesn't hide the original; a text near the bottom has
+                # no room for that (the copies would stack on top of each other there), so its copy
+                # goes above.
                 twin.y = twin.y + 0.07 if twin.y + 0.07 <= 0.95 else max(twin.y - 0.07, 0.05)
                 settings.edit.texts.insert(index + 1, twin)
 
@@ -705,8 +706,10 @@ class CaptionsPanel(QWidget):
     def _choose_logo(self) -> None:
         current = self.edit.logo.file if self.edit else ""
         patterns = " ".join(f"*{extension}" for extension in IMAGE_EXTENSIONS)
-        path, _ = QFileDialog.getOpenFileName(      # pictures only: a video would show one frame and then freeze
-            self, tr("Choose a logo"), str(Path(current).parent) if current else "",
+        # pictures only: a video would show one frame and then freeze
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("Choose a logo"),
+            str(Path(current).parent) if current else "",
             tr("Pictures ({patterns})", patterns=patterns))
         if path:
             self.edited.emit(

@@ -1,4 +1,5 @@
-"""`python -m tests`: the test suite on several processes (see parallel_runner.py, or `python -m tests -h`)."""
+"""`python -m tests`: the test suite on several processes (see parallel_runner.py, or `python -m
+tests -h`)."""
 import multiprocessing
 import sys
 

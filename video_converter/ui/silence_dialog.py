@@ -1,4 +1,5 @@
-"""The "Remove silences" window: pick how quiet and how long a pause is, see what it would cut, apply."""
+"""The "Remove silences" window: pick how quiet and how long a pause is, see what it would cut,
+apply."""
 
 from __future__ import annotations
 
@@ -143,7 +144,8 @@ class SilenceDialog(QDialog):
     # ----- listening ----------------------------------------------------------
 
     def _level_changed(self) -> None:
-        """The level or length changed: what was heard no longer applies, so listen again shortly."""
+        """The level or length changed: what was heard no longer applies, so listen again
+        shortly."""
         self._show_values()
         self._stop_listening()
         self.silences = None
@@ -162,7 +164,8 @@ class SilenceDialog(QDialog):
         run, cancel = self._run, threading.Event()
         self._cancel = cancel
         level, length = self.noise_db, self.min_length
-        previous = self._thread  # its ffmpeg is being stopped; this run starts only once that has finished
+        # its ffmpeg is being stopped; this run starts only once that has finished
+        previous = self._thread
 
         def work() -> None:
             found, problem = None, ""
@@ -231,8 +234,9 @@ class SilenceDialog(QDialog):
         super().accept()
 
     def done(self, result: int) -> None:
-        """Stop ffmpeg however the window closes. The listening thread ends the run in the background; its result is
-        ignored (nobody is waiting for it), so the window closes at once."""
+        """Stop ffmpeg however the window closes. The listening thread ends the run in the
+        background; its result is ignored (nobody is waiting for it), so the window closes at
+        once."""
         self._stop_listening()
         self._run += 1
         super().done(result)

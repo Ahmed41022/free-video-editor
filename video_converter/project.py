@@ -193,8 +193,9 @@ def apply_to(
     """Return a copy of `target` with `source`'s settings, keeping target's own
     crop position, zoom and trim unless `include_framing` is set.
 
-    The texts and the subtitle file stay the target's own too: what one video says is not what another
-    one says, and a subtitle file was made for one video. The logo and the subtitle style are copied."""
+    The texts and the subtitle file stay the target's own too: what one video says is not what
+    another one says, and a subtitle file was made for one video. The logo and the subtitle style
+    are copied."""
     result = source.copy()
     if not include_framing:
         for name in FRAMING_FIELDS:
@@ -205,8 +206,9 @@ def apply_to(
 
 # Preset name -> settings it changes. Presets only touch these fields.
 PRESETS: dict[str, dict[str, Any]] = {
-    # For a video that won't play on a phone: the whole picture, no bigger than 1080p, at a steady 60 fps.
-    # H.264 in an MP4 is the one thing every phone plays, so this preset says so whatever format was chosen.
+    # For a video that won't play on a phone: the whole picture, no bigger than 1080p, at a steady
+    # 60 fps. H.264 in an MP4 is the one thing every phone plays, so this preset says so whatever
+    # format was chosen.
     N_("Play on phone (keeps the whole picture)"): {
         "output": OUTPUT_VIDEO,
         "aspect": None,
@@ -260,8 +262,9 @@ PRESETS: dict[str, dict[str, Any]] = {
 
 def apply_preset(
         settings: ClipSettings, values: dict[str, Any], has_picture: bool = True) -> ClipSettings:
-    """Return a copy of `settings` with a preset's values applied. A file with no picture (`has_picture` False)
-    stays an MP3 export: there is no video to make from it, whatever the preset says."""
+    """Return a copy of `settings` with a preset's values applied. A file with no picture
+    (`has_picture` False) stays an MP3 export: there is no video to make from it, whatever the
+    preset says."""
     result = settings.copy()
     for key, value in values.items():
         if key == "output":
@@ -280,10 +283,10 @@ def apply_preset(
 def output_file_for(
     source: Path, settings: ClipSettings, output_dir: Optional[Path] = None, joined: bool = False,
     avoid: Iterable[Path] = ()) -> Path:
-    """Where an export of `source` with `settings` should go (never an existing file, nor `source` or
-    any of the other files in `avoid`, such as the rest of a joined export's clips).
-    A `joined` export, named after its first clip, is "name (joined).mp4" or ".mp3". The extension
-    follows the video format: .mp4, .webm, .mov or .gif."""
+    """Where an export of `source` with `settings` should go (never an existing file, nor `source`
+    or any of the other files in `avoid`, such as the rest of a joined export's clips). A `joined`
+    export, named after its first clip, is "name (joined).mp4" or ".mp3". The extension follows the
+    video format: .mp4, .webm, .mov or .gif."""
     audio = settings.output == OUTPUT_AUDIO
     extension = settings.edit.output_format.extension
     if joined:
@@ -362,7 +365,8 @@ def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
 
 
 def sound_words(edit: VideoEdit) -> list[str]:
-    """What is done to the sound, for the summary: "+3 dB", "even loudness", "less noise", "music"."""
+    """What is done to the sound, for the summary: "+3 dB", "even loudness", "less noise",
+    "music"."""
     words = []
     if edit.volume:
         words.append(f"{edit.volume:+g} dB")

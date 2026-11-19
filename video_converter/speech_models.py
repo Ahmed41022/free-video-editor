@@ -1,15 +1,16 @@
-"""The speech models behind automatic captions: which ones there are, where they are kept, and how they
-are downloaded and checked.
+"""The speech models behind automatic captions: which ones there are, where they are kept, and how
+they are downloaded and checked.
 
 The models are not part of the program. Each one is fetched once from Hugging Face (the official
-Systran/faster-whisper repositories) into %LOCALAPPDATA%\\Free Video Editor\\models\\<name>, and after that
-nothing needs the internet. This is the only place the program contacts Hugging Face, and it only ever
-talks HTTPS to huggingface.co (or hf.co, the address its downloads are served from).
+Systran/faster-whisper repositories) into %LOCALAPPDATA%\\Free Video Editor\\models\\<name>, and
+after that nothing needs the internet. This is the only place the program contacts Hugging Face,
+and it only ever talks HTTPS to huggingface.co (or hf.co, the address its downloads are served
+from).
 
-Every file of every model is pinned here by size and SHA-256 at a fixed revision of its repository. A
-download is written to a temporary folder, checked file by file, and only then moved into place, and a
-model is checked again before it is loaded, so a damaged, half-finished or swapped file is never used.
-"""
+Every file of every model is pinned here by size and SHA-256 at a fixed revision of its repository.
+A download is written to a temporary folder, checked file by file, and only then moved into place,
+and a model is checked again before it is loaded, so a damaged, half-finished or swapped file is
+never used. """
 
 from __future__ import annotations
 
@@ -82,7 +83,8 @@ class SpeechModel:
         return f"{BASE_URL}/{self.repo}/resolve/{self.revision}/{file.name}"
 
 
-# The three files every model repository shares are identical across sizes; only config.json and model.bin differ.
+# The three files every model repository shares are identical across sizes; only config.json and
+# model.bin differ.
 _TOKENIZER = ModelFile(
     "tokenizer.json", 2203239, "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab")
 _VOCABULARY = ModelFile(
@@ -152,8 +154,9 @@ def _staging_path(model: SpeechModel, root: Optional[Path]) -> Path:
 
 
 def is_downloaded(model: SpeechModel, root: Optional[Path] = None) -> bool:
-    """Whether the model's folder holds every file at its exact size. This is the quick check that the
-    window uses; `verify_model` also reads the files through and is what runs before a model is used."""
+    """Whether the model's folder holds every file at its exact size. This is the quick check that
+    the window uses; `verify_model` also reads the files through and is what runs before a model is
+    used."""
     folder = model_path(model, root)
     try:
         return all(
@@ -178,8 +181,9 @@ def file_sha256(path: Path, cancel_event: Optional[threading.Event] = None) -> s
 def verify_model(
         model: SpeechModel, root: Optional[Path] = None,
         cancel_event: Optional[threading.Event] = None) -> Path:
-    """The model's folder, once every file in it has been read through and matches its pinned size and
-    SHA-256. Raises ConversionError (naming the problem) if the model is missing or not intact."""
+    """The model's folder, once every file in it has been read through and matches its pinned size
+    and SHA-256. Raises ConversionError (naming the problem) if the model is missing or not
+    intact."""
     folder = model_path(model, root)
     for file in model.files:
         path = folder / file.name
@@ -193,7 +197,8 @@ def verify_model(
         if size != file.size or file_sha256(path, cancel_event) != file.sha256:
             raise ConversionError(
                 tr(
-                    "The {model} speech model is damaged ({file} is not the file that was expected). "
+                    "The {model} speech model is damaged ({file} is not the file that was "
+                    "expected). "
                     "Delete the folder {folder} and download it again.", model=model.display_label,
                     file=file.name, folder=folder))
     return folder
@@ -203,7 +208,8 @@ def verify_model(
 
 
 def allowed_url(url: str) -> bool:
-    """Whether `url` is an HTTPS address on huggingface.co or hf.co (or one of their subdomains)."""
+    """Whether `url` is an HTTPS address on huggingface.co or hf.co (or one of their
+    subdomains)."""
     parts = urllib.parse.urlsplit(url)
     host = (parts.hostname or "").lower()
     return parts.scheme == "https" and any(
@@ -211,7 +217,8 @@ def allowed_url(url: str) -> bool:
 
 
 class _OnlyHuggingFace(urllib.request.HTTPRedirectHandler):
-    """Follows redirects (Hugging Face sends the big files to its CDN) but only to allowed addresses."""
+    """Follows redirects (Hugging Face sends the big files to its CDN) but only to allowed
+    addresses."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         target = urllib.parse.urljoin(req.full_url, newurl)
@@ -293,12 +300,12 @@ def _stop_if_cancelled(cancel_event: Optional[threading.Event]) -> None:
 def _fetch_file(
         model: SpeechModel, file: ModelFile, staging: Path, open_: Opener, done_before: int,
         report: Callable[[int], None], cancel_event: Optional[threading.Event]) -> None:
-    """Get one file into `staging`, carrying on from a half-finished copy when there is one. The finished
-    file is checked against its pinned size and SHA-256 and only then given its real name.
+    """Get one file into `staging`, carrying on from a half-finished copy when there is one. The
+    finished file is checked against its pinned size and SHA-256 and only then given its real name.
 
-    Each download run has its own `cancel_event`. A run that was cancelled may still be waiting for the
-    network when the next run starts on the same folder, so every step that changes a file looks at the
-    event first: a cancelled run's late bytes are dropped, never written."""
+    Each download run has its own `cancel_event`. A run that was cancelled may still be waiting for
+    the network when the next run starts on the same folder, so every step that changes a file
+    looks at the event first: a cancelled run's late bytes are dropped, never written."""
     final, part = staging / file.name, staging / (file.name + ".part")
     _stop_if_cancelled(cancel_event)
     if final.is_file():
@@ -319,7 +326,8 @@ def _fetch_file(
                                 200) == 206 and _content_range_start(answer) == have:
                 mode = "ab"
             else:
-                have, mode = 0, "wb"  # no resuming (or the server sent the whole file): start again
+                # no resuming (or the server sent the whole file): start again
+                have, mode = 0, "wb"
             with open(part, mode) as out:
                 while have < file.size:
                     _stop_if_cancelled(cancel_event)
@@ -360,18 +368,20 @@ def download_model(
         on_progress: Optional[DownloadProgress] = None,
         cancel_event: Optional[threading.Event] = None, open_: Optional[Opener] = None,
         recheck: bool = True, on_wait: Optional[Callable[[], None]] = None) -> Path:
-    """Download `model` into its folder and return it. Nothing happens if it is already there and intact
-    (`recheck=False` skips that look, for a caller that has just found the model damaged). A damaged model
-    is repaired: the files that are fine are kept and only the others are fetched again.
+    """Download `model` into its folder and return it. Nothing happens if it is already there and
+    intact (`recheck=False` skips that look, for a caller that has just found the model damaged). A
+    damaged model is repaired: the files that are fine are kept and only the others are fetched
+    again.
 
     The files are written to `<name>.downloading` next to the final folder; a download that was
     stopped (cancelled, offline, out of space) carries on from there next time. Raises
-    ConversionCancelled when `cancel_event` is set, and ConversionError with a plain message otherwise.
-    `open_(url, headers)` replaces the real network (for tests).
+    ConversionCancelled when `cancel_event` is set, and ConversionError with a plain message
+    otherwise. `open_(url, headers)` replaces the real network (for tests).
 
-    Only one copy of the app (or the command line) downloads at a time: the others wait on a lock in the models
-    folder, since two of them writing into the same `<name>.downloading` folder would damage each other's files.
-    `on_wait()` is called once if this call has to wait; `cancel_event` ends the wait."""
+    Only one copy of the app (or the command line) downloads at a time: the others wait on a lock
+    in the models folder, since two of them writing into the same `<name>.downloading` folder would
+    damage each other's files. `on_wait()` is called once if this call has to wait; `cancel_event`
+    ends the wait."""
     lock = FileLock(models_folder(root) / LOCK_NAME, timeout=0, cancel=cancel_event)
     try:
         try:
@@ -434,7 +444,8 @@ def _download_model(
         for file in model.files:
             _fetch_file(model, file, staging, open_, done, report, cancel_event)
             done += file.size
-        # One more look at everything together, then the folder takes its real name in a single step.
+        # One more look at everything together, then the folder takes its real name in a single
+        # step.
         for file in model.files:
             if (staging / file.name).stat().st_size != file.size:
                 raise ConversionError(

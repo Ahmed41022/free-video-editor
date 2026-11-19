@@ -20,9 +20,10 @@ from .text import clean_text, mark_right_to_left
 
 
 class SpanMapper:
-    """Moves spans of source time onto the export's timeline, for a fixed set of kept `segments`, `speed`
-    and `reverse`. Built once, it finds the segments a span touches by bisection, so mapping thousands of
-    cues through hundreds of cuts doesn't compare every cue with every segment."""
+    """Moves spans of source time onto the export's timeline, for a fixed set of kept `segments`,
+    `speed` and `reverse`. Built once, it finds the segments a span touches by bisection, so
+    mapping thousands of cues through hundreds of cuts doesn't compare every cue with every
+    segment."""
 
     def __init__(self, segments: list[Segment], speed: float = 1.0, reverse: bool = False):
         self.speed = clamp_speed(speed)
@@ -78,9 +79,9 @@ class SpanMapper:
 def map_span(
     start: float, end: float, segments: list[Segment], speed: float = 1.0, reverse: bool = False,
 ) -> list[tuple[float, float]]:
-    """Where the source time span start..end lands on the export's timeline: one piece for each kept
-    part it overlaps (so a cue that runs across a cut shows before and after it), nothing if it was cut
-    out. Pieces that meet are joined."""
+    """Where the source time span start..end lands on the export's timeline: one piece for each
+    kept part it overlaps (so a cue that runs across a cut shows before and after it), nothing if
+    it was cut out. Pieces that meet are joined."""
     return SpanMapper(segments, speed, reverse)(start, end)
 
 
@@ -99,7 +100,8 @@ def _ass_time(seconds: float) -> str:
 
 def retime_ass(text: str, mapper) -> tuple[str, int]:
     """An ASS script with every Dialogue line moved by `mapper(start, end) -> [(start, end), ...]`
-    (the same text on each piece), and how many lines are left. Styles and everything else stay as they were."""
+    (the same text on each piece), and how many lines are left. Styles and everything else stay as
+    they were."""
     out, left = [], 0
     columns: list[str] = []
     in_events = False
@@ -139,10 +141,10 @@ _BRACE_OPEN = re.compile(r"(?<!\\)\{(?!\\)")
 
 
 def srt_cue_text(text: str) -> str:
-    """A cue's text as it goes into the rewritten .srt that libass reads: no control characters, a blank
-    line in the middle of a cue kept as a line holding a no-break space (a truly empty one would end the
-    cue), and "{...}" in the words escaped so it is shown, not taken for an override block. (A real override
-    such as {\\an8}, which starts with a backslash, is left alone.)"""
+    """A cue's text as it goes into the rewritten .srt that libass reads: no control characters, a
+    blank line in the middle of a cue kept as a line holding a no-break space (a truly empty one
+    would end the cue), and "{...}" in the words escaped so it is shown, not taken for an override
+    block. (A real override such as {\\an8}, which starts with a backslash, is left alone.)"""
     lines = [line if line.strip() else " " for line in clean_text(text).split("\n")]
     text = "\n".join(lines)
     text = _BRACE_BLOCK.sub(lambda m: "\\{" + m.group(1) + "\\}", text)
@@ -150,8 +152,9 @@ def srt_cue_text(text: str) -> str:
 
 
 def _fix_ass_fonts(text: str) -> str:
-    """An ASS script with the font of each style swapped for one that can draw the script's words, when the
-    style's own font can't (Arial leaves a box after every Arabic lam-alef). The rest of the design stays."""
+    """An ASS script with the font of each style swapped for one that can draw the script's words,
+    when the style's own font can't (Arial leaves a box after every Arabic lam-alef). The rest of
+    the design stays."""
     lines = text.split("\n")
     words: list[str] = []
     columns: list[str] = []
@@ -193,7 +196,8 @@ def retimed_subtitles(
         subtitles: Subtitles, segments: list[Segment], speed: float = 1.0,
         reverse: bool = False) -> tuple[Path, str, int]:
     """The subtitle file rewritten for the export: (the new file, "srt" or "ass", the height of
-    its script, which the font size is relative to). `segments` are the kept parts of the source."""
+    its script, which the font size is relative to). `segments` are the kept parts of the
+    source."""
     path = Path(subtitles.file)
     try:
         text = read_text(path)

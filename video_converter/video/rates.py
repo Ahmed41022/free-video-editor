@@ -42,9 +42,10 @@ def steady_rate(chosen: Optional[int], source_fps: Optional[float]) -> Optional[
 
 
 def source_rate(info: MediaInfo, speed: float) -> Optional[float]:
-    """The frame rate the picture of `info` has after a `speed` change, as far as the choice of a steady rate
-    goes: a faster clip has the faster rate, but a slowed-down one is not "slower than the source". Slow
-    motion is made by repeating frames, up to whatever steady rate was asked for."""
+    """The frame rate the picture of `info` has after a `speed` change, as far as the choice of a
+    steady rate goes: a faster clip has the faster rate, but a slowed-down one is not "slower than
+    the source". Slow motion is made by repeating frames, up to whatever steady rate was asked
+    for."""
     return info.fps * max(clamp_speed(speed), 1.0) if info.fps else None
 
 
@@ -54,7 +55,8 @@ def edit_rate(edit: VideoEdit, info: MediaInfo) -> Optional[Fraction]:
 
 
 def native_rate(fps: float) -> Fraction:
-    """A picture's frame rate as the exact rate to write: 29.97 -> 30000/1001, 25 -> 25, 12.5 -> 25/2."""
+    """A picture's frame rate as the exact rate to write: 29.97 -> 30000/1001, 25 -> 25, 12.5 ->
+    25/2."""
     for rate in _NTSC_RATES:
         if abs(fps - float(rate)) <= 0.02:
             return rate
@@ -65,9 +67,10 @@ def native_rate(fps: float) -> Fraction:
 
 def output_rate(edit: VideoEdit, info: MediaInfo) -> Optional[Fraction]:
     """The frame rate to tell the encoder for exporting `info` with `edit`: the steady rate, or the
-    source's own. None when the picture keeps a frame rate that changes (see MediaInfo.variable_frame_rate)
-    or the rate is unknown. Without one an encoder works its rate out from the time base of the filtered
-    picture, which can be 90000 or more frames a second, and writes the file as the highest H.264 level."""
+    source's own. None when the picture keeps a frame rate that changes (see
+    MediaInfo.variable_frame_rate) or the rate is unknown. Without one an encoder works its rate
+    out from the time base of the filtered picture, which can be 90000 or more frames a second, and
+    writes the file as the highest H.264 level."""
     steady = edit_rate(edit, info)
     if steady:
         return steady
@@ -84,8 +87,9 @@ def _rate_text(rate: float | Fraction) -> str:
     return f"{rate:.6g}"
 
 
-# H.264 levels from 4.1 up: (name, biggest picture in 16x16 blocks, most blocks a second). Phones that
-# play 1080p60 want 4.2; 4.1 is 1080p30. Smaller pictures also say 4.1, which every phone plays.
+# H.264 levels from 4.1 up: (name, biggest picture in 16x16 blocks, most blocks a second). Phones
+# that play 1080p60 want 4.2; 4.1 is 1080p30. Smaller pictures also say 4.1, which every phone
+# plays.
 _H264_LEVELS = (
     ("4.1", 8192, 245760), ("4.2", 8192, 522240), ("5.0", 22080, 589824), ("5.1", 36864, 983040),
     ("5.2", 36864, 2073600), ("6.0", 139264, 4177920), ("6.1", 139264,
@@ -94,7 +98,8 @@ _H264_LEVELS = (
 
 
 def h264_level(width: int, height: int, fps: float) -> str:
-    """The lowest H.264 level (from 4.1) that a `width` x `height` picture at `fps` fits, like "4.2"."""
+    """The lowest H.264 level (from 4.1) that a `width` x `height` picture at `fps` fits, like
+    "4.2"."""
     blocks = math.ceil(width / 16) * math.ceil(height / 16)
     for name, frame_limit, rate_limit in _H264_LEVELS:
         if blocks <= frame_limit and blocks * fps <= rate_limit:
@@ -125,8 +130,8 @@ UNKNOWN_RATE_PEAK = 60.0  # the rate a level is worked out for when the picture 
 
 def encoder_level(codec: str, width: int, height: int, rate: Optional[Fraction],
                   info: MediaInfo) -> Optional[str]:
-    """The level an H.264 or H.265 file of this size and frame rate is written as. A picture whose rate
-    changes is covered up to the highest rate it declares."""
+    """The level an H.264 or H.265 file of this size and frame rate is written as. A picture whose
+    rate changes is covered up to the highest rate it declares."""
     peak = float(rate) if rate else (info.max_fps or info.fps or UNKNOWN_RATE_PEAK)
     if codec == "h264":
         return h264_level(width, height, peak)

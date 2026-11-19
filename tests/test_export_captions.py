@@ -1,5 +1,5 @@
-"""Text, logo and subtitles (2.8) together with the export options (2.9): Save frame, GIFs, a file size to
-fit and joins in another format must all carry the same overlays as a plain MP4 export."""
+"""Text, logo and subtitles (2.8) together with the export options (2.9): Save frame, GIFs, a file
+size to fit and joins in another format must all carry the same overlays as a plain MP4 export."""
 
 import contextlib
 import io
@@ -13,8 +13,9 @@ from video_converter.cli import run as cli
 from video_converter.captions import Logo, Subtitles, TextItem
 from video_converter.core import find_ffmpeg, probe_media
 from video_converter.stills import save_frame
-from video_converter.video import JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, plan_geometry, \
-    render_frame
+from video_converter.video import (
+    JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, plan_geometry, render_frame,
+)
 
 FFMPEG = find_ffmpeg()
 TEXT = TextItem(text="WWWW", size=0.3, outline=0)  # white on black: bright pixels are the text

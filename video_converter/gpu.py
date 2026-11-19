@@ -1,4 +1,5 @@
-"""Hardware H.264 and H.265 encoders: find the ones that really work on this PC, and the ffmpeg options to use them."""
+"""Hardware H.264 and H.265 encoders: find the ones that really work on this PC, and the ffmpeg
+options to use them."""
 
 from __future__ import annotations
 
@@ -13,14 +14,15 @@ from .i18n import N_, tr
 
 log = logging.getLogger(__name__)
 
-# What each graphics card encoder is told for a quality: the x264 CRF the quality label stands for (18 High,
-# 23 Balanced, 28 Smaller file; x265 takes 5 more) -> that encoder's own number, chosen so a label gives the
-# SSIM and about the file size of x264's (H.265: x265's). Measured on 5 s of 1080p test pictures (a clean one
-# and one with camera-like noise) on an NVIDIA card and Intel graphics, by encoding at each number and picking
-# the one that lands on the CPU's SSIM and size: NVENC wants a much higher number than the CRF (31 for
-# Balanced, with H.265 higher still), Intel's ICQ somewhat higher, and a number that is too low just makes a
-# file two or three times as big for the same look. Between and beyond the anchors the numbers follow a
-# straight line. AMD's are what they always were (not measured: there is no AMD card to try them on).
+# What each graphics card encoder is told for a quality: the x264 CRF the quality label stands for
+# (18 High, 23 Balanced, 28 Smaller file; x265 takes 5 more) -> that encoder's own number, chosen
+# so a label gives the SSIM and about the file size of x264's (H.265: x265's). Measured on 5 s of
+# 1080p test pictures (a clean one and one with camera-like noise) on an NVIDIA card and Intel
+# graphics, by encoding at each number and picking the one that lands on the CPU's SSIM and size:
+# NVENC wants a much higher number than the CRF (31 for Balanced, with H.265 higher still), Intel's
+# ICQ somewhat higher, and a number that is too low just makes a file two or three times as big for
+# the same look. Between and beyond the anchors the numbers follow a straight line. AMD's are what
+# they always were (not measured: there is no AMD card to try them on).
 QUALITY_ANCHORS: dict[str, dict[int, int]] = {
     "h264_nvenc": {
         18: 27,
@@ -69,12 +71,12 @@ def card_quality(encoder: str, crf: int) -> int:
     return max(round(value), 0)
 
 
-# Encoder name -> function(crf, fps) giving the ffmpeg options for a constant-quality video that looks
-# about like x264's at that CRF (see QUALITY_ANCHORS). The result is 8-bit 4:2:0 like the CPU's, so it
-# plays everywhere; Intel's encoder takes that as nv12 (the same pixels in a different order) and needs the
-# frame rate said out loud after cuts and speed changes. NVENC runs variable bitrate at a constant
-# quality, with a second look at every frame (multipass) and adaptive quantization, which spends the
-# bits where the eye sees them: without those it is far behind x264.
+# Encoder name -> function(crf, fps) giving the ffmpeg options for a constant-quality video that
+# looks about like x264's at that CRF (see QUALITY_ANCHORS). The result is 8-bit 4:2:0 like the
+# CPU's, so it plays everywhere; Intel's encoder takes that as nv12 (the same pixels in a different
+# order) and needs the frame rate said out loud after cuts and speed changes. NVENC runs variable
+# bitrate at a constant quality, with a second look at every frame (multipass) and adaptive
+# quantization, which spends the bits where the eye sees them: without those it is far behind x264.
 def _nvenc(name: str) -> Callable[[int, float], list[str]]:
     return lambda crf, fps: [
         "-c:v", name, "-preset", "p5", "-rc", "vbr", "-cq",
@@ -109,7 +111,8 @@ def _hevc(make: Callable[[int, float], list[str]]) -> Callable[[int, float], lis
     return lambda crf, fps: make(crf, fps) + ["-tag:v", "hvc1"]
 
 
-# The same cards' H.265 encoders: the result is 8-bit 4:2:0 tagged hvc1, which Apple's players want.
+# The same cards' H.265 encoders: the result is 8-bit 4:2:0 tagged hvc1, which Apple's players
+# want.
 HEVC_ENCODERS: dict[str, Callable[[int, float], list[str]]] = {
     "hevc_nvenc": _hevc(_nvenc("hevc_nvenc")),
     "hevc_qsv": _hevc(_qsv("hevc_qsv")),
@@ -149,10 +152,10 @@ def _bitrate_args(encoder: str, kbps: int) -> list[str]:
 def encoder_args(
         encoder: str, crf: int, fps: float, level: Optional[str] = None,
         kbps: Optional[int] = None) -> list[str]:
-    """The ffmpeg video options for `encoder` at quality `crf`, for a video at `fps` frames a second.
-    With a `level` such as "4.2" the video is H.264 High profile at that level (a phone-safe export);
-    all three encoders take the level as its number, 42. With `kbps` the picture gets that bitrate
-    instead of a quality, to fit a file size."""
+    """The ffmpeg video options for `encoder` at quality `crf`, for a video at `fps` frames a
+    second. With a `level` such as "4.2" the video is H.264 High profile at that level (a
+    phone-safe export); all three encoders take the level as its number, 42. With `kbps` the
+    picture gets that bitrate instead of a quality, to fit a file size."""
     args = (ENCODERS[encoder] if encoder in ENCODERS else HEVC_ENCODERS[encoder])(crf, fps)
     if kbps:
         kept, skip = [], False
@@ -171,7 +174,8 @@ def encoder_args(
 
 def _encoder_works(ffmpeg: str, encoder: str) -> bool:
     """Whether ffmpeg can really encode with `encoder` here. Being listed by `-encoders` proves
-    nothing: the program is built with all of them, but the PC needs the matching hardware and driver."""
+    nothing: the program is built with all of them, but the PC needs the matching hardware and
+    driver."""
     cmd = [
         ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
         "color=c=gray:s=256x144:d=0.2:r=25", *encoder_args(encoder, 23, 25.0), "-f", "null", "-"
@@ -190,8 +194,8 @@ _found: dict[str, tuple[str, ...]] = {}  # ffmpeg path -> working encoders, best
 
 
 def detect_encoders(ffmpeg: str, codec: str = "h264") -> tuple[str, ...]:
-    """The hardware encoders that work, best first: the H.264 ones, or with `codec` "hevc" the H.265 ones.
-    Checked once per run (per ffmpeg)."""
+    """The hardware encoders that work, best first: the H.264 ones, or with `codec` "hevc" the
+    H.265 ones. Checked once per run (per ffmpeg)."""
     key = ffmpeg if codec == "h264" else f"{ffmpeg}|{codec}"
     with _lock:
         if key in _found:
@@ -219,15 +223,16 @@ def best_encoder(ffmpeg: str, codec: str = "h264") -> Optional[str]:
 
 def choose_encoder(ffmpeg: str, use_gpu: bool, codec: str = "h264") -> Optional[str]:
     """The hardware encoder an export should try: the best one that works, if the user wants it.
-    `codec` is the picture format, "h264" or "hevc"; any other (WebM, GIF) has no hardware encoder."""
+    `codec` is the picture format, "h264" or "hevc"; any other (WebM, GIF) has no hardware
+    encoder."""
     if not use_gpu or codec not in ("h264", "hevc"):
         return None
     return best_encoder(ffmpeg) if codec == "h264" else best_encoder(ffmpeg, codec)
 
 
 def gpu_name(encoder: str) -> str:
-    """A readable name for the hardware behind `encoder`: the card's own name where the driver tells
-    us (NVIDIA), otherwise the maker."""
+    """A readable name for the hardware behind `encoder`: the card's own name where the driver
+    tells us (NVIDIA), otherwise the maker."""
     label = LABELS.get(encoder) or LABELS.get(encoder.replace("hevc", "h264"), N_("graphics card"))
     if encoder.endswith("_nvenc"):
         try:

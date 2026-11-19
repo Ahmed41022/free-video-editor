@@ -7,8 +7,8 @@ import threading
 
 from ... import gpu
 
-# The search for graphics-card encoders starts a few seconds after the first file has loaded (or at the latest this
-# long after the window opened), so it never competes with the first playback.
+# The search for graphics-card encoders starts a few seconds after the first file has loaded (or at
+# the latest this long after the window opened), so it never competes with the first playback.
 GPU_SEARCH_DELAY_MS = 4000
 GPU_SEARCH_LATEST_MS = 20000
 
@@ -17,8 +17,9 @@ class GraphicsMixin:
     """The search for graphics-card encoders."""
 
     def start_gpu_search(self) -> None:
-        """Look for graphics-card encoders in the background, once. It is started a few seconds after the first
-        file loaded rather than when the window opens, so it doesn't compete with the first playback."""
+        """Look for graphics-card encoders in the background, once. It is started a few seconds
+        after the first file loaded rather than when the window opens, so it doesn't compete with
+        the first playback."""
         if self._gpu_started or self.closed:
             return
         self._gpu_started = True

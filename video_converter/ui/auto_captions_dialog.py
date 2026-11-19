@@ -1,5 +1,6 @@
-"""The "Make captions automatically" window: pick the language and how accurate to be, then listen to the
-video's speech (downloading the speech model first, the one time it is needed) and hand back the cues."""
+"""The "Make captions automatically" window: pick the language and how accurate to be, then listen
+to the video's speech (downloading the speech model first, the one time it is needed) and hand back
+the cues."""
 
 from __future__ import annotations
 
@@ -25,23 +26,26 @@ from ..speech_models import DEFAULT_MODEL, MODELS, is_downloaded
 LANGUAGE_KEY, MODEL_KEY, TRANSLATE_KEY = "captionsLanguage", "captionsModel", "captionsTranslate"
 
 HELP = N_(
-    "Listens to the speech in the video and writes it down as captions that you can fix afterwards. "
-    "It runs entirely on this PC: the first time you use an accuracy level its speech model is downloaded "
+    "Listens to the speech in the video and writes it down as captions that you can fix "
+    "afterwards. "
+    "It runs entirely on this PC: the first time you use an accuracy level its speech model is "
+    "downloaded "
     "once, and after that no internet is needed and nothing is sent anywhere.")
 
 Runner = Callable[..., CaptionResult]
 
 
 class AutoCaptionsDialog(QDialog):
-    """Runs the captions job in the background. After `accept()`, `outcome` holds the cues (in the source
-    video's time) and the language that was heard."""
+    """Runs the captions job in the background. After `accept()`, `outcome` holds the cues (in the
+    source video's time) and the language that was heard."""
 
     worked = Signal(int, object, str)  # which run it was, the result (or None), what went wrong
     progressed = Signal(
         int, str, float, str)  # which run it was, the phase, how far through it, a few words
 
-    # The worker thread of the latest run, whichever window started it. A window closed during a run only
-    # tells that run to stop; the thread needs a moment to notice. Until it has ended, a new run waits.
+    # The worker thread of the latest run, whichever window started it. A window closed during a
+    # run only tells that run to stop; the thread needs a moment to notice. Until it has ended, a
+    # new run waits.
     _last_worker: Optional[threading.Thread] = None
     WAIT_MS = 150  # how often a waiting run looks again
 
@@ -216,7 +220,8 @@ class AutoCaptionsDialog(QDialog):
         self.bar.setRange(0, 1000)
         self.bar.show()
         if self.previous_run_active():
-            # Two listening runs at once would fight over the speech model and the CPU: wait for the old one.
+            # Two listening runs at once would fight over the speech model and the CPU: wait for
+            # the old one.
             self._waiting = True
             self.status.setText(tr("Stopping the previous run…"))
             self.bar.setRange(0, 0)
@@ -299,7 +304,8 @@ class AutoCaptionsDialog(QDialog):
         elif result is None or not result.cues:
             self._fail(
                 tr(
-                    "No speech was found in this video, so there is nothing to write down. If it does have "
+                    "No speech was found in this video, so there is nothing to write down. If "
+                    "it does have "
                     "speech, try a more accurate level or choose the language."))
         else:
             self.outcome = result
@@ -312,7 +318,8 @@ class AutoCaptionsDialog(QDialog):
     # ----- closing ------------------------------------------------------------
 
     def done(self, result: int) -> None:
-        """Stop the work however the window closes (a half-listened video is not worth waiting for)."""
+        """Stop the work however the window closes (a half-listened video is not worth waiting
+        for)."""
         self._wait_timer.stop()
         if self._cancel is not None:
             self._cancel.set()

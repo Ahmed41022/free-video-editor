@@ -124,7 +124,8 @@ class EditingMixin:
         widget = self.start_edit if which == "start" else self.end_edit
         current = getattr(self.settings.edit, which)
         if widget.text().strip() == (format_time(current) if current is not None else ""):
-            # Leaving the field untouched must not round a time set elsewhere to the one decimal shown.
+            # Leaving the field untouched must not round a time set elsewhere to the one decimal
+            # shown.
             self.trim_error.hide()
             return
         try:

@@ -1,5 +1,5 @@
-"""The 2.9 pieces of the window: the format and file size options, Save frame, and the update notice.
-Run without a visible window; skipped when PySide6 isn't installed."""
+"""The 2.9 pieces of the window: the format and file size options, Save frame, and the update
+notice. Run without a visible window; skipped when PySide6 isn't installed."""
 
 import os
 import subprocess
@@ -585,7 +585,8 @@ class WindowTests(unittest.TestCase):
     RELEASE = Release("99.0.0", f"{REPO_URL}/releases/tag/v99.0.0")
 
     def check(self, window=None, release=None, error=None):
-        """Run an update check on `window` with a fake request, and wait for it. Returns how often it asked."""
+        """Run an update check on `window` with a fake request, and wait for it. Returns how often
+        it asked."""
         window = window or self.window
         asked = []
 

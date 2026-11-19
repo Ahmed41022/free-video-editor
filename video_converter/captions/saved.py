@@ -1,4 +1,5 @@
-"""Loading saved settings: whatever is wrong in a saved file is dropped or put back to the default."""
+"""Loading saved settings: whatever is wrong in a saved file is dropped or put back to the
+default."""
 
 from __future__ import annotations
 
@@ -87,7 +88,8 @@ def _load(cls, data: Any, rules: dict):
     if isinstance(item, TextItem) and item.end is not None and item.end <= item.start:
         item.end = None
     if isinstance(item, Subtitles):
-        # The name goes into the subtitles filter's style list, where "," and "=" would start another key.
+        # The name goes into the subtitles filter's style list, where "," and "=" would start
+        # another key.
         item.font = safe_font_name(item.font) or DEFAULT_FONT
     return item
 

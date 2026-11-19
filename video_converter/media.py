@@ -14,8 +14,8 @@ from .procs import ProcessRegistry, run_tracked
 
 log = logging.getLogger(__name__)
 
-# How long reading a file may take before it is given up on (seconds). The fixed part covers starting
-# ffmpeg and a slow drive; the rest grows with the length of the video.
+# How long reading a file may take before it is given up on (seconds). The fixed part covers
+# starting ffmpeg and a slow drive; the rest grows with the length of the video.
 PROBE_TIMEOUT = 30.0
 WAVEFORM_BASE_TIMEOUT, WAVEFORM_PER_SECOND = 60.0, 0.2
 THUMBNAIL_BASE_TIMEOUT, THUMBNAIL_PER_SECOND = 30.0, 0.05
@@ -40,8 +40,8 @@ def thumbnail_timeout(duration: Optional[float]) -> float:
 def probe_file(
         ffmpeg: str, source: Path, registry: Optional[ProcessRegistry] = None,
         timeout: float = PROBE_TIMEOUT) -> MediaInfo:
-    """The details of `source` (what `core.probe_media` reads), but the run can be stopped through `registry`
-    and is given up on after `timeout` seconds, with `ReadTimeout`."""
+    """The details of `source` (what `core.probe_media` reads), but the run can be stopped through
+    `registry` and is given up on after `timeout` seconds, with `ReadTimeout`."""
     try:
         result = run_tracked(
             [ffmpeg, "-hide_banner", "-i", str(source)], timeout, registry, text=True)
@@ -59,7 +59,8 @@ def thumbnail_times(duration: float, count: int) -> list[float]:
 
 
 # Seeks handled by one ffmpeg run. Starting ffmpeg costs about a third of a second on Windows, so
-# sharing a run saves most of the time; each input keeps a decoder in memory, so batches stay small.
+# sharing a run saves most of the time; each input keeps a decoder in memory, so batches stay
+# small.
 THUMBNAILS_PER_RUN = 6
 
 
@@ -70,10 +71,9 @@ def extract_thumbnails(
     """Save `count` JPEG thumbnails spread over the video; returns the files that worked.
 
     Every thumbnail is its own fast seek (an `-ss` input), so this stays quick on long videos,
-    and a few of them share each ffmpeg run. A seek that finds no frame just leaves its file out, and
-    a run that takes longer than `timeout` seconds (by default, a time that grows with the video) is
-    stopped and the rest of the thumbnails are left out.
-    """
+    and a few of them share each ffmpeg run. A seek that finds no frame just leaves its file out,
+    and a run that takes longer than `timeout` seconds (by default, a time that grows with the
+    video) is stopped and the rest of the thumbnails are left out. """
     timeout = thumbnail_timeout(duration) if timeout is None else timeout
     out_dir.mkdir(parents=True, exist_ok=True)
     jobs = [
@@ -106,8 +106,9 @@ def extract_thumbnails(
 def extract_still(
         ffmpeg: str, source: Path, target: Path, at: float = 0.0, long_side: int = 960,
         registry: Optional[ProcessRegistry] = None, timeout: float = STILL_TIMEOUT) -> bool:
-    """Save one upright frame of `source` as a PNG no more than `long_side` pixels on its longer side (a
-    placeholder picture to show while a smooth preview is made). Returns whether the file was written."""
+    """Save one upright frame of `source` as a PNG no more than `long_side` pixels on its longer
+    side (a placeholder picture to show while a smooth preview is made). Returns whether the file
+    was written."""
     target.parent.mkdir(parents=True, exist_ok=True)
     target.unlink(missing_ok=True)
     scale = f"scale='if(gt(iw,ih),min({long_side},iw),-2)':'if(gt(iw,ih),-2,min({long_side},ih))'"
@@ -148,8 +149,8 @@ def extract_waveform(
         registry: Optional[ProcessRegistry] = None,
         timeout: Optional[float] = None) -> list[float]:
     """Peak levels (0..1) of the first audio track; an empty list if there's no audio. Raises
-    `subprocess.TimeoutExpired` if reading it takes longer than `timeout` seconds (by default 60 s plus
-    a fifth of the video's length)."""
+    `subprocess.TimeoutExpired` if reading it takes longer than `timeout` seconds (by default 60 s
+    plus a fifth of the video's length)."""
     rate = waveform_sample_rate(duration, buckets)
     result = run_tracked(
         [

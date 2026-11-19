@@ -52,7 +52,8 @@ class PlaybackMixin:
                 or not self.compare_button.isChecked()):
             return
         if self._after_busy:
-            # One render at a time: when it finishes, the newest request (this one, or a later one) is rendered.
+            # One render at a time: when it finishes, the newest request (this one, or a later one)
+            # is rendered.
             self._after_again = True
             return
         self._after_token += 1
@@ -69,7 +70,8 @@ class PlaybackMixin:
                 image = QImage(str(target))
                 target.unlink(missing_ok=True)
                 result = image
-            except Exception as exc:  # whatever happens, the window must hear back or it never renders again
+            # whatever happens, the window must hear back or it never renders again
+            except Exception as exc:
                 result = str(exc)
             if not self.closed:
                 self.signals.afterReady.emit(token, result)

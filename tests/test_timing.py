@@ -383,9 +383,12 @@ class FilterStringTests(unittest.TestCase):
                 [
                     "[0:a:0]asplit=3[ain_0][ain_1][ain_2]",
                     # a few milliseconds of fade at each cut, none at the very start and end
-                    "[ain_0]atrim=start=0:end=1,asetpts=PTS-STARTPTS,afade=t=out:st=0.996:d=0.004[aseg_0]",
-                    "[ain_1]atrim=start=2:end=3,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.004,afade=t=out:st=0.996:d=0.004[aseg_1]",
-                    "[ain_2]atrim=start=5:end=7,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.004[aseg_2]",
+                    "[ain_0]atrim=start=0:end=1,asetpts=PTS-STARTPTS,afade=t=out:st=0.996:d=0."
+                    "004[aseg_0]",
+                    "[ain_1]atrim=start=2:end=3,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.004,"
+                    "afade=t=out:st=0.996:d=0.004[aseg_1]",
+                    "[ain_2]atrim=start=5:end=7,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0."
+                    "004[aseg_2]",
                     "[aseg_0][aseg_1][aseg_2]concat=n=3:v=0:a=1[a]",
                 ]))
 
@@ -405,8 +408,8 @@ class FilterStringTests(unittest.TestCase):
             "[0:a:0]", "[a]", [(0.0, 8.0)], speed=2.0, reverse=True, fade_in=0.5, fade_out=1.0)
         self.assertTrue(
             graph.endswith(
-                "[asel]atempo=2,areverse,asetpts=N/SR/TB,afade=t=in:st=0:d=0.5,afade=t=out:st=3:d=1[a]"
-            ), graph)
+                "[asel]atempo=2,areverse,asetpts=N/SR/TB,afade=t=in:st=0:d=0.5,afade=t=out:st="
+                "3:d=1[a]"), graph)
 
     def test_fade_out_starts_relative_to_the_length_after_speed(self):
         self.assertEqual(fade_filters(0.0, 1.0, 4.0, audio=False), ["fade=t=out:st=3:d=1"])

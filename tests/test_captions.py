@@ -1,4 +1,5 @@
-"""Text, logo and subtitles (2.8): filter strings, fonts, subtitle timing, and real exports whose pixels are checked."""
+"""Text, logo and subtitles (2.8): filter strings, fonts, subtitle timing, and real exports whose
+pixels are checked."""
 
 import contextlib
 import io
@@ -73,7 +74,8 @@ def grab(path: Path, t: float, pix: str = "gray") -> bytes:
 
 
 def bright(gray: bytes, width: int = W, box=None, level: int = 128) -> int:
-    """How many pixels of a gray frame are above `level`, in `box` = (left, top, right, bottom) if given."""
+    """How many pixels of a gray frame are above `level`, in `box` = (left, top, right, bottom) if
+    given."""
     height = len(gray) // width
     left, top, right, bottom = box or (0, 0, width, height)
     return sum(
@@ -93,7 +95,8 @@ def rgb_at(frame: bytes, x: int, y: int, width: int = W) -> tuple[int, int, int]
 
 
 def write_png(path: Path, width: int, height: int, pixel) -> None:
-    """A PNG with RGBA pixels from `pixel(x, y)`, written by hand so the tests need no image library."""
+    """A PNG with RGBA pixels from `pixel(x, y)`, written by hand so the tests need no image
+    library."""
     rows = b"".join(
         b"\x00" + b"".join(bytes(pixel(x, y)) for x in range(width)) for y in range(height))
 
@@ -146,7 +149,9 @@ class FilterEscapingTests(unittest.TestCase):
         try:
             copy = folder / "my: font's [file].ttf"
             shutil.copyfile(fonts.font_file("Arial"), copy)
-            vf = f"drawtext=fontfile={captions.escaping._path_value(copy)}:text=Hi:fontsize=60:fontcolor=white"
+            vf = (
+                f"drawtext=fontfile={captions.escaping._path_value(copy)}:text=Hi:fontsize=60:"
+                "fontcolor=white")
             self.assertGreater(bright(render(vf)), 50)
         finally:
             shutil.rmtree(folder, ignore_errors=True)
@@ -189,8 +194,9 @@ class TextFilterTests(unittest.TestCase):
     def test_percent_commands_are_drawn_as_they_are_typed(self):
         literal = render(text_filter(TextItem(text="%{pts}", size=0.2), FRAME, None))
         expanded = render(
-            "drawtext=fontfile=%s:text='%%{pts}':fontsize=36:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2"
-            % captions.escaping._path_value(Path(fonts.pick_font("Arial", False, "") or "")))
+            "drawtext=fontfile=%s:text='%%{pts}':fontsize=36:fontcolor=white:x=(w-text_w)/2:y="
+            "(h-text_h)/2" %
+            captions.escaping._path_value(Path(fonts.pick_font("Arial", False, "") or "")))
         self.assertNotEqual(literal, expanded)
 
     def test_empty_text_and_empty_time_draw_nothing(self):
@@ -650,7 +656,8 @@ class FontTests(unittest.TestCase):
 
         def load(path):
             font = fonts.Font(path, 1000, 800, -200, 0, [], [500], 1)
-            # Every font has the Latin letters; only Segoe UI (here) has the Arabic ones; nothing has Chinese.
+            # Every font has the Latin letters; only Segoe UI (here) has the Arabic ones; nothing
+            # has Chinese.
             font.has_char = lambda code, ok=path in covers_arabic: code < 0x600 or (
                 ok and code < 0x700)  # type: ignore
             return font
@@ -732,8 +739,8 @@ class SubtitleParsingTests(unittest.TestCase):
 
     def test_srt(self):
         cues = parse_cues(self.SRT)
-        # A blank line only ends a cue when a new cue (its number or its time) comes next, so the stray block
-        # that follows the second cue is read as more of its text rather than dropped.
+        # A blank line only ends a cue when a new cue (its number or its time) comes next, so the
+        # stray block that follows the second cue is read as more of its text rather than dropped.
         self.assertEqual(
             [(c.start, c.end, c.text) for c in cues], [
                 (1.0, 3.5, "Hello\nthere"),
@@ -744,8 +751,8 @@ class SubtitleParsingTests(unittest.TestCase):
     def test_webvtt(self):
         text = (
             "WEBVTT\n\nNOTE a comment\n\nintro\n00:01.000 --> 00:02.500 align:start position:0%\n"
-            "<v Roger>Hello <c.yellow>there</c></v> <b>bold</b>\n\n00:03.000 --> 00:04.000\n<00:03.500>Late\n"
-        )
+            "<v Roger>Hello <c.yellow>there</c></v> <b>bold</b>\n\n00:03.000 --> "
+            "00:04.000\n<00:03.500>Late\n")
         cues = parse_cues(text, "vtt")
         self.assertEqual([(c.start, c.end) for c in cues], [(1.0, 2.5), (3.0, 4.0)])
         self.assertEqual(cues[0].text, "Hello there <b>bold</b>")
@@ -879,10 +886,13 @@ class SubtitleFileTests(unittest.TestCase):
             retimed_subtitles(Subtitles(file=str(self.folder / "gone.srt")), [(0.0, 4.0)])
 
     ASS = (
-        "[Script Info]\nTitle: t\nPlayResY: 480\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\n"
-        "Style: Default,Arial,20\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
+        "[Script Info]\nTitle: t\nPlayResY: 480\n\n[V4+ Styles]\nFormat: Name, Fontname, "
+        "Fontsize\n"
+        "Style: Default,Arial,20\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, "
+        "MarginR, MarginV, "
         "Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,cut, with comma\n"
-        "Dialogue: 0,0:00:05.00,0:00:06.50,Default,,0,0,0,,kept {\\i1}text{\\i0}\nComment: 0,0:00:05.00,0:00:06.00,"
+        "Dialogue: 0,0:00:05.00,0:00:06.50,Default,,0,0,0,,kept {\\i1}text{\\i0}\nComment: "
+        "0,0:00:05.00,0:00:06.00,"
         "Default,,0,0,0,,not shown\n")
 
     def test_ass_keeps_its_styles_and_moves_the_dialogue(self):
@@ -921,7 +931,8 @@ class SubtitleFileTests(unittest.TestCase):
 
 
 class RealExportTests(unittest.TestCase):
-    """Real ffmpeg on a tiny black video: text is white, so where the bright pixels are says where the text is."""
+    """Real ffmpeg on a tiny black video: text is white, so where the bright pixels are says where
+    the text is."""
 
     @classmethod
     def setUpClass(cls):
@@ -1118,7 +1129,8 @@ class RealExportTests(unittest.TestCase):
         srt = self.tmp / "talk.srt"
         # Source times: 1-2 s is cut out below; the cue at 3-3.5 s lands on 2-2.5 s of the result.
         srt.write_text(
-            "1\n00:00:00,100 --> 00:00:00,500\nWWWWWW\n\n2\n00:00:01,200 --> 00:00:01,800\nWWWWWW\n\n"
+            "1\n00:00:00,100 --> 00:00:00,500\nWWWWWW\n\n2\n00:00:01,200 --> "
+            "00:00:01,800\nWWWWWW\n\n"
             "3\n00:00:03,000 --> 00:00:03,500\nWWWWWW\n", encoding="utf-8")
         out = self.export(
             "subs.mp4", keep=[(0.0, 1.0), (2.0, 4.0)],
@@ -1168,8 +1180,8 @@ class RealExportTests(unittest.TestCase):
     def test_arabic_subtitles_render_in_the_export(self):
         srt = self.tmp / "ar.srt"
         srt.write_text(
-            "1\n00:00:00,000 --> 00:00:09,000\n\u0645\u0631\u062d\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645\n",
-            encoding="utf-8")
+            "1\n00:00:00,000 --> 00:00:09,000\n\u0645\u0631\u062d\u0628\u0627 "
+            "\u0628\u0627\u0644\u0639\u0627\u0644\u0645\n", encoding="utf-8")
         frame = grab(self.export("subar.mp4", subtitles=Subtitles(file=str(srt), size=0.12)), 0.5)
         self.assertGreater(bright(frame, box=(0, int(H * 0.6), W, H)), 100)
 
@@ -1179,9 +1191,12 @@ class RealExportTests(unittest.TestCase):
         ass = self.tmp / "a.ass"
         ass.write_text(
             "[Script Info]\nScriptType: v4.00+\nPlayResX: 384\nPlayResY: 288\n\n[V4+ Styles]\n"
-            "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, Bold, BorderStyle, Outline, "
-            "Shadow, Alignment, MarginL, MarginR, MarginV\nStyle: Default,Arial,30,&H00FFFFFF,&H00000000,"
-            "0,1,1,0,2,10,10,10\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, "
+            "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, Bold, "
+            "BorderStyle, Outline, "
+            "Shadow, Alignment, MarginL, MarginR, MarginV\nStyle: "
+            "Default,Arial,30,&H00FFFFFF,&H00000000,"
+            "0,1,1,0,2,10,10,10\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, "
+            "MarginR, "
             "MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,WWWWWW\n",
             encoding="utf-8")
         area = (0, int(H * 0.6), W, H)
@@ -1227,7 +1242,8 @@ class ArabicTests(unittest.TestCase):
         self.assertNotEqual(shaped, tofu, "the letters came out as boxes")
         self.assertNotEqual(unshaped, tofu)
 
-        # Joined letters flow into each other, so the shaped word is narrower than the loose letters.
+        # Joined letters flow into each other, so the shaped word is narrower than the loose
+        # letters.
         def width(frame):
             xs = [i % W for i, v in enumerate(frame) if v > 128]
             return max(xs) - min(xs)
@@ -1236,8 +1252,9 @@ class ArabicTests(unittest.TestCase):
 
     @unittest.skipUnless(WINDOWS, "needs Arial")
     def test_arabic_runs_right_to_left(self):
-        # With a right-to-left start, "Arabic ABC" is shown as ABC on the left of the Arabic. So it looks
-        # the same as "ABC Arabic" written the other way round, which only works if the order is right.
+        # With a right-to-left start, "Arabic ABC" is shown as ABC on the left of the Arabic. So it
+        # looks the same as "ABC Arabic" written the other way round, which only works if the order
+        # is right.
         a = render(text_filter(self.item(self.AR + " ABC"), FRAME, None))
         b = render(text_filter(self.item("ABC " + self.AR), FRAME, None))
         different = sum(1 for p, q in zip(a, b) if abs(p - q) > 60)
@@ -1566,14 +1583,14 @@ class CommandLineTests(unittest.TestCase):
             self.assertIn(option, out.getvalue())
 
 
-# ----- fixes: fonts, encodings, sloppy files, races, speed --------------------------------------------------------
+# ----- fixes: fonts, encodings, sloppy files, races, speed ---------------------------------------
 
 LAM_ALEF = "لا لأن الإطار مرحبا"  # لا لأن الإطار مرحبا
 
 
 def hollow_boxes(gray: bytes, width: int, height: int) -> int:
-    """How many shapes in a gray picture are the empty box a font draws for a character it has no glyph for:
-    an outline of a rectangle, taller than wide, with hardly any pixels inside."""
+    """How many shapes in a gray picture are the empty box a font draws for a character it has no
+    glyph for: an outline of a rectangle, taller than wide, with hardly any pixels inside."""
     seen = bytearray(len(gray))
     boxes = 0
     for first in range(len(gray)):
@@ -1601,7 +1618,8 @@ def hollow_boxes(gray: bytes, width: int, height: int) -> int:
 
 
 class FakeFonts:
-    """A pretend set of installed fonts: Arial and Impact lack what libass needs for Arabic, Tahoma has it all."""
+    """A pretend set of installed fonts: Arial and Impact lack what libass needs for Arabic, Tahoma
+    has it all."""
 
     GLYPHS = {
         "arial": lambda code: code < 0x700 or code == 0x200D or 0xFEF5 <= code <=
@@ -1696,8 +1714,10 @@ class SubtitleFontChoiceTests(FakeFonts, unittest.TestCase):
 
     def test_an_ass_files_own_fonts_are_swapped_only_when_they_cannot_draw_its_words(self):
         script = (
-            "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, Bold\nStyle: Default,Arial,20,0\nStyle: Fancy,Impact,20,-1\n\n"
-            "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+            "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, Bold\nStyle: "
+            "Default,Arial,20,0\nStyle: Fancy,Impact,20,-1\n\n"
+            "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
+            "Effect, Text\n"
             "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\\i1}" + LAM_ALEF + "{\\i0}\n")
         fixed = captions.retime._fix_ass_fonts(script)
         self.assertIn("Style: Default,Segoe UI,20,0", fixed)
@@ -1734,7 +1754,8 @@ class SubtitleFontChoiceTests(FakeFonts, unittest.TestCase):
 
 @unittest.skipUnless(WINDOWS, "needs the fonts that come with Windows")
 class ArabicSubtitleBoxTests(unittest.TestCase):
-    """Arial, Times New Roman and Impact used to leave an empty box after every lam-alef in burned-in subtitles."""
+    """Arial, Times New Roman and Impact used to leave an empty box after every lam-alef in
+    burned-in subtitles."""
 
     SIZE = (640, 180)
 
@@ -1775,9 +1796,12 @@ class ArabicSubtitleBoxTests(unittest.TestCase):
     def test_an_ass_file_with_arial_is_fixed_too(self):
         ass = self.folder / "ar.ass"
         ass.write_text(
-            "[Script Info]\nPlayResX: 640\nPlayResY: 180\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, "
-            "PrimaryColour, OutlineColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, "
-            "MarginV\nStyle: Default,Arial,70,&H00FFFFFF,&H00000000,0,1,1,0,2,10,10,10\n\n[Events]\n"
+            "[Script Info]\nPlayResX: 640\nPlayResY: 180\n\n[V4+ Styles]\nFormat: Name, "
+            "Fontname, Fontsize, "
+            "PrimaryColour, OutlineColour, Bold, BorderStyle, Outline, Shadow, Alignment, "
+            "MarginL, MarginR, "
+            "MarginV\nStyle: "
+            "Default,Arial,70,&H00FFFFFF,&H00000000,0,1,1,0,2,10,10,10\n\n[Events]\n"
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
             "Dialogue: 0,0:00:00.00,0:00:09.00,Default,,0,0,0,," + LAM_ALEF + "\n",
             encoding="utf-8")
@@ -1798,15 +1822,18 @@ class SubtitleEncodingTests(unittest.TestCase):
             "Teşekkürler, ışık"
         ],
         "cp1252": [
-            "Bonjour à tous, bienvenue sur la chaîne. Aujourd'hui nous parlons d'un sujet très important",
-            "Hello café", "Ich möchte über Straßenbau sprechen, größer und schöner",
+            "Bonjour à tous, bienvenue sur la chaîne. Aujourd'hui nous parlons d'un sujet très "
+            "important", "Hello café", "Ich möchte über Straßenbau sprechen, größer und schöner",
             "¿Cómo estás? Muy bien, gracias. El niño está allí."
         ],
     }
 
     @staticmethod
     def srt(text: str) -> str:
-        return "1\r\n00:00:01,000 --> 00:00:03,000\r\n" + text + "\r\n\r\n2\r\n00:00:04,000 --> 00:00:05,000\r\nOK\r\n"
+        return (
+            "1\r\n00:00:01,000 --> "
+            "00:00:03,"
+            "000\r\n") + text + "\r\n\r\n2\r\n00:00:04,000 --> 00:00:05,000\r\nOK\r\n"
 
     def test_each_old_code_page_is_recognised(self):
         for encoding, texts in self.SAMPLES.items():
@@ -1922,8 +1949,8 @@ class SloppySubtitleTests(unittest.TestCase):
     def test_times_without_milliseconds_and_with_odd_fractions(self):
         text = (
             "1\n00:00:01 --> 00:00:02\nno ms\n\n2\n00:00:03,5 --> 00:00:04,25\nshort fractions\n\n"
-            "3\n00:00:05,1234 --> 00:00:06.98765\nlong fractions\n\n4\n01:02 --> 01:03\nminutes only\n"
-        )
+            "3\n00:00:05,1234 --> 00:00:06.98765\nlong fractions\n\n4\n01:02 --> "
+            "01:03\nminutes only\n")
         cues = parse_cues(text)
         self.assertEqual(
             [c.text for c in cues], ["no ms", "short fractions", "long fractions", "minutes only"])
@@ -1940,7 +1967,8 @@ class SloppySubtitleTests(unittest.TestCase):
 
     def test_a_blank_line_inside_an_srt_cue_does_not_cut_it_off(self):
         text = (
-            "1\n00:00:01,000 --> 00:00:02,000\nfirst part\n\nsecond part\n\n2\n00:00:03,000 --> 00:00:04,000\nnext\n\n"
+            "1\n00:00:01,000 --> 00:00:02,000\nfirst part\n\nsecond part\n\n2\n00:00:03,000 "
+            "--> 00:00:04,000\nnext\n\n"
             "00:00:05,000 --> 00:00:06,000\nno number\n\nstill the same cue\n")
         cues = parse_cues(text)
         self.assertEqual(
@@ -1950,8 +1978,8 @@ class SloppySubtitleTests(unittest.TestCase):
 
     def test_a_blank_line_still_ends_a_webvtt_cue(self):
         cues = parse_cues(
-            "WEBVTT\n\n00:01.000 --> 00:02.000\none\n\nNOTE not a cue\n\n00:03.000 --> 00:04.000\ntwo\n",
-            "vtt")
+            "WEBVTT\n\n00:01.000 --> 00:02.000\none\n\nNOTE not a cue\n\n00:03.000 --> "
+            "00:04.000\ntwo\n", "vtt")
         self.assertEqual([c.text for c in cues], ["one", "two"])
 
     def test_an_srt_with_no_blank_lines_between_cues_is_read(self):
@@ -2006,7 +2034,8 @@ class ScratchRaceTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def hammer(self, make, remove, rounds=60, workers=8):
-        """`workers` threads make the same file at the same moment, `rounds` times over; returns the failures."""
+        """`workers` threads make the same file at the same moment, `rounds` times over; returns
+        the failures."""
         failures = []
         for _ in range(rounds):
             barrier = threading.Barrier(workers)
@@ -2112,7 +2141,8 @@ class LogoFileTests(unittest.TestCase):
         cls._tmp.cleanup()
 
     def run_graph(self, logo: Logo, scratch: Path, seconds: float = 3.0, at: float = 0.2):
-        """The overlay graph run for real over a black video: (the picture at `at` seconds as RGB, ffmpeg's complaint)."""
+        """The overlay graph run for real over a black video: (the picture at `at` seconds as RGB,
+        ffmpeg's complaint)."""
         with mock.patch.object(captions.scratch, "_scratch", scratch):
             statements = overlay_graph(
                 "[0:v]", "[out]", [], logo, Subtitles(), FRAME, [(0.0, None)])
@@ -2186,7 +2216,8 @@ class SpanMapperTests(unittest.TestCase):
 
     @staticmethod
     def reference(start, end, segments, speed=1.0, reverse=False):
-        """The mapping as it was written before it used bisection: every segment looked at for every span."""
+        """The mapping as it was written before it used bisection: every segment looked at for
+        every span."""
         from video_converter.timing import clamp_speed, output_duration
         speed = clamp_speed(speed)
         total = output_duration(segments, speed)
@@ -2260,7 +2291,8 @@ class SpanMapperTests(unittest.TestCase):
         path = folder / "big.srt"
         path.write_text(
             "".join(
-                f"{i + 1}\n{captions.cues._srt_time(i * 0.8)} --> {captions.cues._srt_time(i * 0.8 + 0.6)}\nline {i}\n\n"
+                f"{i + 1}\n{captions.cues._srt_time(i * 0.8)} --> "
+                f"{captions.cues._srt_time(i * 0.8 + 0.6)}\nline {i}\n\n"
                 for i in range(1500)), encoding="utf-8")
         segments = [(i * 2.0, i * 2.0 + 1.5) for i in range(600)]
         import time as clock
@@ -2273,9 +2305,12 @@ class SpanMapperTests(unittest.TestCase):
 class AssStyleTests(unittest.TestCase):
     ASS = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 320\nPlayResY: 180\n\n[V4+ Styles]\n"
-        "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, Bold, BorderStyle, Outline, Shadow, "
-        "Alignment, MarginL, MarginR, MarginV\nStyle: Default,Arial,40,&H000000FF,&H00000000,0,1,0,0,8,10,10,10\n\n"
-        "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, Bold, BorderStyle, "
+        "Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV\nStyle: "
+        "Default,Arial,40,&H000000FF,&H00000000,0,1,0,0,8,10,10,10\n\n"
+        "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, "
+        "Text\n"
         "Dialogue: 0,0:00:00.00,0:00:09.00,Default,,0,0,0,,WWWW\n")
 
     def setUp(self):

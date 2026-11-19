@@ -16,7 +16,8 @@ class UpdatesMixin:
     """Checking for a newer version."""
 
     def _build_update_banner(self) -> None:
-        """A small bar in the status line that appears when a newer version is out. It never blocks anything."""
+        """A small bar in the status line that appears when a newer version is out. It never blocks
+        anything."""
         self.update_banner = QWidget()
         row = QHBoxLayout(self.update_banner)
         row.setContentsMargins(6, 0, 6, 0)
@@ -46,8 +47,9 @@ class UpdatesMixin:
             self.update_banner.hide()
 
     def start_update_check(self, fetch=None) -> None:
-        """Look for a newer version in the background (at most once a day, and never if the Help menu's
-        switch is off). Whatever goes wrong is only logged. `fetch` stands in for the request in tests."""
+        """Look for a newer version in the background (at most once a day, and never if the Help
+        menu's switch is off). Whatever goes wrong is only logged. `fetch` stands in for the
+        request in tests."""
         if not self.check_updates or self.closed:
             return
         last = self.store.value(updates.LAST_CHECK_KEY, 0.0)

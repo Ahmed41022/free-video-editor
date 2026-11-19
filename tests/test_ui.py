@@ -1127,8 +1127,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(folder.exists())
 
     def test_closing_while_files_are_still_loading_leaves_no_folder(self):
-        # The background loaders make their thumbnail folders inside the temp folder, possibly after
-        # the window has already removed it.
+        # The background loaders make their thumbnail folders inside the temp folder, possibly
+        # after the window has already removed it.
         self.window.add_paths([self.landscape, self.portrait, self.third])
         folder = self.window.tmpdir
         self.window.close()

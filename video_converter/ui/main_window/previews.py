@@ -22,22 +22,24 @@ class PreviewsMixin:
     """Pictures and smooth copies of the files shown in the preview."""
 
     def _preview_copy(self, item: MediaItem) -> Optional[Path]:
-        """The small copy to play instead of `item`'s file, if there is one and it should be used."""
+        """The small copy to play instead of `item`'s file, if there is one and it should be
+        used."""
         if self.smooth_previews and item.proxy is not None and item.proxy.is_file():
             return item.proxy
         return None
 
     def _awaiting_copy(self, item: MediaItem) -> bool:
-        """Whether `item` is a video too big (or too fast) to play as it is, whose smooth preview copy isn't ready
-        yet. Playing the original meanwhile is what made the app crash inside Qt's decoder, so it waits."""
+        """Whether `item` is a video too big (or too fast) to play as it is, whose smooth preview
+        copy isn't ready yet. Playing the original meanwhile is what made the app crash inside Qt's
+        decoder, so it waits."""
         return bool(
             self.smooth_previews and not item.loading and not item.error and not item.proxy_failed
             and self._preview_copy(item) is None and needs_proxy(item.info))
 
     def _begin_playback(self, item: MediaItem) -> None:
-        """Load into the player what `item` should play: the smooth copy if there is one, nothing while the file's
-        details are still being read or while its copy is made (the first picture is shown meanwhile), otherwise
-        the file itself."""
+        """Load into the player what `item` should play: the smooth copy if there is one, nothing
+        while the file's details are still being read or while its copy is made (the first picture
+        is shown meanwhile), otherwise the file itself."""
         copy = self._preview_copy(item)
         if item.loading:
             self.player.load(None)
@@ -50,14 +52,16 @@ class PreviewsMixin:
             self.player.load(item.path)
 
     def _switch_player(self, path: Path, upright: bool) -> None:
-        """Play `path` from here on: carrying on from the same moment, or from the start if nothing was loaded."""
+        """Play `path` from here on: carrying on from the same moment, or from the start if nothing
+        was loaded."""
         if self.player.source is None:
             self.player.load(path, upright=upright)
         else:
             self.player.swap_source(path, upright=upright)
 
     def _show_still(self, item: MediaItem) -> None:
-        """Show the first picture of a video whose smooth copy is being made (read in the background)."""
+        """Show the first picture of a video whose smooth copy is being made (read in the
+        background)."""
         target = self._thumb_folder(item) / "still.png"
 
         def work() -> None:
@@ -119,7 +123,8 @@ class PreviewsMixin:
         if path is None:
             item.proxy_failed = True
             if item is self.current:
-                if self.player.source is None:  # the original was held back for the copy: play it after all
+                # the original was held back for the copy: play it after all
+                if self.player.source is None:
                     self.player.load(item.path)
                 self.statusBar().showMessage(
                     tr("Couldn't prepare a smooth preview, so the original plays instead."), 6000)
@@ -152,8 +157,8 @@ class PreviewsMixin:
         self._update_preview_status()
 
     def _drop_preview_copy(self, item: MediaItem) -> None:
-        """Stop making (and delete) the smooth preview, and delete the thumbnails, of a file that was removed from
-        the list."""
+        """Stop making (and delete) the smooth preview, and delete the thumbnails, of a file that
+        was removed from the list."""
         self.proxies.cancel(item)
         item.proxy_progress = None
         if item.proxy is not None:
@@ -183,7 +188,8 @@ class PreviewsMixin:
             return
         if (item is not None and self.smooth_previews and item.proxy is not None
                 and item.proxy.is_file() and self.player.source == item.path):
-            # The original won't play (or the decoder gave up on it) but there is a smooth copy: play that.
+            # The original won't play (or the decoder gave up on it) but there is a smooth copy:
+            # play that.
             self.player.swap_source(item.proxy, upright=True)
             return
         self.statusBar().showMessage(tr("Can't play this file: {error}", error=message))

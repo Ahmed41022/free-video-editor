@@ -17,10 +17,11 @@ class ShortcutsMixin:
     """Keyboard handling."""
 
     def _owns_shortcuts(self, focus: Optional[QWidget], key: int) -> bool:
-        """Whether the playback and editing keys (Space, J K L, I O, S X, B, arrows, Home) are ours while `focus`
-        has the keyboard. They are only for the places the person is not typing or operating a control: the
-        window itself, the file list, the preview, the timeline and the transport bar. Every text input, and
-        every button, check box, slider and list of the settings panel, keeps its own keys."""
+        """Whether the playback and editing keys (Space, J K L, I O, S X, B, arrows, Home) are ours
+        while `focus` has the keyboard. They are only for the places the person is not typing or
+        operating a control: the window itself, the file list, the preview, the timeline and the
+        transport bar. Every text input, and every button, check box, slider and list of the
+        settings panel, keeps its own keys."""
         if focus is None or focus is self:
             return True
         if isinstance(focus,
@@ -31,7 +32,8 @@ class ShortcutsMixin:
                 or focus is self.timeline:
             return True
         if self.transport.isAncestorOf(focus):
-            # A transport button keeps Space (it presses the button); the other keys are the transport's own.
+            # A transport button keeps Space (it presses the button); the other keys are the
+            # transport's own.
             return not (isinstance(focus, QAbstractButton) and key == Qt.Key.Key_Space)
         return False
 

@@ -1,4 +1,5 @@
-"""`python -m video_converter`: the desktop app, or the command line when files are given (see `cli`)."""
+"""`python -m video_converter`: the desktop app, or the command line when files are given (see
+`cli`)."""
 
 import sys
 
