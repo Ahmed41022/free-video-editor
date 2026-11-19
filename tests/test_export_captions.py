@@ -1,5 +1,5 @@
-"""Text, logo and subtitles (2.8) together with the export options (2.9): Save frame, GIFs, a file size to
-fit and joins in another format must all carry the same overlays as a plain MP4 export."""
+"""Text, logo and subtitles (2.8) together with the export options (2.9): Save frame, GIFs, a file
+size to fit and joins in another format must all carry the same overlays as a plain MP4 export."""
 
 import contextlib
 import io
@@ -9,26 +9,31 @@ import unittest
 from pathlib import Path
 
 from tests.test_captions import H, W, bright, make_black, write_png
-from video_converter import __main__ as cli
+from video_converter.cli import run as cli
 from video_converter.captions import Logo, Subtitles, TextItem
 from video_converter.core import find_ffmpeg, probe_media
 from video_converter.stills import save_frame
-from video_converter.video import JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, plan_geometry, \
-    render_frame
+from video_converter.video import (
+    JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, plan_geometry, render_frame,
+)
 
 FFMPEG = find_ffmpeg()
-TEXT = TextItem(text="WWWW", size=0.3, outline=0)       # white on black: bright pixels are the text
+TEXT = TextItem(text="WWWW", size=0.3, outline=0)  # white on black: bright pixels are the text
 
 
 def frame_pixels(path: Path, at: float = 0.5, pix: str = "gray") -> bytes:
     """The raw pixels of a picture or of a video at `at` seconds (a GIF is read from its start)."""
     seek = ["-ss", f"{at}"] if path.suffix.lower() not in (".png", ".jpg", ".gif") else []
-    return subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", *seek, "-i", str(path), "-frames:v", "1",
-                           "-f", "rawvideo", "-pix_fmt", pix, "-"], capture_output=True, check=True).stdout
+    return subprocess.run(
+        [
+            FFMPEG, "-hide_banner", "-loglevel", "error", *seek, "-i",
+            str(path), "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", pix, "-"
+        ], capture_output=True, check=True).stdout
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class CaptionsInEveryExportTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -52,13 +57,16 @@ class CaptionsInEveryExportTests(unittest.TestCase):
     # ----- Save frame
 
     def test_a_saved_frame_is_the_preview_frame_with_the_text(self):
-        edit = VideoEdit(aspect=None, texts=[TEXT], logo=Logo(file=str(self.logo), corner="top-left", size=0.2))
+        edit = VideoEdit(
+            aspect=None, texts=[TEXT], logo=Logo(file=str(self.logo), corner="top-left", size=0.2))
         saved = save_frame(FFMPEG, self.src, self.tmp / "saved.png", 1.0, edit, self.info)
         geometry = plan_geometry(self.info.width, self.info.height, edit)
-        shown = render_frame(FFMPEG, self.src, self.tmp / "shown.png", 1.0,
-                             (geometry.out_width, geometry.out_height), edit, self.info)
+        shown = render_frame(
+            FFMPEG, self.src, self.tmp / "shown.png", 1.0,
+            (geometry.out_width, geometry.out_height), edit, self.info)
         self.assertEqual(frame_pixels(saved, pix="rgb24"), frame_pixels(shown, pix="rgb24"))
-        self.assertGreater(bright(frame_pixels(saved), box=(0, H // 3, W, H)), 300)     # the text, below the logo
+        self.assertGreater(
+            bright(frame_pixels(saved), box=(0, H // 3, W, H)), 300)  # the text, below the logo
 
     def test_a_saved_frame_matches_the_exported_video(self):
         edit = VideoEdit(aspect=None, use_gpu=False, crf=12, texts=[TEXT])
@@ -74,10 +82,12 @@ class CaptionsInEveryExportTests(unittest.TestCase):
         self.assertGreater(bright(frame_pixels(saved)), 300)
 
     def test_a_saved_frame_follows_the_text_window_and_the_cuts(self):
-        edit = VideoEdit(aspect=None, keep=[(0.0, 1.0), (2.0, 3.0)],
-                         texts=[TextItem(text="WWWW", size=0.3, outline=0, start=0.0, end=0.5)])
+        edit = VideoEdit(
+            aspect=None, keep=[(0.0, 1.0), (2.0, 3.0)],
+            texts=[TextItem(text="WWWW", size=0.3, outline=0, start=0.0, end=0.5)])
         early = save_frame(FFMPEG, self.src, self.tmp / "early.png", 0.2, edit, self.info)
-        late = save_frame(FFMPEG, self.src, self.tmp / "late.png", 2.5, edit, self.info)      # 1.5 s into the result
+        late = save_frame(
+            FFMPEG, self.src, self.tmp / "late.png", 2.5, edit, self.info)  # 1.5 s into the result
         self.assertGreater(bright(frame_pixels(early)), 300)
         self.assertEqual(bright(frame_pixels(late)), 0)
 
@@ -88,23 +98,32 @@ class CaptionsInEveryExportTests(unittest.TestCase):
         self.assertGreater(bright(frame_pixels(out), width=out_width(out)), 300)
 
     def test_a_gif_follows_the_text_window(self):
-        out = self.export("window.gif", video_format="gif",
-                          texts=[TextItem(text="WWWW", size=0.3, outline=0, start=1.0, end=2.0)])
+        out = self.export(
+            "window.gif", video_format="gif",
+            texts=[TextItem(text="WWWW", size=0.3, outline=0, start=1.0, end=2.0)])
         first = frame_pixels(out)
-        later = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-ss", "1.4", "-i", str(out),
-                                "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-                               capture_output=True, check=True).stdout
+        later = subprocess.run(
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-ss", "1.4", "-i",
+                str(out), "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"
+            ], capture_output=True, check=True).stdout
         self.assertEqual(bright(first, width=out_width(out)), 0)
         self.assertGreater(bright(later, width=out_width(out)), 300)
 
     def test_a_gif_has_the_logo_and_subtitles(self):
         srt = self.tmp / "g.srt"
         srt.write_text("1\n00:00:00,000 --> 00:00:09,000\nWWWWWW\n", encoding="utf-8")
-        out = self.export("both.gif", video_format="gif", logo=Logo(file=str(self.logo), corner="top-left", size=0.3),
-                          subtitles=Subtitles(file=str(srt), size=0.15, outline=0))
+        out = self.export(
+            "both.gif", video_format="gif",
+            logo=Logo(file=str(self.logo), corner="top-left",
+                      size=0.3), subtitles=Subtitles(file=str(srt), size=0.15, outline=0))
         pixels, width = frame_pixels(out), out_width(out)
-        self.assertGreater(bright(pixels, width, box=(0, 0, width // 4, len(pixels) // width // 4)), 20)    # logo
-        self.assertGreater(bright(pixels, width, box=(0, len(pixels) // width * 2 // 3, width, len(pixels) // width)), 50)
+        self.assertGreater(
+            bright(pixels, width, box=(0, 0, width // 4, len(pixels) // width // 4)), 20)  # logo
+        self.assertGreater(
+            bright(
+                pixels, width,
+                box=(0, len(pixels) // width * 2 // 3, width, len(pixels) // width)), 50)
 
     # ----- a file size to fit
 
@@ -126,16 +145,22 @@ class CaptionsInEveryExportTests(unittest.TestCase):
     def test_a_join_in_another_format_keeps_each_clips_text(self):
         other = self.tmp / "other.mp4"
         make_black(other, 2)
-        parts = [JoinPart(self.src, VideoEdit(aspect=None, use_gpu=False, video_format="webm", target_mb=1.0,
-                                              texts=[TextItem(text="WWWW", size=0.3, outline=0, end=1.0)])),
-                 JoinPart(other, VideoEdit(aspect=None, use_gpu=False, texts=[TEXT]))]
+        parts = [
+            JoinPart(
+                self.src,
+                VideoEdit(
+                    aspect=None, use_gpu=False, video_format="webm", target_mb=1.0,
+                    texts=[TextItem(text="WWWW", size=0.3, outline=0, end=1.0)])),
+            JoinPart(other, VideoEdit(aspect=None, use_gpu=False, texts=[TEXT]))
+        ]
         out = self.tmp / "joined.webm"
         join_clips(FFMPEG, JoinJob(parts, out))
         info = probe_media(FFMPEG, out)
         self.assertAlmostEqual(info.duration, 5.0, delta=0.4)
-        self.assertGreater(bright(frame_pixels(out, 0.5)), 300)      # the first clip, while its text is on
-        self.assertEqual(bright(frame_pixels(out, 2.0)), 0)          # the first clip, after its text
-        self.assertGreater(bright(frame_pixels(out, 4.0)), 300)      # the second clip
+        self.assertGreater(
+            bright(frame_pixels(out, 0.5)), 300)  # the first clip, while its text is on
+        self.assertEqual(bright(frame_pixels(out, 2.0)), 0)  # the first clip, after its text
+        self.assertGreater(bright(frame_pixels(out, 4.0)), 300)  # the second clip
 
     # ----- the command line
 
@@ -147,13 +172,15 @@ class CaptionsInEveryExportTests(unittest.TestCase):
 
     def test_the_command_line_saves_a_frame_with_the_text(self):
         target = self.tmp / "cli-frame.png"
-        self.run_cli(self.src, "--frame-at", "1", "--frame-out", target, "--text", "WWWW", "--text-size", "0.3")
+        self.run_cli(
+            self.src, "--frame-at", "1", "--frame-out", target, "--text", "WWWW", "--text-size",
+            "0.3")
         self.assertGreater(bright(frame_pixels(target)), 300)
 
     def test_the_command_line_makes_a_gif_with_the_text(self):
         folder = self.tmp / "cli-gif"
-        self.run_cli(self.src, "--format", "gif", "--text", "WWWW", "--text-size", "0.3",
-                     "-o", folder)
+        self.run_cli(
+            self.src, "--format", "gif", "--text", "WWWW", "--text-size", "0.3", "-o", folder)
         gif = next(folder.glob("*.gif"))
         self.assertGreater(bright(frame_pixels(gif), width=out_width(gif)), 300)
 

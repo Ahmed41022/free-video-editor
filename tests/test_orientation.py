@@ -14,10 +14,11 @@ def stream_text(rotation_line: str, size: str = "1920x1080") -> str:
   Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p, {size} [SAR 1:1 DAR 16:9], 30 fps
 {rotation_line}
   Stream #0:1[0x2](und): Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s
-"""
+"""  # noqa: E501
 
 
 class RotationParsingTests(unittest.TestCase):
+
     def test_ffmpeg_angles_are_counter_clockwise(self):
         # "rotation of -90" means players turn the stored frame 90 degrees clockwise.
         cases = {
@@ -35,17 +36,17 @@ class RotationParsingTests(unittest.TestCase):
                 self.assertEqual(parse_media_info(stream_text(line)).display_rotation, expected)
 
     def test_newer_ffmpeg_prints_display_matrix(self):
-        for line, expected in (
-            ("      Display Matrix: rotation of 180.00 degrees", 180),
-            ("      Display Matrix: rotation of -90.00 degrees", 90),
-            ("      Display Matrix: rotation of 90.00 degrees", 270),
-        ):
+        for line, expected in (("      Display Matrix: rotation of 180.00 degrees",
+                                180), ("      Display Matrix: rotation of -90.00 degrees", 90),
+                               ("      Display Matrix: rotation of 90.00 degrees", 270),
+                               ):
             with self.subTest(line=line.strip()):
                 text = stream_text("    Side data:\n" + line)
                 self.assertEqual(parse_media_info(text).display_rotation, expected)
 
     def test_slightly_off_angles_snap_to_the_nearest_quarter_turn(self):
-        for angle, expected in (("-89.60", 90), ("-90.40", 90), ("90.30", 270), ("179.70", 180), ("0.40", 0)):
+        for angle, expected in (("-89.60", 90), ("-90.40", 90), ("90.30", 270), ("179.70", 180),
+                                ("0.40", 0)):
             with self.subTest(angle=angle):
                 text = stream_text(f"      displaymatrix: rotation of {angle} degrees")
                 self.assertEqual(parse_media_info(text).display_rotation, expected)
@@ -56,10 +57,11 @@ class RotationParsingTests(unittest.TestCase):
         self.assertEqual((info.width, info.height), (1920, 1080))
 
     def test_display_size_follows_the_rotation(self):
-        for angle, expected in (("-90.00", (1080, 1920)), ("90.00", (1080, 1920)), ("180.00", (1920, 1080)),
-                                ("0.00", (1920, 1080))):
+        for angle, expected in (("-90.00", (1080, 1920)), ("90.00", (1080, 1920)),
+                                ("180.00", (1920, 1080)), ("0.00", (1920, 1080))):
             with self.subTest(angle=angle):
-                info = parse_media_info(stream_text(f"      displaymatrix: rotation of {angle} degrees"))
+                info = parse_media_info(
+                    stream_text(f"      displaymatrix: rotation of {angle} degrees"))
                 self.assertEqual((info.width, info.height), expected)
                 self.assertTrue(info.has_video)
 
@@ -69,15 +71,17 @@ class RotationParsingTests(unittest.TestCase):
         self.assertFalse(info.has_video)
 
     def test_rotation_of_the_audio_stream_text_is_not_used_when_there_is_no_video(self):
-        text = "  Duration: 00:00:10.00\n  Stream #0:0: Audio: mp3, 44100 Hz\n    displaymatrix: rotation of 90.00 degrees\n"
+        text = (
+            "  Duration: 00:00:10.00\n  Stream #0:0: Audio: mp3, 44100 Hz\n    "
+            "displaymatrix: rotation of 90.00 degrees\n")
         self.assertEqual(parse_media_info(text).display_rotation, 0)
 
     def test_rotation_of_a_later_stream_is_not_applied_to_the_first_video(self):
-        # Suspected bug: core.py parse_media_info searches for "rotation of ..." in all the text after the
-        # first video stream, so rotation metadata belonging to a LATER stream (here a second video
-        # track such as embedded cover art) is attributed to the first one.
-        # Input: first video stream has no rotation, second video stream says "rotation of -90.00 degrees".
-        # Expected display_rotation == 0 and 1920x1080; actual 90 and 1080x1920.
+        # Suspected bug: core/probe.py parse_media_info searches for "rotation of ..." in all the
+        # text after the first video stream, so rotation metadata belonging to a LATER stream (here
+        # a second video track such as embedded cover art) is attributed to the first one. Input:
+        # first video stream has no rotation, second video stream says "rotation of -90.00
+        # degrees". Expected display_rotation == 0 and 1920x1080; actual 90 and 1080x1920.
         text = """
   Duration: 00:00:10.00, start: 0.000000, bitrate: 3000 kb/s
   Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p, 1920x1080 [SAR 1:1 DAR 16:9], 30 fps
@@ -85,7 +89,7 @@ class RotationParsingTests(unittest.TestCase):
   Stream #0:2[0x3](und): Video: mjpeg, yuvj420p, 600x600, 90k tbr
       Side data:
         displaymatrix: rotation of -90.00 degrees
-"""
+"""  # noqa: E501
         info = parse_media_info(text)
         self.assertEqual(info.display_rotation, 0)
         self.assertEqual((info.width, info.height), (1920, 1080))
@@ -93,7 +97,9 @@ class RotationParsingTests(unittest.TestCase):
 
 # ----- checking the direction against ffmpeg itself -----------------------------
 
-def rotate_clockwise(frame: bytes, width: int, height: int, degrees: int) -> tuple[bytes, int, int]:
+
+def rotate_clockwise(frame: bytes, width: int, height: int,
+                     degrees: int) -> tuple[bytes, int, int]:
     """Turn a packed RGB24 frame clockwise by 0, 90, 180 or 270 degrees."""
     pixels = [frame[i:i + 3] for i in range(0, len(frame), 3)]
     rows = [pixels[y * width:(y + 1) * width] for y in range(height)]
@@ -137,10 +143,12 @@ class DisplayRotationMatchesFfmpegTests(unittest.TestCase):
         cls.plain = cls.tmp / "plain.mp4"
         # testsrc2 has no symmetry, so a wrong direction cannot look right.
         subprocess.run(
-            [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
-             "-i", f"testsrc2=duration=1:size={cls.WIDTH}x{cls.HEIGHT}:rate=10",
-             "-c:v", "libx264", "-pix_fmt", "yuv420p", str(cls.plain)],
-            check=True,
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                f"testsrc2=duration=1:size={cls.WIDTH}x{cls.HEIGHT}:rate=10", "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                str(cls.plain)
+            ], check=True,
         )
 
     @classmethod
@@ -151,9 +159,12 @@ class DisplayRotationMatchesFfmpegTests(unittest.TestCase):
         path = self.tmp / f"rot_{str(rotation).replace('-', 'm')}.mp4"
         if not path.exists():
             subprocess.run(
-                [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-display_rotation", str(rotation),
-                 "-i", str(self.plain), "-c", "copy", str(path)],
-                check=True,
+                [
+                    FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-display_rotation",
+                    str(rotation), "-i",
+                    str(self.plain), "-c", "copy",
+                    str(path)
+                ], check=True,
             )
         return path
 
@@ -184,8 +195,9 @@ class DisplayRotationMatchesFfmpegTests(unittest.TestCase):
         info = probe_media(FFMPEG, self.plain)
         self.assertEqual(info.display_rotation, 0)
         self.assertEqual((info.width, info.height), (self.WIDTH, self.HEIGHT))
-        self.assertEqual(raw_frame(FFMPEG, self.plain, True, (self.WIDTH, self.HEIGHT)),
-                         raw_frame(FFMPEG, self.plain, False, (self.WIDTH, self.HEIGHT)))
+        self.assertEqual(
+            raw_frame(FFMPEG, self.plain, True, (self.WIDTH, self.HEIGHT)),
+            raw_frame(FFMPEG, self.plain, False, (self.WIDTH, self.HEIGHT)))
 
     def test_display_rotation_90(self):
         self.check(90, 270)

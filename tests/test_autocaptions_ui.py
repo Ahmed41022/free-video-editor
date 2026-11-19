@@ -1,5 +1,5 @@
-"""The automatic captions window, the caption editor, and how they work in the main window (undo included).
-They run without a visible window and are skipped when PySide6 isn't installed."""
+"""The automatic captions window, the caption editor, and how they work in the main window (undo
+included). They run without a visible window and are skipped when PySide6 isn't installed."""
 
 import os
 import subprocess
@@ -12,21 +12,23 @@ from types import SimpleNamespace
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("VIDEO_EDITOR_NO_GPU_SEARCH", "1")      # a window never searches for graphics cards (see tests/__init__.py)
+os.environ.setdefault(
+    "VIDEO_EDITOR_NO_GPU_SEARCH",
+    "1")  # a window never searches for graphics cards (see tests/__init__.py)
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
     import shiboken6
-    from PySide6.QtCore import QEvent, QSettings, Qt
+    from PySide6.QtCore import QEvent, QSettings
     from PySide6.QtWidgets import QApplication, QDialog
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from tests.test_speech_models import FILES, tiny_model
-from video_converter import autocaptions as ac
-from video_converter import speech_models as sm
-from video_converter.captions import Cue, format_srt, parse_cues, read_text
-from video_converter.core import ConversionError, find_ffmpeg
+from tests.test_speech_models import FILES, tiny_model  # noqa: E402
+from video_converter import autocaptions as ac  # noqa: E402
+from video_converter import speech_models as sm  # noqa: E402
+from video_converter.captions import Cue, format_srt, parse_cues, read_text  # noqa: E402
+from video_converter.core import ConversionError, find_ffmpeg  # noqa: E402
 
 FFMPEG = find_ffmpeg()
 TIMEOUT = 30
@@ -54,6 +56,7 @@ def free(widget):
 
 
 class DialogTests(unittest.TestCase):
+
     def setUp(self):
         from video_converter.ui.auto_captions_dialog import AutoCaptionsDialog
         self.cls = AutoCaptionsDialog
@@ -74,13 +77,15 @@ class DialogTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def make(self, runner=None, store="default", **kwargs):
+
         def default_runner(ffmpeg, source, options, duration=None, **extra):
             self.calls.append((source, options, duration))
             return ac.CaptionResult(list(CUES), "en")
 
-        dialog = self.cls("ffmpeg", Path("talk.mp4"), 12.0, kwargs.pop("start", None), kwargs.pop("end", None),
-                          self.store if store == "default" else store, None, models_root=self.models,
-                          runner=runner or default_runner)
+        dialog = self.cls(
+            "ffmpeg", Path("talk.mp4"), 12.0, kwargs.pop("start", None), kwargs.pop("end", None),
+            self.store if store == "default" else store, None, models_root=self.models,
+            runner=runner or default_runner)
         self.dialogs.append(dialog)
         return dialog
 
@@ -92,12 +97,16 @@ class DialogTests(unittest.TestCase):
 
     def test_it_starts_on_automatic_language_and_the_balanced_level(self):
         dialog = self.make()
-        self.assertEqual((dialog.language, dialog.model_key, dialog.translate), ("", "balanced", False))
+        self.assertEqual(
+            (dialog.language, dialog.model_key, dialog.translate), ("", "balanced", False))
         self.assertEqual(dialog.language_box.itemText(0), "Detect automatically")
 
     def test_the_languages_include_the_ones_asked_for(self):
-        names = [self.make().language_box.itemText(i) for i in range(self.make().language_box.count())]
-        for name in ("Arabic", "English", "French", "Spanish", "German", "Turkish", "Hindi", "Urdu"):
+        names = [
+            self.make().language_box.itemText(i) for i in range(self.make().language_box.count())
+        ]
+        for name in ("Arabic", "English", "French", "Spanish", "German", "Turkish", "Hindi",
+                     "Urdu"):
             self.assertIn(name, names)
 
     def test_each_level_shows_its_download_size_and_whether_it_is_there_already(self):
@@ -116,7 +125,8 @@ class DialogTests(unittest.TestCase):
         self.assertIn("one-time download of 141 MB", again.model_note.text())
 
     def test_the_help_text_says_it_runs_offline_after_a_one_time_download(self):
-        text = " ".join(label.text() for label in self.make().findChildren(type(self.make().status)))
+        text = " ".join(
+            label.text() for label in self.make().findChildren(type(self.make().status)))
         self.assertIn("entirely on this PC", text)
         self.assertIn("once", text)
         self.assertIn("no internet is needed", text)
@@ -130,8 +140,9 @@ class DialogTests(unittest.TestCase):
         dialog.start_button.click()
         self.assertTrue(pump(TIMEOUT, lambda: dialog.result() == QDialog.DialogCode.Accepted))
         source, options, duration = self.calls[0]
-        self.assertEqual((options.model, options.language, options.translate, options.start, options.end),
-                         ("accurate", "ar", True, 2.0, 9.0))
+        self.assertEqual(
+            (options.model, options.language, options.translate, options.start, options.end),
+            ("accurate", "ar", True, 2.0, 9.0))
         self.assertEqual((source, duration), (Path("talk.mp4"), 12.0))
         self.assertEqual([c.text for c in dialog.outcome.cues], [c.text for c in CUES])
 
@@ -143,7 +154,8 @@ class DialogTests(unittest.TestCase):
         dialog.start_button.click()
         pump(TIMEOUT, lambda: dialog.outcome is not None)
         self.store.sync()
-        again = self.make(store=QSettings(str(self.tmp / "settings.ini"), QSettings.Format.IniFormat))
+        again = self.make(
+            store=QSettings(str(self.tmp / "settings.ini"), QSettings.Format.IniFormat))
         self.assertEqual((again.language, again.model_key, again.translate), ("tr", "fast", True))
 
     def test_odd_saved_values_fall_back_to_the_defaults(self):
@@ -151,7 +163,8 @@ class DialogTests(unittest.TestCase):
         self.store.setValue("captionsModel", "gigantic")
         self.store.setValue("captionsTranslate", "banana")
         dialog = self.make()
-        self.assertEqual((dialog.language, dialog.model_key, dialog.translate), ("", "balanced", False))
+        self.assertEqual(
+            (dialog.language, dialog.model_key, dialog.translate), ("", "balanced", False))
 
     def test_it_works_without_a_settings_store(self):
         dialog = self.make(store=None)
@@ -161,9 +174,11 @@ class DialogTests(unittest.TestCase):
     def test_progress_is_shown_for_each_step_in_turn(self):
         step = threading.Event()
 
-        def runner(ffmpeg, source, options, duration=None, on_progress=None, cancel_event=None, **extra):
-            for phase, fraction, text in (("prepare", 0.5, ""), ("download", 0.25, "30 of 120 MB"), ("load", 0.0, ""),
-                                          ("listen", 0.4, "")):
+        def runner(
+                ffmpeg, source, options, duration=None, on_progress=None, cancel_event=None,
+                **extra):
+            for phase, fraction, text in (("prepare", 0.5, ""), ("download", 0.25, "30 of 120 MB"),
+                                          ("load", 0.0, ""), ("listen", 0.4, "")):
                 on_progress(phase, fraction, text)
                 step.wait(TIMEOUT)
                 step.clear()
@@ -175,17 +190,23 @@ class DialogTests(unittest.TestCase):
         for expected, value in (("Getting the sound ready", 500),
                                 ("Downloading the speech model, one time only… 30 of 120 MB", 250),
                                 ("Checking the speech model", None), ("Listening… 40%", 400)):
-            self.assertTrue(pump(TIMEOUT, lambda: dialog.status.text().startswith(expected)
-                                 and (value is None or dialog.bar.value() == value)),
-                            f"never showed {expected!r}; showed {dialog.status.text()!r} at {dialog.bar.value()}")
+            self.assertTrue(
+                pump(
+                    TIMEOUT, lambda: dialog.status.text().startswith(expected) and
+                    (value is None or dialog.bar.value() == value)),
+                f"never showed {expected!r}; showed {dialog.status.text()!r} at "
+                f"{dialog.bar.value()}")
             self.assertFalse(dialog.start_button.isEnabled())
             self.assertFalse(dialog.model_box.isEnabled())
             step.set()
         self.assertTrue(pump(TIMEOUT, lambda: dialog.outcome is not None))
 
     def test_an_error_is_shown_and_the_window_stays_open_for_another_try(self):
+
         def runner(ffmpeg, source, options, duration=None, **extra):
-            raise ConversionError("Couldn't download the speech model. Check that this PC is connected to the internet.")
+            raise ConversionError(
+                "Couldn't download the speech model. Check that this PC is connected to the "
+                "internet.")
 
         dialog = self.make(runner)
         dialog.show()
@@ -198,6 +219,7 @@ class DialogTests(unittest.TestCase):
         self.assertFalse(dialog.bar.isVisible())
 
     def test_an_unexpected_exception_is_shown_too(self):
+
         def runner(*args, **kwargs):
             raise ValueError("kaboom")
 
@@ -235,7 +257,9 @@ class DialogTests(unittest.TestCase):
     def test_cancel_while_working_stops_the_job_and_closes(self):
         started, stopped = threading.Event(), threading.Event()
 
-        def runner(ffmpeg, source, options, duration=None, on_progress=None, cancel_event=None, **extra):
+        def runner(
+                ffmpeg, source, options, duration=None, on_progress=None, cancel_event=None,
+                **extra):
             started.set()
             cancel_event.wait(TIMEOUT)
             stopped.set()
@@ -266,32 +290,31 @@ class DialogTests(unittest.TestCase):
         self.assertIsNone(dialog.outcome)
         self.assertEqual(dialog.result(), QDialog.DialogCode.Rejected)
 
-
     def test_a_second_run_waits_while_the_previous_worker_is_still_finishing(self):
         started, block = threading.Event(), threading.Event()
 
         def slow(ffmpeg, source, options, duration=None, cancel_event=None, **extra):
             started.set()
-            block.wait(TIMEOUT)                         # a worker that takes a while to notice the cancel
+            block.wait(TIMEOUT)  # a worker that takes a while to notice the cancel
             raise ac.ConversionCancelled()
 
         first = self.make(slow)
         first.show()
         first.start_button.click()
         self.assertTrue(started.wait(TIMEOUT))
-        first.reject()                                  # the window is closed; the worker is still running
+        first.reject()  # the window is closed; the worker is still running
         self.assertTrue(self.cls.previous_run_active())
 
         second = self.make()
         second.show()
         second.start_button.click()
         self.assertEqual(second.status.text(), "Stopping the previous run…")
-        self.assertEqual(self.calls, [])                # not started
+        self.assertEqual(self.calls, [])  # not started
         pump(0.5)
-        self.assertEqual(self.calls, [])                # still waiting
-        block.set()                                     # the old worker lets go
+        self.assertEqual(self.calls, [])  # still waiting
+        block.set()  # the old worker lets go
         self.assertTrue(pump(TIMEOUT, lambda: second.outcome is not None))
-        self.assertEqual(len(self.calls), 1)            # exactly one run happened
+        self.assertEqual(len(self.calls), 1)  # exactly one run happened
 
     def test_closing_the_window_while_it_waits_starts_nothing(self):
         started, block = threading.Event(), threading.Event()
@@ -322,7 +345,9 @@ class DialogTests(unittest.TestCase):
         dialog.start_button.click()
         self.assertTrue(pump(TIMEOUT, lambda: dialog.outcome is not None))
 
+
 class EditorTests(unittest.TestCase):
+
     def setUp(self):
         from video_converter.ui.captions_editor import CaptionsEditor
         self.editor = CaptionsEditor(CUES)
@@ -333,7 +358,9 @@ class EditorTests(unittest.TestCase):
 
     def test_every_cue_is_a_row_with_start_end_and_text(self):
         self.assertEqual(self.table.rowCount(), 3)
-        self.assertEqual([self.table.item(0, c).text() for c in range(3)], ["0:01.000", "0:02.500", "Hello there"])
+        self.assertEqual(
+            [self.table.item(0, c).text() for c in range(3)],
+            ["0:01.000", "0:02.500", "Hello there"])
         self.assertEqual(self.table.item(1, 2).text(), "Second\nline")
         self.assertEqual(self.table.item(2, 2).text(), "مرحبا")
         self.assertIn("3 captions", self.editor.count_label.text())
@@ -352,7 +379,7 @@ class EditorTests(unittest.TestCase):
     def test_editing_a_time_accepts_clock_and_seconds_forms(self):
         self.table.item(0, 0).setText("0:00.5")
         self.table.item(0, 1).setText("3")
-        self.assertEqual(self.table.item(0, 0).text(), "0:00.500")           # shown in the standard form
+        self.assertEqual(self.table.item(0, 0).text(), "0:00.500")  # shown in the standard form
         self.editor.accept()
         self.assertEqual((self.editor.cues[0].start, self.editor.cues[0].end), (0.5, 3.0))
 
@@ -384,7 +411,8 @@ class EditorTests(unittest.TestCase):
         self.assertTrue(self.editor.delete_button.isEnabled())
         self.editor.delete_button.click()
         self.assertEqual(self.table.rowCount(), 2)
-        self.assertEqual([self.table.item(r, 2).text() for r in range(2)], ["Hello there", "مرحبا"])
+        self.assertEqual(
+            [self.table.item(r, 2).text() for r in range(2)], ["Hello there", "مرحبا"])
         self.editor.accept()
         self.assertEqual([c.text for c in self.editor.cues], ["Hello there", "مرحبا"])
         self.assertIn("2 captions", self.editor.count_label.text())
@@ -429,7 +457,6 @@ class EditorTests(unittest.TestCase):
         self.table.item(0, 2).setText("different")
         self.assertEqual(CUES[0].text, "Hello there")
 
-
     def test_times_that_are_not_real_numbers_are_refused(self):
         from video_converter.ui.captions_editor import clock
         for column in (0, 1):
@@ -439,9 +466,9 @@ class EditorTests(unittest.TestCase):
                     shown = self.table.item(0, column).text()
                     self.table.item(0, column).setText(text)
                     self.assertEqual((self.editor.cues[0].start, self.editor.cues[0].end), before)
-                    self.assertEqual(self.table.item(0, column).text(), shown)           # put back
+                    self.assertEqual(self.table.item(0, column).text(), shown)  # put back
                     self.assertFalse(self.editor.message.isHidden())
-                    self.assertTrue(self.editor.message.text())            # some message says why
+                    self.assertTrue(self.editor.message.text())  # some message says why
                     self.editor.message.hide()
         self.assertEqual(clock(float("nan")), "0:00.000")
         self.assertEqual(clock(float("inf")), "0:00.000")
@@ -454,11 +481,13 @@ class EditorTests(unittest.TestCase):
         self.editor.accept()
         self.assertEqual([c.text for c in self.editor.cues], ["مرحبا"])
         format_srt(self.editor.cues)
-        self.assertIn("00:00:00,000", format_srt([Cue(float("nan"), float("inf"), "x")]))          # defensive: no crash
+        self.assertIn(
+            "00:00:00,000", format_srt([Cue(float("nan"), float("inf"),
+                                            "x")]))  # defensive: no crash
 
     def test_times_far_past_the_end_of_the_video_are_refused(self):
         self.editor.duration = 10.0
-        self.table.item(0, 1).setText("70")                      # 60 s past the end is the limit
+        self.table.item(0, 1).setText("70")  # 60 s past the end is the limit
         self.assertEqual(self.editor.cues[0].end, 70.0)
         self.assertTrue(self.editor.message.isHidden())
         self.table.item(0, 1).setText("70.5")
@@ -466,14 +495,16 @@ class EditorTests(unittest.TestCase):
         self.assertFalse(self.editor.message.isHidden())
         self.table.item(1, 0).setText("500")
         self.assertEqual(self.editor.cues[1].start, 3.0)
-        self.table.item(2, 0).setText("69.5")                    # would push the end past the limit too
+        self.table.item(2, 0).setText("69.5")  # would push the end past the limit too
         self.assertEqual(self.editor.cues[2].start, 5.0)
 
     def test_without_a_duration_only_the_real_numbers_check_applies(self):
         self.table.item(0, 1).setText("100000")
         self.assertEqual(self.editor.cues[0].end, 100000.0)
 
+
 class PanelTests(unittest.TestCase):
+
     def setUp(self):
         from video_converter.ui.inspector import Inspector
         from video_converter.project import ClipSettings
@@ -535,6 +566,7 @@ class PanelTests(unittest.TestCase):
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is needed")
 class MainWindowTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -546,25 +578,30 @@ class MainWindowTests(unittest.TestCase):
 
     @staticmethod
     def make_video(path, sound=True):
-        cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-               "color=c=0x203040:s=320x180:d=4:r=15"]
+        cmd = [
+            FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+            "color=c=0x203040:s=320x180:d=4:r=15"
+        ]
         if sound:
             cmd += ["-f", "lavfi", "-i", "sine=frequency=300:duration=4", "-c:a", "aac"]
         subprocess.run(cmd + ["-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True)
 
     def setUp(self):
-        from video_converter.ui import main_window
+        from video_converter.ui.main_window import captions as main_window
         from video_converter.ui.main_window import MainWindow
         self.folder = Path(tempfile.mkdtemp(dir=self.tmp))
         self.video = self.folder / "clip.mp4"
         self.make_video(self.video)
         self.main_window = main_window
-        self.window = MainWindow(FFMPEG, QSettings(str(self.folder / "s.ini"), QSettings.Format.IniFormat))
+        self.window = MainWindow(
+            FFMPEG, QSettings(str(self.folder / "s.ini"), QSettings.Format.IniFormat))
         self.window.models_root = self.folder / "models"
         self.window.resize(1200, 800)
         self.window.show()
         self.window.add_paths([self.video])
-        self.assertTrue(pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)), "files never loaded")
+        self.assertTrue(
+            pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)),
+            "files never loaded")
         self.item = self.window.current
         self.window.undo_stack.clear()
 
@@ -578,15 +615,19 @@ class MainWindowTests(unittest.TestCase):
 
     def fake_dialog(self, cues=None, accept=True):
         """A stand-in for the captions window that answers at once."""
-        outcome = ac.CaptionResult(list(CUES if cues is None else cues), "en") if cues != [] else None
+        outcome = ac.CaptionResult(list(CUES if cues is None else cues),
+                                   "en") if cues != [] else None
         shown = []
 
         class Dialog:
             DialogCode = QDialog.DialogCode
 
-            def __init__(self, ffmpeg, source, duration, start, end, store, parent, models_root=None):
-                shown.append(SimpleNamespace(source=source, duration=duration, start=start, end=end,
-                                             models_root=models_root))
+            def __init__(
+                    self, ffmpeg, source, duration, start, end, store, parent, models_root=None):
+                shown.append(
+                    SimpleNamespace(
+                        source=source, duration=duration, start=start, end=end,
+                        models_root=models_root))
                 self.outcome = outcome
 
             def exec(self):
@@ -598,6 +639,7 @@ class MainWindowTests(unittest.TestCase):
         return mock.patch.object(self.main_window, "AutoCaptionsDialog", Dialog), shown
 
     def fake_editor(self, cues, accept=True):
+
         class Editor:
             DialogCode = QDialog.DialogCode
 
@@ -623,8 +665,9 @@ class MainWindowTests(unittest.TestCase):
             self.window.make_captions()
         srt = self.folder / "clip.srt"
         self.assertEqual(Path(self.subtitles()), srt)
-        self.assertEqual([(c.start, c.end, c.text) for c in parse_cues(srt.read_text("utf-8"))],
-                         [(c.start, c.end, c.text) for c in CUES])
+        self.assertEqual(
+            [(c.start, c.end, c.text) for c in parse_cues(srt.read_text("utf-8"))],
+            [(c.start, c.end, c.text) for c in CUES])
         self.assertEqual(shown[0].source, self.video)
         self.assertEqual(shown[0].models_root, self.folder / "models")
         self.assertIn("clip.srt", self.window.statusBar().currentMessage())
@@ -647,7 +690,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(self.window.undo_stack.undoText(), "Make captions")
         self.window.undo_stack.undo()
         self.assertEqual(self.subtitles(), "")
-        self.assertTrue((self.folder / "clip.srt").is_file())            # the saved file is the person's to keep
+        self.assertTrue(
+            (self.folder / "clip.srt").is_file())  # the saved file is the person's to keep
         self.window.undo_stack.redo()
         self.assertEqual(Path(self.subtitles()), self.folder / "clip.srt")
 
@@ -685,7 +729,8 @@ class MainWindowTests(unittest.TestCase):
     def test_an_srt_that_cannot_be_saved_is_reported_and_nothing_changes(self):
         patch, _ = self.fake_dialog()
         with patch, mock.patch.object(self.main_window, "save_captions",
-                                      side_effect=ConversionError("Couldn't save the captions: disk full")), \
+                                      side_effect=ConversionError("Couldn't save the captions: "
+                                                                  "disk full")), \
                 mock.patch.object(self.main_window.QMessageBox, "warning") as warning:
             self.window.make_captions()
         warning.assert_called_once()
@@ -717,8 +762,9 @@ class MainWindowTests(unittest.TestCase):
         edited = [Cue(1.0, 2.5, "Hello, world"), Cue(5.0, 6.5, "مرحبا")]
         with self.fake_editor(edited):
             self.window.edit_captions()
-        self.assertEqual([(c.start, c.end, c.text) for c in parse_cues(srt.read_text("utf-8"))],
-                         [(c.start, c.end, c.text) for c in edited])
+        self.assertEqual(
+            [(c.start, c.end, c.text) for c in parse_cues(srt.read_text("utf-8"))],
+            [(c.start, c.end, c.text) for c in edited])
         self.assertEqual(self.window.undo_stack.count(), 1)
         self.assertEqual(self.window.undo_stack.undoText(), "Edit captions")
         self.window.undo_stack.undo()
@@ -803,7 +849,6 @@ class MainWindowTests(unittest.TestCase):
         self.window.undo_stack.undo()
         self.assertEqual(self.subtitles(), "")
 
-
     # ----- fixes ---------------------------------------------------------------------------
 
     def attach_bytes(self, data: bytes, name="clip.srt"):
@@ -816,6 +861,7 @@ class MainWindowTests(unittest.TestCase):
         return srt
 
     def capturing_editor(self, opened, change=lambda cues: cues):
+
         class Editor:
             DialogCode = QDialog.DialogCode
 
@@ -844,11 +890,13 @@ class MainWindowTests(unittest.TestCase):
 
         with self.capturing_editor(opened, reword):
             self.window.edit_captions()
-        self.assertEqual([c.text for c in opened[0]], [c.text for c in self.ARABIC])         # not mojibake
+        self.assertEqual(
+            [c.text for c in opened[0]], [c.text for c in self.ARABIC])  # not mojibake
         data = srt.read_bytes()
-        self.assertTrue(data.startswith(b"\xef\xbb\xbf"))                  # UTF-8 with a byte order mark
-        self.assertEqual([c.text for c in parse_cues(data.decode("utf-8-sig"))],
-                         [self.ARABIC[0].text + "!", self.ARABIC[1].text])
+        self.assertTrue(data.startswith(b"\xef\xbb\xbf"))  # UTF-8 with a byte order mark
+        self.assertEqual(
+            [c.text for c in parse_cues(data.decode("utf-8-sig"))],
+            [self.ARABIC[0].text + "!", self.ARABIC[1].text])
         backup = self.folder / "clip.srt.bak"
         self.assertEqual(backup.read_bytes(), original)
         # a second edit leaves the very first backup alone
@@ -865,7 +913,9 @@ class MainWindowTests(unittest.TestCase):
         with self.capturing_editor(opened, lambda cues: cues[:1]):
             self.window.edit_captions()
         self.assertEqual([c.text for c in opened[0]], [c.text for c in self.ARABIC])
-        self.assertEqual([c.text for c in parse_cues(srt.read_bytes().decode("utf-8-sig"))], [self.ARABIC[0].text])
+        self.assertEqual(
+            [c.text for c in parse_cues(srt.read_bytes().decode("utf-8-sig"))],
+            [self.ARABIC[0].text])
 
     def test_an_edited_file_always_has_a_byte_order_mark(self):
         srt = self.attach()
@@ -902,10 +952,11 @@ class MainWindowTests(unittest.TestCase):
             self.window.make_captions()
         warning.assert_not_called()
         saved = elsewhere / "clip.srt"
-        self.assertEqual(Path(self.subtitles()), saved)                      # the cues are in use, not lost
+        self.assertEqual(Path(self.subtitles()), saved)  # the cues are in use, not lost
         self.assertEqual([c.text for c in parse_cues(read_text(saved))], [c.text for c in CUES])
         self.assertEqual(self.window.undo_stack.count(), 1)
         self.assertIn("saved here instead", self.window.statusBar().currentMessage())
+
 
 if __name__ == "__main__":
     unittest.main()

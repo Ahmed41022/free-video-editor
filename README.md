@@ -357,6 +357,34 @@ python3 -m venv .venv && .venv/bin/pip install PySide6==6.12.0 numpy
 QT_QPA_PLATFORM=offscreen QT_AUDIO_BACKEND=alsa PYTHONUTF8=1 FFMPEG_PATH=$(command -v ffmpeg) .venv/bin/python -m tests
 ```
 
+## Code layout and style
+
+The program is the `video_converter` package. The big areas are packages, each split by job; every
+public name is re-exported from the package's `__init__.py`, so `from video_converter.core import X` and
+`from video_converter.ui.main_window import MainWindow` work as they always did.
+
+| Package | What is in it |
+| --- | --- |
+| `core/` | ffmpeg plumbing: finding ffmpeg, probing a file, running a command with progress and cancel, the part file an export is written to, converting to MP3 |
+| `video/` | video exports: `VideoEdit` and its choices, the picture's geometry and filter graph, the ffmpeg command lines, fitting a file size, exporting, joining, single frames |
+| `captions/` | text, logo and subtitles drawn into the picture: settings, filter escaping, reading subtitle files in any encoding, retiming |
+| `cli/` | the command line (`python -m video_converter file.mp4 ...`); `__main__.py` only starts it or the app |
+| `ui/main_window/` | the editor window: `MainWindow` is put together from one mixin per area (layout, library, selection, editing, captions, previews, playback, exporting, updates, ...) |
+| `ui/inspector/` | the settings panel on the right |
+
+Other modules (`project`, `timing`, `jobs`, `gpu`, `i18n`, ...) are single files. The style is PEP 8 with
+99 columns, checked by flake8 and formatted by yapf (both set up in `setup.cfg` and pinned in
+`requirements-build.txt`, and run by the tests workflow on Windows):
+
+```bash
+python -m flake8 video_converter tests                       # prints nothing when the code is clean
+python -m yapf --diff --recursive video_converter tests      # prints nothing when it is formatted
+python -m yapf --in-place --recursive video_converter tests  # formats it
+```
+
+`.git-blame-ignore-revs` lists the commit that reformatted the whole code base, so `git blame` skips it
+(`git config blame.ignoreRevsFile .git-blame-ignore-revs`; GitHub reads the file by itself).
+
 ## Releases
 
 Bump `__version__` in `video_converter/__init__.py`, then push a tag with the same number, e.g. `v2.3.2`.

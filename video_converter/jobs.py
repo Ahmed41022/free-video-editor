@@ -15,7 +15,9 @@ from .core import ConversionCancelled, ConversionError, ConversionJob, MediaInfo
 from .gpu import choose_encoder
 from .i18n import N_, tr
 from .project import OUTPUT_AUDIO, ClipSettings, describe, describe_join, output_file_for
-from .video import DEFAULT_FPS, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, reverse_memory
+from .video import (
+    DEFAULT_FPS, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, reverse_memory,
+)
 
 log = logging.getLogger(__name__)
 
@@ -51,15 +53,15 @@ class Clip:
 @dataclass
 class Job:
     source: Path
-    settings: ClipSettings                 # a snapshot; later edits in the UI don't affect it
-    output_dir: Optional[Path] = None      # None = next to the source file
+    settings: ClipSettings  # a snapshot; later edits in the UI don't affect it
+    output_dir: Optional[Path] = None  # None = next to the source file
     info: Optional[MediaInfo] = None
     id: int = field(default_factory=lambda: next(_ids))
     state: JobState = JobState.QUEUED
     progress: float = 0.0
     output: Optional[Path] = None
     error: str = ""
-    note: str = ""                         # something worth telling the user about how the export went
+    note: str = ""  # something worth telling the user about how the export went
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -69,22 +71,27 @@ class Job:
     @property
     def title(self) -> str:
         more = len(self.clips) - 1
-        return tr("{name} + {n} more", name=self.source.name, n=more) if more > 0 else self.source.name
+        return tr(
+            "{name} + {n} more", name=self.source.name, n=more) if more > 0 else self.source.name
 
     @property
     def summary(self) -> str:
-        return describe_join(self.settings, len(self.clips)) if self.clips else describe(self.settings, self.info.duration if self.info else None)
+        return describe_join(self.settings, len(self.clips)) if self.clips else describe(
+            self.settings, self.info.duration if self.info else None)
 
     @property
     def reverse_memory(self) -> int:
-        """About how many bytes ffmpeg needs to play this export backwards (0 if nothing is reversed).
-        In a join each clip is reversed on its own, so this is the biggest clip's."""
+        """About how many bytes ffmpeg needs to play this export backwards (0 if nothing is
+        reversed). In a join each clip is reversed on its own, so this is the biggest clip's."""
         sound_only = self.settings.output == OUTPUT_AUDIO
         if self.clips:
             fps = (self.clips[0].info.fps if self.clips[0].info else None) or DEFAULT_FPS
-            return max((reverse_memory(c.settings.edit, c.info, fps, sound_only) for c in self.clips if c.info),
-                       default=0)
-        return reverse_memory(self.settings.edit, self.info, sound_only=sound_only) if self.info else 0
+            return max(
+                (
+                    reverse_memory(c.settings.edit, c.info, fps, sound_only)
+                    for c in self.clips if c.info), default=0)
+        return reverse_memory(
+            self.settings.edit, self.info, sound_only=sound_only) if self.info else 0
 
     def remaining_seconds(self, now: Optional[float] = None) -> Optional[float]:
         """Estimated time left, once there's enough progress to guess."""
@@ -101,40 +108,49 @@ def run_job(ffmpeg: str, job: Job, on_progress: Callable[[float], None]) -> Path
     """Export one job with ffmpeg. The output name is chosen now, so queued jobs for
     the same file never collide. Video goes through the graphics card when the job's settings
     allow it and there is one that works; if it fails, the job is done again on the CPU."""
+
     def note(text: str) -> None:
-        # A job can have more to say than one thing (made smaller to fit, and then the card failed).
-        job.note = f"{job.note} · {text}" if job.note and text not in job.note else (job.note or text)
+        # A job can have more to say than one thing (made smaller to fit, and then the card
+        # failed).
+        job.note = f"{job.note} · {text}" if job.note and text not in job.note else (
+            job.note or text)
 
     if job.clips:
-        # The result never takes the name of one of the clips (or of the music), and the name is made again if
-        # another program takes it before the export starts (overwrite=False).
-        output = output_file_for(job.source, job.settings, job.output_dir, joined=True,
-                                 avoid=[clip.source for clip in job.clips])
+        # The result never takes the name of one of the clips (or of the music), and the name is
+        # made again if another program takes it before the export starts (overwrite=False).
+        output = output_file_for(
+            job.source, job.settings, job.output_dir, joined=True,
+            avoid=[clip.source for clip in job.clips])
         parts = [JoinPart(clip.source, clip.settings.edit, clip.info) for clip in job.clips]
-        join = JoinJob(parts, output, job.settings.output == OUTPUT_AUDIO, job.settings.audio_quality,
-                       overwrite=False)
-        encoder = None if join.audio_only else choose_encoder(ffmpeg, job.settings.edit.use_gpu, hardware_codec(
-            job.settings.edit))
+        join = JoinJob(
+            parts, output, job.settings.output == OUTPUT_AUDIO, job.settings.audio_quality,
+            overwrite=False)
+        encoder = None if join.audio_only else choose_encoder(
+            ffmpeg, job.settings.edit.use_gpu, hardware_codec(job.settings.edit))
         return join_clips(ffmpeg, join, on_progress, job.cancel_event, encoder, note)
     output = output_file_for(job.source, job.settings, job.output_dir)
     edit = job.settings.edit
     if job.settings.output == OUTPUT_AUDIO:
-        audio = ConversionJob(job.source, output, job.settings.audio_quality, edit.start, edit.end, edit.keep,
-                              edit.speed, edit.reverse, edit.audio_fade_in, edit.audio_fade_out, edit.sound,
-                              overwrite=False)
+        audio = ConversionJob(
+            job.source, output, job.settings.audio_quality, edit.start, edit.end, edit.keep,
+            edit.speed, edit.reverse, edit.audio_fade_in, edit.audio_fade_out, edit.sound,
+            overwrite=False)
         return convert(ffmpeg, audio, on_progress, job.cancel_event)
-    return convert_video(ffmpeg, VideoJob(job.source, output, edit, overwrite=False), on_progress, job.cancel_event,
-                         job.info,
-                         choose_encoder(ffmpeg, edit.use_gpu, hardware_codec(edit)), note)
+    return convert_video(
+        ffmpeg, VideoJob(job.source, output, edit, overwrite=False), on_progress, job.cancel_event,
+        job.info, choose_encoder(ffmpeg, edit.use_gpu, hardware_codec(edit)), note)
 
 
 def hardware_codec(edit: VideoEdit) -> str:
-    """Which graphics card encoders suit `edit`'s format: "h264" or "hevc" (WebM and GIF have none)."""
+    """Which graphics card encoders suit `edit`'s format: "h264" or "hevc" (WebM and GIF have
+    none)."""
     return edit.output_format.codec
 
 
 def _describe_for_log(job: Job) -> str:
-    return f"{job.title} ({job.summary}); graphics card: {'allowed' if job.settings.edit.use_gpu else 'off'}"
+    return (
+        f"{job.title} ({job.summary}); graphics card: "
+        f"{'allowed' if job.settings.edit.use_gpu else 'off'}")
 
 
 class JobQueue:
@@ -144,8 +160,9 @@ class JobQueue:
     (UI code should hand it over to its own thread).
     """
 
-    def __init__(self, ffmpeg: str, on_update: Optional[Callable[[Job], None]] = None,
-                 runner: Runner = run_job):
+    def __init__(
+            self, ffmpeg: str, on_update: Optional[Callable[[Job], None]] = None,
+            runner: Runner = run_job):
         self.ffmpeg = ffmpeg
         self.on_update = on_update or (lambda job: None)
         self.runner = runner
@@ -153,7 +170,7 @@ class JobQueue:
         self._lock = threading.Lock()
         self._wake = threading.Condition(self._lock)
         self._worker: Optional[threading.Thread] = None
-        self._worker_running = False   # guarded by _lock; avoids racing a worker that is exiting
+        self._worker_running = False  # guarded by _lock; avoids racing a worker that is exiting
         self._closed = False
 
     def _notify(self, job: Job) -> None:
@@ -172,7 +189,8 @@ class JobQueue:
             self.jobs.append(job)
             if not self._worker_running:
                 self._worker_running = True
-                self._worker = threading.Thread(target=self._work, name="export-queue", daemon=True)
+                self._worker = threading.Thread(
+                    target=self._work, name="export-queue", daemon=True)
                 self._worker.start()
             self._wake.notify_all()
         self._notify(job)
@@ -246,8 +264,9 @@ class JobQueue:
     def _log_finish(job: Job, state: JobState) -> None:
         seconds = time.monotonic() - job.started_at if job.started_at is not None else 0.0
         if state is JobState.DONE:
-            log.info("Export %d finished in %.1f s: %s%s", job.id, seconds, job.output,
-                     f" ({job.note})" if job.note else "")
+            log.info(
+                "Export %d finished in %.1f s: %s%s", job.id, seconds, job.output,
+                f" ({job.note})" if job.note else "")
         elif state is JobState.FAILED:
             log.error("Export %d failed after %.1f s: %s", job.id, seconds, job.error)
         else:

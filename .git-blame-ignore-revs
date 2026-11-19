@@ -1,0 +1,6 @@
+# Commits that only reformat code: git blame skips them when it is told to.
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub reads this file by itself.)
+
+# Reformat the whole code base with yapf at 99 columns.
+bff428e8256ffa36a0b0af5acc6ca8b6660499a4

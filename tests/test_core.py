@@ -5,23 +5,18 @@ import unittest
 from pathlib import Path
 
 from video_converter.core import (
-    ConversionCancelled,
-    ConversionError,
-    ConversionJob,
-    convert,
-    find_ffmpeg,
-    output_path_for,
-    parse_media_info,
-    probe_duration,
-    probe_media,
+    ConversionCancelled, ConversionError, ConversionJob, convert, find_ffmpeg, output_path_for,
+    parse_media_info, probe_duration, probe_media,
 )
 
 FFMPEG = find_ffmpeg()
 
 
 def make_video(ffmpeg: str, path: Path, seconds: int = 3, audio: bool = True) -> None:
-    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-           "-f", "lavfi", "-i", f"testsrc=duration={seconds}:size=160x120:rate=10"]
+    cmd = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+        f"testsrc=duration={seconds}:size=160x120:rate=10"
+    ]
     if audio:
         cmd += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", "-c:a", "aac"]
     cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest", str(path)]
@@ -29,6 +24,7 @@ def make_video(ffmpeg: str, path: Path, seconds: int = 3, audio: bool = True) ->
 
 
 class OutputPathTests(unittest.TestCase):
+
     def test_avoids_overwriting_existing_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "clip.mp4"
@@ -44,12 +40,15 @@ class OutputPathTests(unittest.TestCase):
 
 
 class FrameRateParsingTests(unittest.TestCase):
+
     def fps(self, video_line):
-        return parse_media_info(f"  Duration: 00:00:04.00\n  Stream #0:0: Video: {video_line}\n").fps
+        return parse_media_info(
+            f"  Duration: 00:00:04.00\n  Stream #0:0: Video: {video_line}\n").fps
 
     def test_reads_the_fps_figure(self):
         self.assertEqual(self.fps("h264, yuv420p, 1920x1080, 30 fps, 30 tbr, 15360 tbn"), 30.0)
-        self.assertEqual(self.fps("h264, yuv420p, 1920x1080, 29.97 fps, 29.97 tbr, 30k tbn"), 29.97)
+        self.assertEqual(
+            self.fps("h264, yuv420p, 1920x1080, 29.97 fps, 29.97 tbr, 30k tbn"), 29.97)
         self.assertEqual(self.fps("h264, yuv420p, 1280x720, 59.94 fps, 59.94 tbr, 90k tbn"), 59.94)
 
     def test_falls_back_to_tbr_when_there_is_no_fps(self):
@@ -76,27 +75,31 @@ class FrameRateParsingTests(unittest.TestCase):
         self.assertIsNone(self.fps("h264, yuv420p, 640x360"))
 
     def test_audio_only_files_have_no_frame_rate(self):
-        info = parse_media_info("  Duration: 00:00:10.00\n  Stream #0:0: Audio: mp3, 44100 Hz, stereo, 25 fps\n")
+        info = parse_media_info(
+            "  Duration: 00:00:10.00\n  Stream #0:0: Audio: mp3, 44100 Hz, stereo, 25 fps\n")
         self.assertIsNone(info.fps)
 
     def test_the_rate_comes_from_the_video_stream_line(self):
-        text = ("  Duration: 00:00:04.00\n"
-                "  Stream #0:0: Audio: aac, 48000 Hz, stereo, fltp, 128 kb/s\n"
-                "  Stream #0:1: Video: h264, yuv420p, 640x360, 24 fps, 24 tbr, 12288 tbn\n")
+        text = (
+            "  Duration: 00:00:04.00\n"
+            "  Stream #0:0: Audio: aac, 48000 Hz, stereo, fltp, 128 kb/s\n"
+            "  Stream #0:1: Video: h264, yuv420p, 640x360, 24 fps, 24 tbr, 12288 tbn\n")
         self.assertEqual(parse_media_info(text).fps, 24.0)
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class ProbedFrameRateTests(unittest.TestCase):
+
     def test_probe_reads_the_real_frame_rate(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "clip.mp4"
-            make_video(FFMPEG, source)               # 10 fps
+            make_video(FFMPEG, source)  # 10 fps
             self.assertEqual(probe_media(FFMPEG, source).fps, 10.0)
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class ConvertTests(unittest.TestCase):
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
@@ -108,7 +111,9 @@ class ConvertTests(unittest.TestCase):
         source = self.tmp / "sample video.mp4"
         make_video(FFMPEG, source)
         progress = []
-        output = convert(FFMPEG, ConversionJob(source, self.tmp / "sample video.mp3"), on_progress=progress.append)
+        output = convert(
+            FFMPEG, ConversionJob(source, self.tmp / "sample video.mp3"),
+            on_progress=progress.append)
 
         self.assertTrue(output.is_file())
         self.assertGreater(output.stat().st_size, 0)
@@ -139,15 +144,21 @@ class ConvertTests(unittest.TestCase):
 
 
 class StopProcessTests(unittest.TestCase):
+
     def test_stopping_a_launcher_stops_what_it_started(self):
-        """An ffmpeg found through a launcher (a Chocolatey shim) is only the launcher; the real one must stop too."""
+        """An ffmpeg found through a launcher (a Chocolatey shim) is only the launcher; the real
+        one must stop too."""
         import sys
         from video_converter.core import remove_file, stop_process
         folder = Path(tempfile.mkdtemp())
         marker = folder / "child-alive.txt"
-        child = "import sys,time; f = open(sys.argv[1], 'w'); f.write('x'); f.flush(); time.sleep(60)"
-        parent = ("import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', %r, sys.argv[1]]); "
-                  "time.sleep(60)" % child)
+        child = (
+            "import sys,time; f = open(sys.argv[1], 'w'); f.write('x'); f.flush(); "
+            "time.sleep(60)")
+        parent = (
+            "import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', %r, "
+            "sys.argv[1]]); "
+            "time.sleep(60)" % child)
         proc = subprocess.Popen([sys.executable, "-c", parent, str(marker)])
         for _ in range(200):
             if marker.exists():
@@ -158,7 +169,7 @@ class StopProcessTests(unittest.TestCase):
         proc.wait(10)
         # The child keeps the marker open while it lives, and Windows won't delete an open file.
         remove_file(marker)
-        remove_file(marker)        # a file that is already gone is fine
+        remove_file(marker)  # a file that is already gone is fine
         self.assertFalse(marker.exists())
 
 

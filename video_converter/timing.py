@@ -11,17 +11,18 @@ import math
 from typing import Iterable, Optional
 
 Range = tuple[float, float]
-Segment = tuple[float, Optional[float]]    # the end is None only when the length is unknown
+Segment = tuple[float, Optional[float]]  # the end is None only when the length is unknown
 
-MIN_PART = 0.1          # shortest part the editor makes, in seconds
-SNAP_EDGE = 0.05        # kept ranges this close to the very start or end reach it
+MIN_PART = 0.1  # shortest part the editor makes, in seconds
+SNAP_EDGE = 0.05  # kept ranges this close to the very start or end reach it
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
-CUT_FADE = 0.004        # the sound fades out and in over this long (seconds) at every cut, so there is no click
+# the sound fades out and in over this long (seconds) at every cut, so there is no click
+CUT_FADE = 0.004
 FADE_MAX = 30.0
 _EPS = 1e-6
 
-
 # ----- kept ranges ------------------------------------------------------------
+
 
 def normalize_keep(ranges: Iterable[Range], duration: Optional[float] = None) -> list[Range]:
     """Sorted kept ranges inside 0..duration, overlaps merged, splits kept.
@@ -34,9 +35,9 @@ def normalize_keep(ranges: Iterable[Range], duration: Optional[float] = None) ->
             b = min(b, duration)
         if b - a < 0.01:
             continue
-        if clean and a < clean[-1][1] - 0.001:          # overlap: merge
+        if clean and a < clean[-1][1] - 0.001:  # overlap: merge
             clean[-1][1] = max(clean[-1][1], b)
-        elif clean and a - clean[-1][1] < 0.001:        # touching: a split
+        elif clean and a - clean[-1][1] < 0.001:  # touching: a split
             clean.append([clean[-1][1], b])
         else:
             clean.append([a, b])
@@ -123,20 +124,24 @@ def cut_range(keep: list[Range], start: float, end: float, duration: float) -> l
         if end < b:
             result.append((end, b))
     if not result:
-        return list(keep)       # refuse to cut everything
+        return list(keep)  # refuse to cut everything
     return normalize_keep(result, duration)
 
 
 # ----- what gets exported -----------------------------------------------------
 
-def kept_segments(keep: list[Range], start: Optional[float], end: Optional[float],
-                  duration: Optional[float]) -> list[Segment]:
+
+def kept_segments(
+        keep: list[Range], start: Optional[float], end: Optional[float],
+        duration: Optional[float]) -> list[Segment]:
     """The parts of the source in the export, in order: the kept ranges inside the trim,
     with splits joined back together."""
     low = start or 0.0
     high = end if end is not None else duration
     if end is not None and duration:
-        high = min(end, duration)       # an end past the file's length would throw off the fade out and progress
+        high = min(
+            end,
+            duration)  # an end past the file's length would throw off the fade out and progress
     ranges: list[Segment] = list(keep) if keep else [(0.0, high)]
     segments: list[Segment] = []
     for a, b in ranges:
@@ -178,17 +183,18 @@ def snap_segments(segments: list[Segment], fps: Optional[float],
         if b is not None:
             b = round(b * rate) / rate
             if duration:
-                b = min(b, duration)        # the last frame can't reach past the end of the file
+                b = min(b, duration)  # the last frame can't reach past the end of the file
             if b - a < 0.5 / rate:
-                continue                    # shorter than one frame: nothing of it would show
+                continue  # shorter than one frame: nothing of it would show
         if snapped and snapped[-1][1] is not None and a - snapped[-1][1] <= _EPS:
-            snapped[-1] = (snapped[-1][0], b)       # the gap between two parts was less than a frame
+            snapped[-1] = (snapped[-1][0], b)  # the gap between two parts was less than a frame
         else:
             snapped.append((a, b))
     if snapped or not segments:
         return snapped
-    # Every part is shorter than a frame (a trim of a few milliseconds): none of them would show, and an
-    # export of nothing but the sound is not what was asked for. Keep the one frame at the first part.
+    # Every part is shorter than a frame (a trim of a few milliseconds): none of them would show,
+    # and an export of nothing but the sound is not what was asked for. Keep the one frame at the
+    # first part.
     first = round(segments[0][0] * rate) / rate
     if duration and first + 1 / rate > duration:
         first = max(duration - 1 / rate, 0.0)
@@ -230,14 +236,16 @@ def source_to_output(t: float, segments: list[Segment], speed: float = 1.0,
     return None
 
 
-def output_to_source(t: float, segments: list[Segment], speed: float = 1.0, reverse: bool = False) -> Optional[float]:
+def output_to_source(t: float, segments: list[Segment], speed: float = 1.0,
+                     reverse: bool = False) -> Optional[float]:
     """Which source time plays at time `t` of the export, or None past its end."""
     spans = output_spans_to_source(t, t + 1e-9, segments, speed, reverse)
     return spans[0][0] if spans else None
 
 
-def output_spans_to_source(start: float, end: Optional[float], segments: list[Segment], speed: float = 1.0,
-                           reverse: bool = False) -> list[Range]:
+def output_spans_to_source(
+        start: float, end: Optional[float], segments: list[Segment], speed: float = 1.0,
+        reverse: bool = False) -> list[Range]:
     """The parts of the source that play between `start` and `end` (None = the end) of the export:
     the other way round from `source_to_output`. A span across a cut comes out as one part for each
     side of it. Used to show where a text's time on the export falls on the source's timeline."""
@@ -245,7 +253,8 @@ def output_spans_to_source(start: float, end: Optional[float], segments: list[Se
     total = output_duration(segments, speed)
     if end is None:
         end = total if total is not None else math.inf
-    low_bound, high_bound = (total - end, total - start) if reverse and total is not None else (start, end)
+    low_bound, high_bound = (total - end,
+                             total - start) if reverse and total is not None else (start, end)
     spans: list[Range] = []
     done = 0.0
     for a, b in segments:
@@ -286,6 +295,7 @@ def atempo_factors(speed: float) -> list[float]:
 
 # ----- ffmpeg filters ---------------------------------------------------------
 
+
 def _n(value: float, places: int = 3) -> str:
     return f"{value:.{places}f}".rstrip("0").rstrip(".") if math.isfinite(value) else "0"
 
@@ -297,9 +307,10 @@ def relative(segments: list[Segment]) -> list[Segment]:
 
 
 def _cut_fades(after_cut: bool, before_cut: bool, length: Optional[float]) -> str:
-    """The short fades of a part of the sound that has a cut at its start (`after_cut`) and/or its end
-    (`before_cut`). Two parts of a wave that don't fit end and begin with a jump, which is heard as a click;
-    a few milliseconds of fade on both sides make it silent. The length of the part stays what it was."""
+    """The short fades of a part of the sound that has a cut at its start (`after_cut`) and/or its
+    end (`before_cut`). Two parts of a wave that don't fit end and begin with a jump, which is
+    heard as a click; a few milliseconds of fade on both sides make it silent. The length of the
+    part stays what it was."""
     span = CUT_FADE if length is None else min(CUT_FADE, length / 2)
     if span < 0.0005:
         return ""
@@ -311,11 +322,12 @@ def _cut_fades(after_cut: bool, before_cut: bool, length: Optional[float]) -> st
     return "".join("," + f for f in fades)
 
 
-def select_filters(src: str, out: str, segments: list[Segment], audio: bool, tag: str = "",
-                   margin: float = 0.0) -> list[str]:
+def select_filters(
+        src: str, out: str, segments: list[Segment], audio: bool, tag: str = "",
+        margin: float = 0.0) -> list[str]:
     """Filters that keep `segments` (relative to the input start) of stream `src` and play
-    them back to back as `out`. A picture's cuts move `margin` seconds earlier (see `frame_margin`);
-    the sound's never do."""
+    them back to back as `out`. A picture's cuts move `margin` seconds earlier (see
+    `frame_margin`); the sound's never do."""
     setpts = "asetpts" if audio else "setpts"
     if len(segments) <= 1:
         return [f"{src}{setpts}=PTS-STARTPTS{out}"]
@@ -327,7 +339,8 @@ def select_filters(src: str, out: str, segments: list[Segment], audio: bool, tag
     for i, (copy, piece, (a, b)) in enumerate(zip(copies, pieces, segments)):
         length = None if b is None else b - a
         a = max(a - margin, 0.0)
-        bounds = f"start={_n(a, 6)}" + (f":end={_n(max(b - margin, 0.0), 6)}" if b is not None else "")
+        bounds = f"start={_n(a, 6)}" + (
+            f":end={_n(max(b - margin, 0.0), 6)}" if b is not None else "")
         fades = _cut_fades(i > 0, i < len(segments) - 1, length) if audio else ""
         filters.append(f"{copy}{trim}={bounds},{setpts}=PTS-STARTPTS{fades}{piece}")
     flags = "v=0:a=1" if audio else "v=1:a=0"
@@ -335,7 +348,8 @@ def select_filters(src: str, out: str, segments: list[Segment], audio: bool, tag
     return filters
 
 
-def fade_filters(fade_in: float, fade_out: float, total: Optional[float], audio: bool) -> list[str]:
+def fade_filters(fade_in: float, fade_out: float, total: Optional[float],
+                 audio: bool) -> list[str]:
     """Fades on the export's own timeline. A fade out needs the length to know where to start."""
     name = "afade" if audio else "fade"
     filters = []
@@ -348,8 +362,9 @@ def fade_filters(fade_in: float, fade_out: float, total: Optional[float], audio:
     return filters
 
 
-def audio_filters(src: str, out: str, segments: list[Segment], speed: float = 1.0, reverse: bool = False,
-                  fade_in: float = 0.0, fade_out: float = 0.0, tag: str = "", always: bool = False) -> str:
+def audio_filters(
+        src: str, out: str, segments: list[Segment], speed: float = 1.0, reverse: bool = False,
+        fade_in: float = 0.0, fade_out: float = 0.0, tag: str = "", always: bool = False) -> str:
     """A filter graph from audio stream `src` to `out` with cuts, speed, reverse and fades.
 
     Returns "" when nothing needs changing (and `always` isn't set), so the caller can
@@ -365,4 +380,6 @@ def audio_filters(src: str, out: str, segments: list[Segment], speed: float = 1.
     if not chain:
         return ";".join(select_filters(src, out, rel, audio=True, tag=tag))
     selected = f"[asel{tag}]"
-    return ";".join(select_filters(src, selected, rel, audio=True, tag=tag) + [f"{selected}{','.join(chain)}{out}"])
+    return ";".join(
+        select_filters(src, selected, rel, audio=True, tag=tag) +
+        [f"{selected}{','.join(chain)}{out}"])

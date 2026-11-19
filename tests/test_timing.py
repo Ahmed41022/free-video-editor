@@ -1,35 +1,15 @@
 import unittest
 
 from video_converter.timing import (
-    FADE_MAX,
-    MIN_PART,
-    SNAP_EDGE,
-    SPEED_MAX,
-    SPEED_MIN,
-    atempo_factors,
-    audio_filters,
-    clamp_speed,
-    cut_range,
-    fade_filters,
-    frame_margin,
-    frame_rate,
-    kept_segments,
-    normalize_keep,
-    output_duration,
-    part_index,
-    relative,
-    remove_part_at,
-    removed_parts,
-    restore_part_at,
-    select_filters,
-    snap_segments,
-    source_to_output,
-    split_at,
-    split_points,
+    FADE_MAX, MIN_PART, SNAP_EDGE, SPEED_MAX, SPEED_MIN, atempo_factors, audio_filters,
+    clamp_speed, cut_range, fade_filters, frame_margin, frame_rate, kept_segments, normalize_keep,
+    output_duration, part_index, relative, remove_part_at, removed_parts, restore_part_at,
+    select_filters, snap_segments, source_to_output, split_at, split_points,
 )
 
 
 class NormalizeKeepTests(unittest.TestCase):
+
     def test_sorts_and_merges_overlapping_ranges(self):
         self.assertEqual(normalize_keep([(5, 7), (0, 2), (1, 3)], 10), [(0, 3), (5, 7)])
         self.assertEqual(normalize_keep([(1, 6), (2, 4)], 10), [(1, 6)])
@@ -46,7 +26,8 @@ class NormalizeKeepTests(unittest.TestCase):
         self.assertEqual(normalize_keep([(2, 9.96)], 10), [(2, 10.0)])
         # Just outside the snap distance, the range stays as it is.
         self.assertEqual(normalize_keep([(SNAP_EDGE + 0.01, 5)], 10), [(SNAP_EDGE + 0.01, 5)])
-        self.assertEqual(normalize_keep([(2, 10 - SNAP_EDGE - 0.01)], 10), [(2, 10 - SNAP_EDGE - 0.01)])
+        self.assertEqual(
+            normalize_keep([(2, 10 - SNAP_EDGE - 0.01)], 10), [(2, 10 - SNAP_EDGE - 0.01)])
 
     def test_ranges_are_clamped_to_the_duration(self):
         self.assertEqual(normalize_keep([(2, 15)], 10), [(2, 10)])
@@ -64,14 +45,16 @@ class NormalizeKeepTests(unittest.TestCase):
     def test_the_whole_video_means_no_cuts(self):
         self.assertEqual(normalize_keep([(0, 10)], 10), [])
         self.assertEqual(normalize_keep([(0.03, 9.98)], 10), [])
-        self.assertEqual(normalize_keep([(0, 4), (3, 10)], 10), [])     # overlapping ranges that cover it all
+        self.assertEqual(
+            normalize_keep([(0, 4), (3, 10)], 10), [])  # overlapping ranges that cover it all
         self.assertEqual(normalize_keep([], 10), [])
 
     def test_two_touching_parts_covering_everything_are_still_a_split(self):
         self.assertEqual(normalize_keep([(0, 5), (5, 10)], 10), [(0, 5), (5, 10)])
 
     def test_normalizing_twice_changes_nothing(self):
-        for ranges in ([(5, 7), (0.04, 2), (1, 3)], [(0, 3), (3.0004, 9.99)], [(2, 4), (4, 6), (8, 12)]):
+        for ranges in ([(5, 7), (0.04, 2), (1, 3)], [(0, 3), (3.0004, 9.99)], [(2, 4), (4, 6),
+                                                                               (8, 12)]):
             once = normalize_keep(ranges, 10)
             self.assertEqual(normalize_keep(once, 10), once)
 
@@ -80,7 +63,8 @@ class PartQueryTests(unittest.TestCase):
     KEEP = [(0.0, 3.0), (3.0, 6.0), (8.0, 10.0)]
 
     def test_removed_parts_include_leading_and_trailing_gaps(self):
-        self.assertEqual(removed_parts([(2.0, 5.0), (7.0, 9.0)], 10.0), [(0.0, 2.0), (5.0, 7.0), (9.0, 10.0)])
+        self.assertEqual(
+            removed_parts([(2.0, 5.0), (7.0, 9.0)], 10.0), [(0.0, 2.0), (5.0, 7.0), (9.0, 10.0)])
         self.assertEqual(removed_parts([(0.0, 4.0), (6.0, 10.0)], 10.0), [(4.0, 6.0)])
         self.assertEqual(removed_parts([(2.0, 5.0)], 10.0), [(0.0, 2.0), (5.0, 10.0)])
 
@@ -99,10 +83,12 @@ class PartQueryTests(unittest.TestCase):
 
     def test_part_index_finds_the_kept_range_under_a_time(self):
         self.assertEqual(part_index(self.KEEP, 1.0, 10.0), 0)
-        self.assertEqual(part_index(self.KEEP, 3.0, 10.0), 1)       # a split belongs to the part after it
+        self.assertEqual(
+            part_index(self.KEEP, 3.0, 10.0), 1)  # a split belongs to the part after it
         self.assertEqual(part_index(self.KEEP, 5.99, 10.0), 1)
         self.assertEqual(part_index(self.KEEP, 9.0, 10.0), 2)
-        self.assertEqual(part_index(self.KEEP, 10.0, 10.0), 2)      # the very end belongs to the last part
+        self.assertEqual(
+            part_index(self.KEEP, 10.0, 10.0), 2)  # the very end belongs to the last part
 
     def test_part_index_is_none_inside_a_cut(self):
         self.assertIsNone(part_index(self.KEEP, 6.0, 10.0))
@@ -116,11 +102,13 @@ class PartQueryTests(unittest.TestCase):
 
 
 class SplitAndRemoveTests(unittest.TestCase):
+
     def test_splitting_without_cuts_makes_two_touching_ranges(self):
         self.assertEqual(split_at([], 4.0, 10.0), [(0.0, 4.0), (4.0, 10.0)])
 
     def test_splitting_inside_a_part_keeps_the_other_parts(self):
-        self.assertEqual(split_at([(0.0, 3.0), (6.0, 10.0)], 8.0, 10.0), [(0.0, 3.0), (6.0, 8.0), (8.0, 10.0)])
+        self.assertEqual(
+            split_at([(0.0, 3.0), (6.0, 10.0)], 8.0, 10.0), [(0.0, 3.0), (6.0, 8.0), (8.0, 10.0)])
 
     def test_splitting_too_close_to_an_edge_changes_nothing(self):
         self.assertEqual(split_at([], 0.05, 10.0), [])
@@ -158,8 +146,9 @@ class SplitAndRemoveTests(unittest.TestCase):
         self.assertEqual(remove_part_at(keep, 4.0, 10.0), keep)
 
     def test_restore_puts_back_the_cut_part_as_a_split(self):
-        self.assertEqual(restore_part_at([(0.0, 3.0), (6.0, 10.0)], 4.0, 10.0),
-                         [(0.0, 3.0), (3.0, 6.0), (6.0, 10.0)])
+        self.assertEqual(
+            restore_part_at([(0.0, 3.0), (6.0, 10.0)], 4.0, 10.0),
+            [(0.0, 3.0), (3.0, 6.0), (6.0, 10.0)])
 
     def test_restore_leading_and_trailing_cuts(self):
         self.assertEqual(restore_part_at([(2.0, 10.0)], 1.0, 10.0), [(0.0, 2.0), (2.0, 10.0)])
@@ -187,6 +176,7 @@ class SplitAndRemoveTests(unittest.TestCase):
 
 
 class CutRangeTests(unittest.TestCase):
+
     def test_cutting_the_middle(self):
         self.assertEqual(cut_range([], 3.0, 5.0, 10.0), [(0.0, 3.0), (5.0, 10.0)])
 
@@ -195,7 +185,8 @@ class CutRangeTests(unittest.TestCase):
         self.assertEqual(cut_range([], 7.0, 10.0, 10.0), [(0.0, 7.0)])
 
     def test_cut_overlapping_the_edges_of_two_parts(self):
-        self.assertEqual(cut_range([(0.0, 3.0), (5.0, 10.0)], 2.0, 6.0, 10.0), [(0.0, 2.0), (6.0, 10.0)])
+        self.assertEqual(
+            cut_range([(0.0, 3.0), (5.0, 10.0)], 2.0, 6.0, 10.0), [(0.0, 2.0), (6.0, 10.0)])
 
     def test_several_cuts_add_up(self):
         keep = cut_range([], 1.0, 2.0, 10.0)
@@ -207,8 +198,9 @@ class CutRangeTests(unittest.TestCase):
         self.assertEqual(cut_range(keep, 2.5, 5.0, 10.0), [(0.0, 2.0), (6.0, 10.0)])
 
     def test_a_cut_through_a_split_keeps_the_other_split(self):
-        self.assertEqual(cut_range([(0.0, 4.0), (4.0, 10.0)], 6.0, 7.0, 10.0),
-                         [(0.0, 4.0), (4.0, 6.0), (7.0, 10.0)])
+        self.assertEqual(
+            cut_range([(0.0, 4.0), (4.0, 10.0)], 6.0, 7.0, 10.0),
+            [(0.0, 4.0), (4.0, 6.0), (7.0, 10.0)])
 
     def test_cutting_a_gap_that_is_already_cut_changes_nothing(self):
         keep = [(0.0, 3.0), (6.0, 10.0)]
@@ -221,16 +213,19 @@ class CutRangeTests(unittest.TestCase):
 
 
 class KeptSegmentsTests(unittest.TestCase):
+
     def test_no_cuts_and_no_trim_is_the_whole_video(self):
         self.assertEqual(kept_segments([], None, None, 10.0), [(0.0, 10.0)])
 
     def test_trim_applies_on_top_of_the_kept_ranges(self):
-        self.assertEqual(kept_segments([(1.0, 3.0), (5.0, 9.0)], 2.0, 8.0, 10.0), [(2.0, 3.0), (5.0, 8.0)])
+        self.assertEqual(
+            kept_segments([(1.0, 3.0), (5.0, 9.0)], 2.0, 8.0, 10.0), [(2.0, 3.0), (5.0, 8.0)])
 
     def test_trim_alone(self):
         self.assertEqual(kept_segments([], 2.0, 7.0, 10.0), [(2.0, 7.0)])
         self.assertEqual(kept_segments([], 2.0, None, 10.0), [(2.0, 10.0)])
-        self.assertEqual(kept_segments([], 2.0, 99.0, 10.0), [(2.0, 10.0)])      # an end past the file's end
+        self.assertEqual(
+            kept_segments([], 2.0, 99.0, 10.0), [(2.0, 10.0)])  # an end past the file's end
 
     def test_splits_are_joined_back_together(self):
         keep = [(0.0, 3.0), (3.0, 6.0), (8.0, 10.0)]
@@ -257,7 +252,7 @@ class KeptSegmentsTests(unittest.TestCase):
 
 
 class SpeedMathTests(unittest.TestCase):
-    SEGMENTS = [(1.0, 3.0), (5.0, 9.0)]            # 6 s of the source
+    SEGMENTS = [(1.0, 3.0), (5.0, 9.0)]  # 6 s of the source
 
     def test_output_duration(self):
         self.assertEqual(output_duration(self.SEGMENTS), 6.0)
@@ -270,16 +265,18 @@ class SpeedMathTests(unittest.TestCase):
         self.assertIsNone(output_duration([(0.0, 2.0), (3.0, None)], 2.0))
 
     def test_speed_is_clamped_to_the_supported_range(self):
-        self.assertEqual(output_duration([(0.0, 8.0)], 100.0), 2.0)       # treated as 4x
-        self.assertEqual(output_duration([(0.0, 1.0)], 0.01), 4.0)        # treated as 0.25x
-        self.assertEqual((clamp_speed(0.1), clamp_speed(9.0), clamp_speed(1.5)), (SPEED_MIN, SPEED_MAX, 1.5))
+        self.assertEqual(output_duration([(0.0, 8.0)], 100.0), 2.0)  # treated as 4x
+        self.assertEqual(output_duration([(0.0, 1.0)], 0.01), 4.0)  # treated as 0.25x
+        self.assertEqual(
+            (clamp_speed(0.1), clamp_speed(9.0), clamp_speed(1.5)), (SPEED_MIN, SPEED_MAX, 1.5))
 
     def test_source_to_output_skips_the_cut_parts(self):
         self.assertEqual(source_to_output(1.0, self.SEGMENTS), 0.0)
         self.assertEqual(source_to_output(2.0, self.SEGMENTS), 1.0)
         self.assertEqual(source_to_output(5.0, self.SEGMENTS), 2.0)
         self.assertEqual(source_to_output(6.0, self.SEGMENTS), 3.0)
-        self.assertEqual(source_to_output(9.0, self.SEGMENTS), 6.0)       # the very end of the last part
+        self.assertEqual(
+            source_to_output(9.0, self.SEGMENTS), 6.0)  # the very end of the last part
 
     def test_source_to_output_is_none_inside_a_cut(self):
         for t in (0.5, 3.0, 4.0, 9.5):
@@ -301,10 +298,12 @@ class SpeedMathTests(unittest.TestCase):
         self.assertEqual(source_to_output(5.0, [(0.0, None)]), 5.0)
         self.assertEqual(source_to_output(5.0, [(2.0, None)], speed=2.0), 1.5)
         self.assertIsNone(source_to_output(1.0, [(2.0, None)]))
-        self.assertIsNone(source_to_output(5.0, [(0.0, None)], reverse=True))     # the length isn't known
+        self.assertIsNone(
+            source_to_output(5.0, [(0.0, None)], reverse=True))  # the length isn't known
 
 
 class AtempoTests(unittest.TestCase):
+
     def test_every_supported_speed_splits_into_valid_steps(self):
         for i in range(int(round((SPEED_MAX - SPEED_MIN) / 0.05)) + 1):
             speed = round(SPEED_MIN + 0.05 * i, 2)
@@ -331,19 +330,25 @@ class AtempoTests(unittest.TestCase):
 
 
 class FilterStringTests(unittest.TestCase):
+
     def test_a_single_segment_only_resets_the_timestamps(self):
-        self.assertEqual(select_filters("[0:v]", "[v]", [(0.0, 3.0)], audio=False), ["[0:v]setpts=PTS-STARTPTS[v]"])
-        self.assertEqual(select_filters("[0:a]", "[a]", [(0.0, 3.0)], audio=True), ["[0:a]asetpts=PTS-STARTPTS[a]"])
+        self.assertEqual(
+            select_filters("[0:v]", "[v]", [(0.0, 3.0)], audio=False),
+            ["[0:v]setpts=PTS-STARTPTS[v]"])
+        self.assertEqual(
+            select_filters("[0:a]", "[a]", [(0.0, 3.0)], audio=True),
+            ["[0:a]asetpts=PTS-STARTPTS[a]"])
 
     def test_three_video_segments_are_split_trimmed_and_concatenated(self):
         filters = select_filters("[0:v]", "[v]", [(0.0, 1.0), (2.0, 3.0), (5.0, 6.5)], audio=False)
-        self.assertEqual(filters, [
-            "[0:v]split=3[vin_0][vin_1][vin_2]",
-            "[vin_0]trim=start=0:end=1,setpts=PTS-STARTPTS[vseg_0]",
-            "[vin_1]trim=start=2:end=3,setpts=PTS-STARTPTS[vseg_1]",
-            "[vin_2]trim=start=5:end=6.5,setpts=PTS-STARTPTS[vseg_2]",
-            "[vseg_0][vseg_1][vseg_2]concat=n=3:v=1:a=0[v]",
-        ])
+        self.assertEqual(
+            filters, [
+                "[0:v]split=3[vin_0][vin_1][vin_2]",
+                "[vin_0]trim=start=0:end=1,setpts=PTS-STARTPTS[vseg_0]",
+                "[vin_1]trim=start=2:end=3,setpts=PTS-STARTPTS[vseg_1]",
+                "[vin_2]trim=start=5:end=6.5,setpts=PTS-STARTPTS[vseg_2]",
+                "[vseg_0][vseg_1][vseg_2]concat=n=3:v=1:a=0[v]",
+            ])
 
     def test_labels_carry_the_tag_so_clips_do_not_collide(self):
         a = select_filters("[0:v]", "[x]", [(0.0, 1.0), (2.0, 3.0)], audio=False, tag="0")
@@ -357,38 +362,54 @@ class FilterStringTests(unittest.TestCase):
         self.assertIn("[vin_1]trim=start=2,setpts=PTS-STARTPTS[vseg_1]", filters)
 
     def test_relative_segments_start_from_the_first(self):
-        self.assertEqual(relative([(1.0, 2.0), (3.0, 4.0), (6.0, None)]), [(0.0, 1.0), (2.0, 3.0), (5.0, None)])
+        self.assertEqual(
+            relative([(1.0, 2.0), (3.0, 4.0), (6.0, None)]), [(0.0, 1.0), (2.0, 3.0), (5.0, None)])
 
     def test_audio_with_nothing_to_do_is_left_alone(self):
         self.assertEqual(audio_filters("[0:a:0]", "[a]", [(2.0, 5.0)]), "")
-        self.assertEqual(audio_filters("[0:a:0]", "[a]", [(0.0, 5.0)], speed=1.0, reverse=False), "")
+        self.assertEqual(
+            audio_filters("[0:a:0]", "[a]", [(0.0, 5.0)], speed=1.0, reverse=False), "")
 
     def test_audio_can_be_forced_through_a_graph(self):
-        self.assertEqual(audio_filters("[0:a:0]", "[a]", [(2.0, 5.0)], always=True),
-                         "[0:a:0]asetpts=PTS-STARTPTS[a]")
+        self.assertEqual(
+            audio_filters("[0:a:0]", "[a]", [(2.0, 5.0)], always=True),
+            "[0:a:0]asetpts=PTS-STARTPTS[a]")
 
     def test_audio_with_three_segments_is_cut_relative_to_the_first(self):
         graph = audio_filters("[0:a:0]", "[a]", [(1.0, 2.0), (3.0, 4.0), (6.0, 8.0)])
-        self.assertEqual(graph, ";".join([
-            "[0:a:0]asplit=3[ain_0][ain_1][ain_2]",
-            # a few milliseconds of fade at each cut, none at the very start and end
-            "[ain_0]atrim=start=0:end=1,asetpts=PTS-STARTPTS,afade=t=out:st=0.996:d=0.004[aseg_0]",
-            "[ain_1]atrim=start=2:end=3,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.004,afade=t=out:st=0.996:d=0.004[aseg_1]",
-            "[ain_2]atrim=start=5:end=7,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.004[aseg_2]",
-            "[aseg_0][aseg_1][aseg_2]concat=n=3:v=0:a=1[a]",
-        ]))
+        self.assertEqual(
+            graph,
+            ";".join(
+                [
+                    "[0:a:0]asplit=3[ain_0][ain_1][ain_2]",
+                    # a few milliseconds of fade at each cut, none at the very start and end
+                    "[ain_0]atrim=start=0:end=1,asetpts=PTS-STARTPTS,afade=t=out:st=0.996:d=0."
+                    "004[aseg_0]",
+                    "[ain_1]atrim=start=2:end=3,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.004,"
+                    "afade=t=out:st=0.996:d=0.004[aseg_1]",
+                    "[ain_2]atrim=start=5:end=7,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0."
+                    "004[aseg_2]",
+                    "[aseg_0][aseg_1][aseg_2]concat=n=3:v=0:a=1[a]",
+                ]))
 
     def test_audio_speed_uses_an_atempo_chain(self):
-        self.assertEqual(audio_filters("[0:a:0]", "[a]", [(0.0, 6.0)], speed=2.0),
-                         "[0:a:0]asetpts=PTS-STARTPTS[asel];[asel]atempo=2[a]")
-        self.assertTrue(audio_filters("[0:a:0]", "[a]", [(0.0, 6.0)], speed=3.0).endswith(
-            "[asel]atempo=2,atempo=1.5[a]"))
-        self.assertTrue(audio_filters("[0:a:0]", "[a]", [(0.0, 6.0)], speed=0.25).endswith(
-            "[asel]atempo=0.5,atempo=0.5[a]"))
+        self.assertEqual(
+            audio_filters("[0:a:0]", "[a]", [(0.0, 6.0)], speed=2.0),
+            "[0:a:0]asetpts=PTS-STARTPTS[asel];[asel]atempo=2[a]")
+        self.assertTrue(
+            audio_filters("[0:a:0]", "[a]", [(0.0, 6.0)],
+                          speed=3.0).endswith("[asel]atempo=2,atempo=1.5[a]"))
+        self.assertTrue(
+            audio_filters("[0:a:0]", "[a]", [(0.0, 6.0)],
+                          speed=0.25).endswith("[asel]atempo=0.5,atempo=0.5[a]"))
 
     def test_audio_chain_order_is_speed_then_reverse_then_fades(self):
-        graph = audio_filters("[0:a:0]", "[a]", [(0.0, 8.0)], speed=2.0, reverse=True, fade_in=0.5, fade_out=1.0)
-        self.assertTrue(graph.endswith("[asel]atempo=2,areverse,asetpts=N/SR/TB,afade=t=in:st=0:d=0.5,afade=t=out:st=3:d=1[a]"), graph)
+        graph = audio_filters(
+            "[0:a:0]", "[a]", [(0.0, 8.0)], speed=2.0, reverse=True, fade_in=0.5, fade_out=1.0)
+        self.assertTrue(
+            graph.endswith(
+                "[asel]atempo=2,areverse,asetpts=N/SR/TB,afade=t=in:st=0:d=0.5,afade=t=out:st="
+                "3:d=1[a]"), graph)
 
     def test_fade_out_starts_relative_to_the_length_after_speed(self):
         self.assertEqual(fade_filters(0.0, 1.0, 4.0, audio=False), ["fade=t=out:st=3:d=1"])
@@ -400,8 +421,12 @@ class FilterStringTests(unittest.TestCase):
         self.assertIn("afade=t=out:st=2:d=0.5", graph)
 
     def test_fade_in_and_out_names(self):
-        self.assertEqual(fade_filters(0.5, 1.0, 4.0, audio=False), ["fade=t=in:st=0:d=0.5", "fade=t=out:st=3:d=1"])
-        self.assertEqual(fade_filters(0.5, 1.0, 4.0, audio=True), ["afade=t=in:st=0:d=0.5", "afade=t=out:st=3:d=1"])
+        self.assertEqual(
+            fade_filters(0.5, 1.0, 4.0, audio=False),
+            ["fade=t=in:st=0:d=0.5", "fade=t=out:st=3:d=1"])
+        self.assertEqual(
+            fade_filters(0.5, 1.0, 4.0, audio=True),
+            ["afade=t=in:st=0:d=0.5", "afade=t=out:st=3:d=1"])
         self.assertEqual(fade_filters(0.0, 0.0, 4.0, audio=False), [])
 
     def test_fades_longer_than_the_clip_are_shortened(self):
@@ -416,6 +441,7 @@ class FilterStringTests(unittest.TestCase):
 
 
 class FrameSnapTests(unittest.TestCase):
+
     def test_every_edge_lands_on_a_frame(self):
         snapped = snap_segments([(0.51, 1.234), (2.0, 3.337)], 10.0)
         self.assertEqual(snapped, [(0.5, 1.2), (2.0, 3.3)])
@@ -440,12 +466,14 @@ class FrameSnapTests(unittest.TestCase):
 
     def test_parts_a_frame_apart_become_one_and_tiny_ones_vanish(self):
         self.assertEqual(snap_segments([(0.0, 1.02), (1.04, 2.0)], 10.0), [(0.0, 2.0)])
-        self.assertEqual(snap_segments([(0.0, 1.0), (1.51, 1.53), (2.0, 3.0)], 10.0), [(0.0, 1.0), (2.0, 3.0)])
+        self.assertEqual(
+            snap_segments([(0.0, 1.0), (1.51, 1.53), (2.0, 3.0)], 10.0), [(0.0, 1.0), (2.0, 3.0)])
 
     def test_one_frame_is_kept_when_every_part_is_shorter_than_a_frame(self):
         # not the sound alone: the part's frame, one frame long
         self.assertEqual(snap_segments([(1.01, 1.02)], 10.0), [(1.0, 1.1)])
-        (start, end), = snap_segments([(1.01, 1.02)], 10.0, duration=1.05)       # the frame before the end of the file
+        (start, end), = snap_segments(
+            [(1.01, 1.02)], 10.0, duration=1.05)  # the frame before the end of the file
         self.assertAlmostEqual(start, 0.95)
         self.assertAlmostEqual(end, 1.05)
 
@@ -463,10 +491,12 @@ class FrameSnapTests(unittest.TestCase):
         self.assertAlmostEqual(frame_rate(29.97), 30000 / 1001, places=9)
         self.assertAlmostEqual(frame_rate(23.98), 24000 / 1001, places=9)
         self.assertAlmostEqual(frame_rate(59.94), 60000 / 1001, places=9)
-        self.assertEqual((frame_rate(25.0), frame_rate(30.0), frame_rate(15.0)), (25.0, 30.0, 15.0))
+        self.assertEqual(
+            (frame_rate(25.0), frame_rate(30.0), frame_rate(15.0)), (25.0, 30.0, 15.0))
         self.assertEqual(frame_rate(12.5), 12.5)
         a, _ = snap_segments([(600.0, 601.0)], 29.97)[0]
-        self.assertAlmostEqual(a * 30000 / 1001 % 1, 0.0, places=6)     # a frame boundary of the real rate
+        self.assertAlmostEqual(
+            a * 30000 / 1001 % 1, 0.0, places=6)  # a frame boundary of the real rate
 
     def test_the_picture_is_cut_half_a_frame_early_and_the_sound_is_not(self):
         segments = [(0.0, 1.0), (2.0, 3.0)]

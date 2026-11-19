@@ -1,6 +1,6 @@
-"""The "Text and logo" controls: a list of texts with an editor for the selected one, the logo, and the
-subtitle file. It is shown inside a section of the inspector and reports every change as a function
-that edits a copy of the settings (see `Inspector._edit`)."""
+"""The "Text and logo" controls: a list of texts with an editor for the selected one, the logo, and
+the subtitle file. It is shown inside a section of the inspector and reports every change as a
+function that edits a copy of the settings (see `Inspector._edit`)."""
 
 from __future__ import annotations
 
@@ -11,21 +11,23 @@ from typing import Callable, Optional
 from PySide6.QtCore import QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPixmap
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QFontComboBox, QGridLayout,
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QPlainTextEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QFontComboBox,
+    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QPlainTextEdit, QPushButton,
+    QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from ..captions import (
-    ALIGNMENTS, BOX_OPACITY, IMAGE_EXTENSIONS, LOGO_CORNERS, LOGO_MARGIN, LOGO_OPACITY, LOGO_SIZE, MAX_TEXTS,
-    OUTLINE_SIZE, SUBTITLE_EXTENSIONS, SUBTITLE_POSITIONS, SUBTITLE_SIZE, TEXT_SIZE, TextItem,
+    ALIGNMENTS, BOX_OPACITY, IMAGE_EXTENSIONS, LOGO_CORNERS, LOGO_MARGIN, LOGO_OPACITY, LOGO_SIZE,
+    MAX_TEXTS, OUTLINE_SIZE, SUBTITLE_EXTENSIONS, SUBTITLE_POSITIONS, SUBTITLE_SIZE, TEXT_SIZE,
+    TextItem,
 )
 from ..core import format_time, parse_time
 from ..i18n import N_, tr
 from ..timing import FADE_MAX
 from ..video import VideoEdit
 
-EDITABLE_EXTENSIONS = (".srt", ".vtt")       # the subtitle files the caption editor can open
-TYPING_PAUSE = 700     # milliseconds without typing before the text counts as one finished edit
+EDITABLE_EXTENSIONS = (".srt", ".vtt")  # the subtitle files the caption editor can open
+TYPING_PAUSE = 700  # milliseconds without typing before the text counts as one finished edit
 
 # Where the quick position buttons put a text: (label, y).
 POSITIONS = ((N_("Top"), 0.12), (N_("Middle"), 0.5), (N_("Bottom"), 0.85))
@@ -67,7 +69,8 @@ class ColorButton(QPushButton):
     def __init__(self, title: str, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.title, self.color = title, "#ffffff"
-        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)      # 44 px, less if short of room
+        self.setSizePolicy(
+            QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)  # 44 px, less if short of room
         self.setToolTip(title)
         self.clicked.connect(self._choose)
 
@@ -75,7 +78,9 @@ class ColorButton(QPushButton):
         return QSize(44, super().sizeHint().height())
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(32, super().minimumSizeHint().height())     # narrower when the row is short of room
+        return QSize(
+            32,
+            super().minimumSizeHint().height())  # narrower when the row is short of room
 
     def set_color(self, color: str) -> None:
         self.color = color
@@ -95,7 +100,7 @@ class TextBox(QPlainTextEdit):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setTabChangesFocus(True)       # Tab moves on to the next control instead of typing a tab
+        self.setTabChangesFocus(True)  # Tab moves on to the next control instead of typing a tab
 
     def focusOutEvent(self, event) -> None:
         self.leftBox.emit()
@@ -105,10 +110,10 @@ class TextBox(QPlainTextEdit):
 class CaptionsPanel(QWidget):
     # a function that changes a copy of the settings, the undo label, whether the edit is complete
     edited = Signal(object, str, bool)
-    selectionChanged = Signal(int)          # the selected text's index, or -1
-    timeRequested = Signal(str)             # "start" or "end": use the playhead as the selected text's time
-    autoCaptionsRequested = Signal()        # "Make captions automatically…"
-    editCaptionsRequested = Signal()        # "Edit captions…"
+    selectionChanged = Signal(int)  # the selected text's index, or -1
+    timeRequested = Signal(str)  # "start" or "end": use the playhead as the selected text's time
+    autoCaptionsRequested = Signal()  # "Make captions automatically…"
+    editCaptionsRequested = Signal()  # "Edit captions…"
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -116,7 +121,8 @@ class CaptionsPanel(QWidget):
         self.selected = -1
         self._updating = False
         self._select_after: Optional[int] = None
-        self._typing = QTimer(self, singleShot=True, interval=TYPING_PAUSE, timeout=self._finish_typing)
+        self._typing = QTimer(
+            self, singleShot=True, interval=TYPING_PAUSE, timeout=self._finish_typing)
         self._typing_pending = False
 
         layout = QVBoxLayout(self)
@@ -137,9 +143,12 @@ class CaptionsPanel(QWidget):
         self.duplicate_button.clicked.connect(self._duplicate)
         self.remove_button = QPushButton(tr("Remove"))
         self.remove_button.clicked.connect(self._remove)
-        layout.addWidget(_row(self.add_button, self.duplicate_button, self.remove_button, stretch_first=False))
-        self.empty_hint = _muted(tr("Add text to put a title or captions on the video. Drag it on the preview to "
-                                    "move it."))
+        layout.addWidget(
+            _row(self.add_button, self.duplicate_button, self.remove_button, stretch_first=False))
+        self.empty_hint = _muted(
+            tr(
+                "Add text to put a title or captions on the video. Drag it on the preview to "
+                "move it."))
         layout.addWidget(self.empty_hint)
 
         self.editor = QWidget()
@@ -158,46 +167,60 @@ class CaptionsPanel(QWidget):
         self.text_box = TextBox()
         self.text_box.leftBox.connect(self._finish_typing)
         self.text_box.setFixedHeight(64)
-        self.text_box.setToolTip(tr("What to write. Press Enter for a new line. Arabic, Hebrew and other scripts "
-                                    "that run right to left work too."))
+        self.text_box.setToolTip(
+            tr(
+                "What to write. Press Enter for a new line. Arabic, Hebrew and other scripts "
+                "that run right to left work too."))
         self.text_box.textChanged.connect(self._text_typed)
         row(tr("Text"), self.text_box)
         self.font_box = QFontComboBox()
         self.font_box.setEditable(False)
-        self.font_box.setToolTip(tr("Any font installed on this PC. If it can't show the text (Arabic in a font "
-                                    "with no Arabic letters, say), another font is used for it."))
+        self.font_box.setToolTip(
+            tr(
+                "Any font installed on this PC. If it can't show the text (Arabic in a font "
+                "with no Arabic letters, say), another font is used for it."))
         self.font_box.currentFontChanged.connect(self._font_chosen)
         row(tr("Font"), self.font_box)
-        self.size_box = _percent_box(*TEXT_SIZE, tip=tr("The height of the text as a share of the video's height, "
-                                                        "so it looks the same at any size"))
-        self.size_box.valueChanged.connect(lambda v: self._edit_text(lambda t: setattr(t, "size", round(v / 100, 4)),
-                                                                     tr("Text size")))
+        self.size_box = _percent_box(
+            *TEXT_SIZE, tip=tr(
+                "The height of the text as a share of the video's height, "
+                "so it looks the same at any size"))
+        self.size_box.valueChanged.connect(
+            lambda v: self._edit_text(
+                lambda t: setattr(t, "size", round(v / 100, 4)), tr("Text size")))
         self.bold_box = QCheckBox(tr("Bold"))
-        self.bold_box.toggled.connect(lambda on: self._edit_text(lambda t: setattr(t, "bold", on), tr("Text bold")))
+        self.bold_box.toggled.connect(
+            lambda on: self._edit_text(lambda t: setattr(t, "bold", on), tr("Text bold")))
         row(tr("Size"), _row(self.size_box, self.bold_box))
         self.color_button = ColorButton(tr("Text color"))
-        self.color_button.picked.connect(lambda c: self._edit_text(lambda t: setattr(t, "color", c),
-                                                                   tr("Text color")))
+        self.color_button.picked.connect(
+            lambda c: self._edit_text(lambda t: setattr(t, "color", c), tr("Text color")))
         row(tr("Color"), _row(self.color_button, QWidget(), stretch_first=False))
         self.outline_button = ColorButton(tr("Outline color"))
         self.outline_button.picked.connect(
-            lambda c: self._edit_text(lambda t: setattr(t, "outline_color", c), tr("Outline color")))
-        self.outline_box = _percent_box(*OUTLINE_SIZE, tip=tr("How thick the outline is, as a share of the text "
-                                                              "size. 0 means no outline."))
+            lambda c: self._edit_text(
+                lambda t: setattr(t, "outline_color", c), tr("Outline color")))
+        self.outline_box = _percent_box(
+            *OUTLINE_SIZE, tip=tr(
+                "How thick the outline is, as a share of the text "
+                "size. 0 means no outline."))
         self.outline_box.setSpecialValueText(tr("None"))
         self.outline_box.valueChanged.connect(
-            lambda v: self._edit_text(lambda t: setattr(t, "outline", round(v / 100, 4)), tr("Outline")))
+            lambda v: self._edit_text(
+                lambda t: setattr(t, "outline", round(v / 100, 4)), tr("Outline")))
         row(tr("Outline"), _row(self.outline_button, self.outline_box, stretch_first=False))
         self.box_check = QCheckBox(tr("Box behind the text"))
-        self.box_check.toggled.connect(lambda on: self._edit_text(lambda t: setattr(t, "box", on), tr("Text box")))
+        self.box_check.toggled.connect(
+            lambda on: self._edit_text(lambda t: setattr(t, "box", on), tr("Text box")))
         self.box_button = ColorButton(tr("Box color"))
-        self.box_button.picked.connect(lambda c: self._edit_text(lambda t: setattr(t, "box_color", c),
-                                                                 tr("Box color")))
+        self.box_button.picked.connect(
+            lambda c: self._edit_text(lambda t: setattr(t, "box_color", c), tr("Box color")))
         self.box_opacity = _percent_box(*BOX_OPACITY, tip=tr("How solid the box is"))
         self.box_opacity.valueChanged.connect(
-            lambda v: self._edit_text(lambda t: setattr(t, "box_opacity", round(v / 100, 3)), tr("Box opacity")))
-        # Two lines: the check box with its long name, then the color and opacity under it. Side by side they
-        # needed more than the settings panel is wide at the smallest window.
+            lambda v: self._edit_text(
+                lambda t: setattr(t, "box_opacity", round(v / 100, 3)), tr("Box opacity")))
+        # Two lines: the check box with its long name, then the color and opacity under it. Side by
+        # side they needed more than the settings panel is wide at the smallest window.
         row(tr("Box"), self.box_check)
         row("", _row(self.box_button, self.box_opacity))
         self.align_group = QButtonGroup(self)
@@ -214,7 +237,9 @@ class CaptionsPanel(QWidget):
             self.align_group.addButton(button, i)
             aligns.addWidget(button)
         self.align_group.idClicked.connect(
-            lambda i: self._edit_text(lambda t: setattr(t, "align", list(ALIGNMENTS)[i]), tr("Text alignment")))
+            lambda i: self._edit_text(
+                lambda t: setattr(t, "align",
+                                  list(ALIGNMENTS)[i]), tr("Text alignment")))
         holder = QWidget()
         holder.setLayout(aligns)
         row(tr("Lines"), holder)
@@ -226,9 +251,11 @@ class CaptionsPanel(QWidget):
             button = QPushButton(tr(label))
             button.setObjectName("chip")
             button.setMinimumWidth(0)
-            button.setToolTip(tr("Put the text here, in the middle. You can also drag it on the preview."))
-            button.clicked.connect(lambda _=False, y=y: self._edit_text(
-                lambda t: (setattr(t, "x", 0.5), setattr(t, "y", y)), tr("Move text")))
+            button.setToolTip(
+                tr("Put the text here, in the middle. You can also drag it on the preview."))
+            button.clicked.connect(
+                lambda _=False, y=y: self._edit_text(
+                    lambda t: (setattr(t, "x", 0.5), setattr(t, "y", y)), tr("Move text")))
             self.position_group.addButton(button, i)
             places.addWidget(button)
         holder = QWidget()
@@ -249,20 +276,27 @@ class CaptionsPanel(QWidget):
         self.time_error.hide()
         grid.addWidget(self.time_error, grid.rowCount(), 1)
         self.fade_in_box, self.fade_out_box = QDoubleSpinBox(), QDoubleSpinBox()
-        for box, name, word in ((self.fade_in_box, "fade_in", "in"), (self.fade_out_box, "fade_out", "out")):
+        for box, name, word in ((self.fade_in_box, "fade_in", "in"), (self.fade_out_box,
+                                                                      "fade_out", "out")):
             box.setRange(0.0, FADE_MAX)
             box.setDecimals(1)
             box.setSingleStep(0.5)
             box.setSuffix(" s")
             box.setSpecialValueText(tr("Off"))
             box.setKeyboardTracking(False)
-            box.setToolTip(tr("Seconds the text takes to fade in") if word == "in"
-                           else tr("Seconds the text takes to fade out"))
-            box.valueChanged.connect(lambda v, name=name: self._edit_text(
-                lambda t: setattr(t, name, round(v, 1)), tr("Text fade")))
-        row(tr("Fade"), _row(_muted(tr("In"), wrap=False), self.fade_in_box, _muted(tr("Out"), wrap=False),
-                             self.fade_out_box))
-        self.times_hint = _muted(tr("Times are on the finished video, after cuts and speed changes."))
+            box.setToolTip(
+                tr("Seconds the text takes to fade in") if word ==
+                "in" else tr("Seconds the text takes to fade out"))
+            box.valueChanged.connect(
+                lambda v, name=name: self._edit_text(
+                    lambda t: setattr(t, name, round(v, 1)), tr("Text fade")))
+        row(
+            tr("Fade"),
+            _row(
+                _muted(tr("In"), wrap=False), self.fade_in_box, _muted(tr("Out"), wrap=False),
+                self.fade_out_box))
+        self.times_hint = _muted(
+            tr("Times are on the finished video, after cuts and speed changes."))
         grid.addWidget(self.times_hint, grid.rowCount(), 0, 1, 2)
 
         # --- the logo
@@ -270,12 +304,15 @@ class CaptionsPanel(QWidget):
         self.logo_name = _muted(tr("None"), wrap=False)
         self.logo_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.logo_choose = QPushButton(tr("Choose…"))
-        self.logo_choose.setToolTip(tr("Pick a picture to show over the whole video. A PNG with see-through "
-                                       "parts works best."))
+        self.logo_choose.setToolTip(
+            tr(
+                "Pick a picture to show over the whole video. A PNG with see-through "
+                "parts works best."))
         self.logo_choose.clicked.connect(self._choose_logo)
         self.logo_remove = QPushButton(tr("Remove"))
-        self.logo_remove.clicked.connect(lambda: self.edited.emit(
-            lambda s: setattr(s.edit.logo, "file", ""), tr("Remove logo"), True))
+        self.logo_remove.clicked.connect(
+            lambda: self.edited.emit(
+                lambda s: setattr(s.edit.logo, "file", ""), tr("Remove logo"), True))
         layout.addWidget(_row(self.logo_name, self.logo_choose, self.logo_remove))
         self.logo_missing = QLabel(tr("The logo file can't be found. Choose it again."))
         self.logo_missing.setObjectName("error")
@@ -290,21 +327,31 @@ class CaptionsPanel(QWidget):
         self.corner_box = QComboBox()
         for key, label in LOGO_CORNERS.items():
             self.corner_box.addItem(tr(label), key)
-        self.corner_box.setToolTip(tr("Pick a corner, or drag the logo on the preview to put it anywhere"))
-        self.corner_box.currentIndexChanged.connect(lambda: self._edit_logo(
-            lambda logo: setattr(logo, "corner", self.corner_box.currentData()), tr("Logo position")))
-        self.logo_size = _percent_box(*LOGO_SIZE, tip=tr("The logo's width as a share of the video's width"))
-        self.logo_size.valueChanged.connect(lambda v: self._edit_logo(
-            lambda logo: setattr(logo, "size", round(v / 100, 4)), tr("Logo size")))
-        self.logo_opacity = _percent_box(*LOGO_OPACITY, tip=tr("100 is solid; lower lets the video show through"))
+        self.corner_box.setToolTip(
+            tr("Pick a corner, or drag the logo on the preview to put it anywhere"))
+        self.corner_box.currentIndexChanged.connect(
+            lambda: self._edit_logo(
+                lambda logo: setattr(logo, "corner", self.corner_box.currentData()),
+                tr("Logo position")))
+        self.logo_size = _percent_box(
+            *LOGO_SIZE, tip=tr("The logo's width as a share of the video's width"))
+        self.logo_size.valueChanged.connect(
+            lambda v: self._edit_logo(
+                lambda logo: setattr(logo, "size", round(v / 100, 4)), tr("Logo size")))
+        self.logo_opacity = _percent_box(
+            *LOGO_OPACITY, tip=tr("100 is solid; lower lets the video show through"))
         self.logo_opacity.setDecimals(0)
-        self.logo_opacity.valueChanged.connect(lambda v: self._edit_logo(
-            lambda logo: setattr(logo, "opacity", round(v / 100, 3)), tr("Logo opacity")))
-        self.logo_margin = _percent_box(*LOGO_MARGIN, tip=tr("How far a logo in a corner sits from the edge"))
-        self.logo_margin.valueChanged.connect(lambda v: self._edit_logo(
-            lambda logo: setattr(logo, "margin", round(v / 100, 4)), tr("Logo margin")))
-        for n, (label, widget) in enumerate(((tr("Position"), self.corner_box), (tr("Size"), self.logo_size),
-                                             (tr("Opacity"), self.logo_opacity), (tr("Margin"), self.logo_margin))):
+        self.logo_opacity.valueChanged.connect(
+            lambda v: self._edit_logo(
+                lambda logo: setattr(logo, "opacity", round(v / 100, 3)), tr("Logo opacity")))
+        self.logo_margin = _percent_box(
+            *LOGO_MARGIN, tip=tr("How far a logo in a corner sits from the edge"))
+        self.logo_margin.valueChanged.connect(
+            lambda v: self._edit_logo(
+                lambda logo: setattr(logo, "margin", round(v / 100, 4)), tr("Logo margin")))
+        for n, (label, widget) in enumerate(
+            ((tr("Position"), self.corner_box), (tr("Size"), self.logo_size),
+             (tr("Opacity"), self.logo_opacity), (tr("Margin"), self.logo_margin))):
             logo_grid.addWidget(_muted(label, wrap=False), n, 0)
             logo_grid.addWidget(widget, n, 1)
         layout.addWidget(self.logo_options)
@@ -312,21 +359,27 @@ class CaptionsPanel(QWidget):
         # --- subtitles
         layout.addWidget(self._heading(tr("Subtitles")))
         self.auto_button = QPushButton(tr("Make captions automatically…"))
-        self.auto_button.setToolTip(tr("Listen to the speech in this video and write it down as captions. It all "
-                                       "runs on this PC."))
+        self.auto_button.setToolTip(
+            tr(
+                "Listen to the speech in this video and write it down as captions. It all "
+                "runs on this PC."))
         self.auto_button.clicked.connect(self.autoCaptionsRequested.emit)
         layout.addWidget(self.auto_button)
-        self.auto_hint = _muted(tr("Writes the speech down for you, in many languages. Runs on this PC, with no "
-                                   "internet after a one-time download of the speech model."))
+        self.auto_hint = _muted(
+            tr(
+                "Writes the speech down for you, in many languages. Runs on this PC, with no "
+                "internet after a one-time download of the speech model."))
         layout.addWidget(self.auto_hint)
         self.sub_name = _muted(tr("None"), wrap=False)
         self.sub_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.sub_choose = QPushButton(tr("Choose…"))
-        self.sub_choose.setToolTip(tr("Burn the words of an .srt, .vtt or .ass file into the picture"))
+        self.sub_choose.setToolTip(
+            tr("Burn the words of an .srt, .vtt or .ass file into the picture"))
         self.sub_choose.clicked.connect(self._choose_subtitles)
         self.sub_remove = QPushButton(tr("Remove"))
-        self.sub_remove.clicked.connect(lambda: self.edited.emit(
-            lambda s: setattr(s.edit.subtitles, "file", ""), tr("Remove subtitles"), True))
+        self.sub_remove.clicked.connect(
+            lambda: self.edited.emit(
+                lambda s: setattr(s.edit.subtitles, "file", ""), tr("Remove subtitles"), True))
         layout.addWidget(_row(self.sub_name, self.sub_choose, self.sub_remove))
         self.edit_captions_button = QPushButton(tr("Edit captions…"))
         self.edit_captions_button.setToolTip(tr("Fix the words and the times of the captions"))
@@ -344,50 +397,68 @@ class CaptionsPanel(QWidget):
         sub_grid.setColumnStretch(1, 1)
         self.sub_font = QFontComboBox()
         self.sub_font.setEditable(False)
-        self.sub_font.currentFontChanged.connect(lambda font: self._edit_subtitles(
-            lambda sub: setattr(sub, "font", font.family()), tr("Subtitle font")))
-        self.sub_size = _percent_box(*SUBTITLE_SIZE, tip=tr("The height of the subtitle text as a share of the "
-                                                            "video's height"))
-        self.sub_size.valueChanged.connect(lambda v: self._edit_subtitles(
-            lambda sub: setattr(sub, "size", round(v / 100, 4)), tr("Subtitle size")))
+        self.sub_font.currentFontChanged.connect(
+            lambda font: self._edit_subtitles(
+                lambda sub: setattr(sub, "font", font.family()), tr("Subtitle font")))
+        self.sub_size = _percent_box(
+            *SUBTITLE_SIZE,
+            tip=tr("The height of the subtitle text as a share of the "
+                   "video's height"))
+        self.sub_size.valueChanged.connect(
+            lambda v: self._edit_subtitles(
+                lambda sub: setattr(sub, "size", round(v / 100, 4)), tr("Subtitle size")))
         self.sub_bold = QCheckBox(tr("Bold"))
-        self.sub_bold.toggled.connect(lambda on: self._edit_subtitles(lambda sub: setattr(sub, "bold", on),
-                                                                      tr("Subtitle bold")))
+        self.sub_bold.toggled.connect(
+            lambda on: self._edit_subtitles(
+                lambda sub: setattr(sub, "bold", on), tr("Subtitle bold")))
         self.sub_color = ColorButton(tr("Subtitle color"))
-        self.sub_color.picked.connect(lambda c: self._edit_subtitles(lambda sub: setattr(sub, "color", c),
-                                                                     tr("Subtitle color")))
+        self.sub_color.picked.connect(
+            lambda c: self._edit_subtitles(
+                lambda sub: setattr(sub, "color", c), tr("Subtitle color")))
         self.sub_outline_color = ColorButton(tr("Subtitle outline color"))
-        self.sub_outline_color.picked.connect(lambda c: self._edit_subtitles(
-            lambda sub: setattr(sub, "outline_color", c), tr("Subtitle outline")))
-        self.sub_outline = _percent_box(*OUTLINE_SIZE, tip=tr("How thick the outline is, as a share of the "
-                                                              "text size"))
+        self.sub_outline_color.picked.connect(
+            lambda c: self._edit_subtitles(
+                lambda sub: setattr(sub, "outline_color", c), tr("Subtitle outline")))
+        self.sub_outline = _percent_box(
+            *OUTLINE_SIZE, tip=tr("How thick the outline is, as a share of the "
+                                  "text size"))
         self.sub_outline.setSpecialValueText(tr("None"))
-        self.sub_outline.valueChanged.connect(lambda v: self._edit_subtitles(
-            lambda sub: setattr(sub, "outline", round(v / 100, 4)), tr("Subtitle outline")))
+        self.sub_outline.valueChanged.connect(
+            lambda v: self._edit_subtitles(
+                lambda sub: setattr(sub, "outline", round(v / 100, 4)), tr("Subtitle outline")))
         self.sub_position = QComboBox()
         for key, label in SUBTITLE_POSITIONS.items():
             self.sub_position.addItem(tr(label), key)
-        self.sub_position.currentIndexChanged.connect(lambda: self._edit_subtitles(
-            lambda sub: setattr(sub, "position", self.sub_position.currentData()), tr("Subtitle position")))
-        for n, (label, widget) in enumerate((
-                (tr("Font"), self.sub_font), (tr("Size"), _row(self.sub_size, self.sub_bold)),
-                (tr("Color"), _row(self.sub_color, QWidget(), stretch_first=False)),
-                (tr("Outline"), _row(self.sub_outline_color, self.sub_outline, stretch_first=False)),
-                (tr("Place"), self.sub_position))):
+        self.sub_position.currentIndexChanged.connect(
+            lambda: self._edit_subtitles(
+                lambda sub: setattr(sub, "position", self.sub_position.currentData()),
+                tr("Subtitle position")))
+        for n, (label, widget) in enumerate(
+            ((tr("Font"), self.sub_font), (tr("Size"), _row(self.sub_size, self.sub_bold)),
+             (tr("Color"), _row(self.sub_color, QWidget(), stretch_first=False)),
+             (tr("Outline"), _row(self.sub_outline_color, self.sub_outline,
+                                  stretch_first=False)), (tr("Place"), self.sub_position))):
             sub_grid.addWidget(_muted(label, wrap=False), n, 0)
             sub_grid.addWidget(widget, n, 1)
         self.sub_own_style = QCheckBox(tr("Use the file's own style"))
-        self.sub_own_style.setToolTip(tr("Keep the fonts, colors and places the .ass file was made with. Turn this "
-                                         "off to use the font, size, color and place chosen here instead."))
-        self.sub_own_style.toggled.connect(lambda on: self._edit_subtitles(lambda sub: setattr(sub, "own_style", on),
-                                                                           tr("Subtitle style")))
+        self.sub_own_style.setToolTip(
+            tr(
+                "Keep the fonts, colors and places the .ass file was made with. Turn this "
+                "off to use the font, size, color and place chosen here instead."))
+        self.sub_own_style.toggled.connect(
+            lambda on: self._edit_subtitles(
+                lambda sub: setattr(sub, "own_style", on), tr("Subtitle style")))
         layout.addWidget(self.sub_own_style)
         layout.addWidget(self.sub_options)
-        layout.addWidget(_muted(tr("Subtitles are timed for the original video; cuts and speed changes are taken "
-                                   "into account. The preview shows them under Before / after.")))
+        layout.addWidget(
+            _muted(
+                tr(
+                    "Subtitles are timed for the original video; cuts and speed changes are taken "
+                    "into account. The preview shows them under Before / after.")))
 
         for combo in self.findChildren(QComboBox):
-            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             combo.setMinimumContentsLength(8)
 
     @staticmethod
@@ -494,13 +565,14 @@ class CaptionsPanel(QWidget):
         self.sub_own_style.setVisible(own_style_file)
         self.sub_options.setEnabled(not (own_style_file and sub.own_style))
         self.sub_message.setVisible(has and not Path(sub.file).is_file())
-        editable = has and Path(sub.file).suffix.lower() in EDITABLE_EXTENSIONS and Path(sub.file).is_file()
+        editable = has and Path(sub.file).suffix.lower() in EDITABLE_EXTENSIONS and Path(
+            sub.file).is_file()
         self.edit_captions_button.setVisible(has)
         self.edit_captions_button.setEnabled(editable)
         self.edit_captions_button.setToolTip(
             tr("Fix the words and the times of the captions") if editable or not has else
-            tr("Only .srt and .vtt subtitle files can be edited here") if Path(sub.file).is_file() else
-            tr("The subtitle file can't be found"))
+            tr("Only .srt and .vtt subtitle files can be edited here") if Path(sub.file).is_file(
+            ) else tr("The subtitle file can't be found"))
         if sub:
             self.sub_own_style.setChecked(sub.own_style)
             index = self.sub_font.findText(sub.font)
@@ -532,7 +604,8 @@ class CaptionsPanel(QWidget):
             self._updating = False
         self.selectionChanged.emit(self.selected)
 
-    def _edit_text(self, change: Callable[[TextItem], None], label: str, final: bool = True) -> None:
+    def _edit_text(
+            self, change: Callable[[TextItem], None], label: str, final: bool = True) -> None:
         if self._updating or self.selected < 0:
             return
         index = self.selected
@@ -557,7 +630,8 @@ class CaptionsPanel(QWidget):
             return
         self._select_after = count
         new_text = tr("Your text")
-        self.edited.emit(lambda s: s.edit.texts.append(TextItem(text=new_text)), tr("Add text"), True)
+        self.edited.emit(
+            lambda s: s.edit.texts.append(TextItem(text=new_text)), tr("Add text"), True)
 
     def _duplicate(self) -> None:
         index = self.selected
@@ -567,8 +641,9 @@ class CaptionsPanel(QWidget):
         def apply(settings) -> None:
             if index < len(settings.edit.texts):
                 twin = copy.deepcopy(settings.edit.texts[index])
-                # A little lower, so the copy doesn't hide the original; a text near the bottom has no room
-                # for that (the copies would stack on top of each other there), so its copy goes above.
+                # A little lower, so the copy doesn't hide the original; a text near the bottom has
+                # no room for that (the copies would stack on top of each other there), so its copy
+                # goes above.
                 twin.y = twin.y + 0.07 if twin.y + 0.07 <= 0.95 else max(twin.y - 0.07, 0.05)
                 settings.edit.texts.insert(index + 1, twin)
 
@@ -580,8 +655,9 @@ class CaptionsPanel(QWidget):
         if index < 0:
             return
         self._select_after = max(index - 1, 0)
-        self.edited.emit(lambda s: s.edit.texts.pop(index) if index < len(s.edit.texts) else None,
-                         tr("Remove text"), True)
+        self.edited.emit(
+            lambda s: s.edit.texts.pop(index) if index < len(s.edit.texts) else None,
+            tr("Remove text"), True)
 
     def _text_typed(self) -> None:
         if self._updating or self.selected < 0:
@@ -623,25 +699,33 @@ class CaptionsPanel(QWidget):
             self.time_error.show()
             return
         self.time_error.hide()
-        self._edit_text(lambda t: setattr(t, which, (value or 0.0) if which == "start" else value), tr("Text time"))
+        self._edit_text(
+            lambda t: setattr(t, which, (value or 0.0) if which == "start" else value),
+            tr("Text time"))
 
     def _choose_logo(self) -> None:
         current = self.edit.logo.file if self.edit else ""
         patterns = " ".join(f"*{extension}" for extension in IMAGE_EXTENSIONS)
-        path, _ = QFileDialog.getOpenFileName(      # pictures only: a video would show one frame and then freeze
-            self, tr("Choose a logo"), str(Path(current).parent) if current else "",
+        # pictures only: a video would show one frame and then freeze
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("Choose a logo"),
+            str(Path(current).parent) if current else "",
             tr("Pictures ({patterns})", patterns=patterns))
         if path:
-            self.edited.emit(lambda s: setattr(s.edit.logo, "file", str(Path(path))), tr("Choose logo"), True)
+            self.edited.emit(
+                lambda s: setattr(s.edit.logo, "file", str(Path(path))), tr("Choose logo"), True)
 
     def _choose_subtitles(self) -> None:
         current = self.edit.subtitles.file if self.edit else ""
         patterns = " ".join(f"*{extension}" for extension in SUBTITLE_EXTENSIONS)
         path, _ = QFileDialog.getOpenFileName(
-            self, tr("Choose a subtitle file"), str(Path(current).parent) if current else "",
+            self, tr("Choose a subtitle file"),
+            str(Path(current).parent) if current else "",
             tr("Subtitles ({patterns})", patterns=patterns) + ";;" + tr("All files (*)"))
         if path:
-            self.edited.emit(lambda s: setattr(s.edit.subtitles, "file", str(Path(path))), tr("Choose subtitles"), True)
+            self.edited.emit(
+                lambda s: setattr(s.edit.subtitles, "file", str(Path(path))),
+                tr("Choose subtitles"), True)
 
 
 def _time_text(item: TextItem, which: str) -> str:

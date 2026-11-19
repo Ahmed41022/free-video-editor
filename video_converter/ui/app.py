@@ -18,7 +18,7 @@ from ..decoding import force_software_decoding
 from ..i18n import tr
 from . import language, single_instance
 
-CRASH_DIALOG_GAP = 10.0       # seconds; a burst of errors shows one box, not a hundred
+CRASH_DIALOG_GAP = 10.0  # seconds; a burst of errors shows one box, not a hundred
 
 
 def _icon_path() -> Path:
@@ -57,18 +57,22 @@ class CrashReporter(QObject):
 
 def crash_box(summary: str, parent=None) -> QMessageBox:
     """The friendly box for an unexpected error (not shown yet)."""
-    box = QMessageBox(QMessageBox.Icon.Warning, APP_NAME, tr("Something unexpected went wrong."),
-                      QMessageBox.StandardButton.Close, parent)
+    box = QMessageBox(
+        QMessageBox.Icon.Warning, APP_NAME, tr("Something unexpected went wrong."),
+        QMessageBox.StandardButton.Close, parent)
     box.setInformativeText(
-        tr("It has been written to the log, so it can be looked at. You can carry on, but if the app starts "
-           "behaving oddly, save your work and restart it.\n\nThe log is here:\n{path}\n\n"
-           "To tell the developer, use Help > Report a problem.", path=diagnostics.log_path()))
+        tr(
+            "It has been written to the log, so it can be looked at. You can carry on, but if "
+            "the app starts "
+            "behaving oddly, save your work and restart it.\n\nThe log is here:\n{path}\n\n"
+            "To tell the developer, use Help > Report a problem.", path=diagnostics.log_path()))
     box.setDetailedText(summary)
     return box
 
 
 def choose_language(store, app: QApplication) -> str:
-    """Use the language saved in `store` (by default the one Windows uses) for everything the app shows."""
+    """Use the language saved in `store` (by default the one Windows uses) for everything the app
+    shows."""
     code = i18n.set_language(i18n.resolve(i18n.saved_choice(store)))
     language.apply_to_app(app)
     return code
@@ -78,9 +82,9 @@ CAPTIONS_SELF_TEST = "--self-test-captions"
 
 
 def captions_self_test(report: Optional[str] = None) -> int:
-    """Check that the speech engine behind automatic captions works in this build, without opening a window:
-    0 if it does. The one-line result (or the error) is written to the file `report`, since the built program
-    has no console to print to."""
+    """Check that the speech engine behind automatic captions works in this build, without opening
+    a window: 0 if it does. The one-line result (or the error) is written to the file `report`,
+    since the built program has no console to print to."""
     try:
         from ..autocaptions import self_test
 
@@ -105,8 +109,9 @@ def main(paths: Optional[list[str]] = None) -> int:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("VideoConverter.Editor")
         except (OSError, AttributeError):
             pass
-    # The preview turns frames into pictures on the CPU, so the graphics card must not decode them (Qt reads this
-    # when the first player is made, so it has to be set before anything multimedia exists).
+    # The preview turns frames into pictures on the CPU, so the graphics card must not decode them
+    # (Qt reads this when the first player is made, so it has to be set before anything multimedia
+    # exists).
     force_software_decoding()
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
@@ -121,21 +126,24 @@ def main(paths: Optional[list[str]] = None) -> int:
 
     try:
         log_file = diagnostics.setup_logging()
-        # A crash in Qt's or ffmpeg's own code can't be caught; this at least notes where it happened.
+        # A crash in Qt's or ffmpeg's own code can't be caught; this at least notes where it
+        # happened.
         faulthandler.enable(open(log_file.with_name("crashes.log"), "a", encoding="utf-8"))
     except (OSError, ValueError, RuntimeError):
-        pass       # no log is better than no app
+        pass  # no log is better than no app
     reporter = CrashReporter(app)
     diagnostics.install_excepthooks(reporter.report)
 
     ffmpeg = find_ffmpeg()
     diagnostics.log_startup(ffmpeg)
     if not ffmpeg:
-        QMessageBox.critical(None, tr("ffmpeg not found"),
-                             tr("This app needs ffmpeg to work with videos.\n\n"
-                                "Install it (for example: winget install Gyan.FFmpeg) or run\n"
-                                "    pip install imageio-ffmpeg\n"
-                                "and start the app again."))
+        QMessageBox.critical(
+            None, tr("ffmpeg not found"),
+            tr(
+                "This app needs ffmpeg to work with videos.\n\n"
+                "Install it (for example: winget install Gyan.FFmpeg) or run\n"
+                "    pip install imageio-ffmpeg\n"
+                "and start the app again."))
         instance.close()
         return 1
 
@@ -143,7 +151,8 @@ def main(paths: Optional[list[str]] = None) -> int:
 
     window = MainWindow(ffmpeg)
     window.watch_for_other_copies(instance)
-    tempclean.sweep_in_background(keep=[window.tmpdir])      # folders earlier runs left behind, once they are a day old
+    tempclean.sweep_in_background(
+        keep=[window.tmpdir])  # folders earlier runs left behind, once they are a day old
     window.show()
     if paths:
         window.add_paths([Path(p) for p in paths])

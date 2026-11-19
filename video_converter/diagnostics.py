@@ -17,26 +17,27 @@ from typing import Callable, Optional
 from urllib.parse import quote
 
 from . import APP_NAME, REPO_URL, __version__
-from .core import _NO_WINDOW
+from .core.winproc import _NO_WINDOW
 from .i18n import tr
 
 LOG_NAME = "app.log"
-MAX_LOG_BYTES = 1_000_000          # about 10,000 lines; three older files are kept as app.log.1 ... .3
+MAX_LOG_BYTES = 1_000_000  # about 10,000 lines; three older files are kept as app.log.1 ... .3
 LOG_FILES_KEPT = 3
 ISSUES_URL = f"{REPO_URL}/issues/new"
-URL_LIMIT = 6000                   # browsers and GitHub cope with a lot more; this stays well clear
+URL_LIMIT = 6000  # browsers and GitHub cope with a lot more; this stays well clear
 REPORT_LOG_LINES = 30
-MAX_LINE = 300                     # a longer log line is cut when it goes into a report
+MAX_LINE = 300  # a longer log line is cut when it goes into a report
 
 log = logging.getLogger("video_converter")
 crash_log = logging.getLogger("video_converter.crash")
 _handler: Optional[logging.Handler] = None
 
-
 # ----- the log file ---------------------------------------------------------------
 
+
 def log_folder() -> Path:
-    """Where the log goes: %LOCALAPPDATA%\\Free Video Editor\\logs, or the temp folder if that can't be used."""
+    """Where the log goes: %LOCALAPPDATA%\\Free Video Editor\\logs, or the temp folder if that
+    can't be used."""
     base = os.environ.get("LOCALAPPDATA")
     candidates = [Path(base) / APP_NAME / "logs"] if base else []
     candidates.append(Path(tempfile.gettempdir()) / f"{APP_NAME} logs")
@@ -58,7 +59,8 @@ def log_path() -> Path:
 
 
 def _handler_path() -> Optional[Path]:
-    return Path(_handler.baseFilename) if isinstance(_handler, logging.handlers.RotatingFileHandler) else None
+    return Path(_handler.baseFilename) if isinstance(
+        _handler, logging.handlers.RotatingFileHandler) else None
 
 
 def setup_logging(folder: Optional[Path] = None) -> Path:
@@ -68,8 +70,8 @@ def setup_logging(folder: Optional[Path] = None) -> Path:
     shutdown_logging()
     path = (folder or log_folder()) / LOG_NAME
     path.parent.mkdir(parents=True, exist_ok=True)
-    handler = logging.handlers.RotatingFileHandler(path, maxBytes=MAX_LOG_BYTES, backupCount=LOG_FILES_KEPT,
-                                                   encoding="utf-8", delay=True)
+    handler = logging.handlers.RotatingFileHandler(
+        path, maxBytes=MAX_LOG_BYTES, backupCount=LOG_FILES_KEPT, encoding="utf-8", delay=True)
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s"))
     log.addHandler(handler)
     log.setLevel(logging.INFO)
@@ -103,8 +105,10 @@ def recent_log_lines(count: int = REPORT_LOG_LINES, path: Optional[Path] = None)
 
 # ----- what this PC looks like ----------------------------------------------------
 
+
 def windows_version() -> str:
-    """e.g. "Windows 11 (build 26300)". Python reports Windows 11 as "10", so the build number decides."""
+    """e.g. "Windows 11 (build 26300)". Python reports Windows 11 as "10", so the build number
+    decides."""
     if sys.platform != "win32":
         return platform.platform()
     try:
@@ -121,9 +125,9 @@ def ffmpeg_version(ffmpeg: str) -> str:
     """The version ffmpeg reports about itself (asked once), or "unknown"."""
     if ffmpeg not in _ffmpeg_versions:
         try:
-            result = subprocess.run([ffmpeg, "-version"], capture_output=True, text=True, encoding="utf-8",
-                                    errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
-                                    timeout=15)
+            result = subprocess.run(
+                [ffmpeg, "-version"], capture_output=True, text=True, encoding="utf-8",
+                errors="replace", stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, timeout=15)
             match = re.match(r"ffmpeg version (\S+)", result.stdout)
             _ffmpeg_versions[ffmpeg] = match.group(1) if match else "unknown"
         except (OSError, subprocess.SubprocessError):
@@ -142,8 +146,7 @@ def system_lines(ffmpeg: Optional[str], encoders: Optional[tuple[str, ...]]) -> 
     """Facts about the app and this PC that help to find a problem."""
     return [
         f"{APP_NAME} {__version__}",
-        windows_version(),
-        f"Python {platform.python_version()}",
+        windows_version(), f"Python {platform.python_version()}",
         f"ffmpeg {ffmpeg_version(ffmpeg) if ffmpeg else 'not found'}",
         f"Graphics card encoders: {encoders_text(encoders)}",
     ]
@@ -153,10 +156,13 @@ def log_startup(ffmpeg: Optional[str]) -> None:
     """The first entries of a run: which app, on which Windows, with which ffmpeg."""
     log.info("%s %s started", APP_NAME, __version__)
     log.info("%s; Python %s", windows_version(), platform.python_version())
-    log.info("ffmpeg: %s (version %s)", ffmpeg or "not found", ffmpeg_version(ffmpeg) if ffmpeg else "n/a")
+    log.info(
+        "ffmpeg: %s (version %s)", ffmpeg or "not found",
+        ffmpeg_version(ffmpeg) if ffmpeg else "n/a")
 
 
 # ----- crashes --------------------------------------------------------------------
+
 
 def install_excepthooks(on_error: Optional[Callable[[str], None]] = None) -> Callable[[], None]:
     """Log every exception nobody caught, in the main thread (`sys.excepthook`, which Qt also feeds
@@ -203,27 +209,33 @@ REPORT_TITLE = f"Problem with {APP_NAME} {__version__}"
 
 
 def report_body(system: list[str], log_lines: list[str]) -> str:
-    """The text that starts a GitHub issue: a place to describe the problem, this PC, and the end of the log."""
+    """The text that starts a GitHub issue: a place to describe the problem, this PC, and the end
+    of the log."""
     details = "\n".join(f"- {line}" for line in system)
-    shown = "\n".join(line[:MAX_LINE].replace("```", "'''") for line in log_lines) or "(the log is empty)"
-    return ("**What happened?**\n"
-            "(Please say what you were doing, and what you expected.)\n\n"
-            f"**About this PC**\n{details}\n\n"
-            f"**End of the log**\n```\n{shown}\n```\n")
+    shown = "\n".join(
+        line[:MAX_LINE].replace("```", "'''") for line in log_lines) or "(the log is empty)"
+    return (
+        "**What happened?**\n"
+        "(Please say what you were doing, and what you expected.)\n\n"
+        f"**About this PC**\n{details}\n\n"
+        f"**End of the log**\n```\n{shown}\n```\n")
 
 
 def issue_url(system: list[str], log_lines: list[str], limit: int = URL_LIMIT) -> str:
     """The link that opens GitHub's "new issue" page with the report filled in. The oldest log
     lines are left out as needed to keep the link under `limit` characters."""
+
     def build(lines: list[str], details: list[str]) -> str:
-        return f"{ISSUES_URL}?title={quote(REPORT_TITLE, safe='')}&body={quote(report_body(details, lines), safe='')}"
+        return (
+            f"{ISSUES_URL}?title={quote(REPORT_TITLE, safe='')}"
+            f"&body={quote(report_body(details, lines), safe='')}")
 
     lines, details = list(log_lines), list(system)
     url = build(lines, details)
     while len(url) > limit and lines:
         del lines[0]
         url = build(lines, details)
-    while len(url) > limit and details:      # only a very long description of this PC could get here
+    while len(url) > limit and details:  # only a very long description of this PC could get here
         details[-1] = details[-1][:max(len(details[-1]) // 2, 0)]
         if not details[-1]:
             details.pop()
@@ -237,9 +249,9 @@ LICENSES_URL = f"{REPO_URL}/tree/main/licenses"
 
 
 def licenses_folder() -> Optional[Path]:
-    """The folder with the license texts and third-party notices that ship with the app: next to the program
-    when it was installed, inside the bundle for the portable single file, the repository's own folder when run
-    from source. None if it can't be found."""
+    """The folder with the license texts and third-party notices that ship with the app: next to
+    the program when it was installed, inside the bundle for the portable single file, the
+    repository's own folder when run from source. None if it can't be found."""
     if getattr(sys, "frozen", False):
         candidates = [Path(sys.executable).resolve().parent / "licenses"]
         bundle = getattr(sys, "_MEIPASS", None)
@@ -254,21 +266,25 @@ def licenses_folder() -> Optional[Path]:
 
 
 def licenses_link() -> str:
-    """Where the About box's "Third-party licenses" link goes: the local folder, or the one on GitHub."""
+    """Where the About box's "Third-party licenses" link goes: the local folder, or the one on
+    GitHub."""
     folder = licenses_folder()
     return folder.as_uri() if folder is not None else LICENSES_URL
 
 
 def about_text() -> str:
     """The About box's text, as HTML for a Qt label."""
-    return (f"<h3>{APP_NAME} {__version__}</h3>"
-            "<p>" + tr("A free video editor for your PC: reshape videos for phones, crop, cut, join, speed up, "
-                       "color and stabilize them, or turn them into MP3s. Everything happens on your "
-                       "computer.") + "</p>"
-            "<p>" + tr("Released under the MIT License.") + "<br>"
-            + tr("Source code and help: {link}", link=f'<a href="{REPO_URL}">{REPO_URL}</a>') + "<br>"
-            + f'<a href="{licenses_link()}">' + tr("Third-party licenses") + "</a></p>"
-            "<p>" + tr("Built with {ffmpeg} for all the video work and {qt} (PySide6) for the window. "
-                       "Thanks to everyone who makes them.",
-                       ffmpeg='<a href="https://ffmpeg.org">FFmpeg</a>',
-                       qt='<a href="https://www.qt.io/qt-for-python">Qt for Python</a>') + "</p>")
+    return (
+        f"<h3>{APP_NAME} {__version__}</h3>"
+        "<p>" + tr(
+            "A free video editor for your PC: reshape videos for phones, crop, cut, join, "
+            "speed up, "
+            "color and stabilize them, or turn them into MP3s. Everything happens on your "
+            "computer.") + "</p>"
+        "<p>" + tr("Released under the MIT License.") + "<br>" +
+        tr("Source code and help: {link}", link=f'<a href="{REPO_URL}">{REPO_URL}</a>') + "<br>" +
+        f'<a href="{licenses_link()}">' + tr("Third-party licenses") + "</a></p>"
+        "<p>" + tr(
+            "Built with {ffmpeg} for all the video work and {qt} (PySide6) for the window. "
+            "Thanks to everyone who makes them.", ffmpeg='<a href="https://ffmpeg.org">FFmpeg</a>',
+            qt='<a href="https://www.qt.io/qt-for-python">Qt for Python</a>') + "</p>")

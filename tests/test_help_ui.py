@@ -1,5 +1,5 @@
-"""The 2.4 pieces of the window: the graphics card option, the Help menu, the failed-export details and
-the friendly crash box. Run without a visible window; skipped when PySide6 isn't installed."""
+"""The 2.4 pieces of the window: the graphics card option, the Help menu, the failed-export details
+and the friendly crash box. Run without a visible window; skipped when PySide6 isn't installed."""
 
 import os
 import tempfile
@@ -10,7 +10,9 @@ from pathlib import Path
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("VIDEO_EDITOR_NO_GPU_SEARCH", "1")      # a window never searches for graphics cards (see tests/__init__.py)
+os.environ.setdefault(
+    "VIDEO_EDITOR_NO_GPU_SEARCH",
+    "1")  # a window never searches for graphics cards (see tests/__init__.py)
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
@@ -19,10 +21,10 @@ try:
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from video_converter import APP_NAME, REPO_URL, __version__, diagnostics, gpu
-from video_converter.core import find_ffmpeg
-from video_converter.jobs import Job, JobState
-from video_converter.project import ClipSettings
+from video_converter import APP_NAME, REPO_URL, __version__, diagnostics, gpu  # noqa: E402
+from video_converter.core import find_ffmpeg  # noqa: E402
+from video_converter.jobs import Job, JobState  # noqa: E402
+from video_converter.project import ClipSettings  # noqa: E402
 
 FFMPEG = find_ffmpeg()
 
@@ -43,12 +45,14 @@ def pump(seconds, until=lambda: False):
 
 
 class GraphicsCardOptionTests(unittest.TestCase):
+
     def setUp(self):
         from video_converter.ui.inspector import Inspector
         self.inspector = Inspector()
         self.inspector.set_settings(ClipSettings(), 10.0)
         self.edits = []
-        self.inspector.settingsEdited.connect(lambda s, label, final: self.edits.append((s, label, final)))
+        self.inspector.settingsEdited.connect(
+            lambda s, label, final: self.edits.append((s, label, final)))
 
     def test_it_lives_in_the_video_quality_section_and_is_on_by_default(self):
         self.assertTrue(self.inspector.quality_section.isAncestorOf(self.inspector.gpu_box))
@@ -93,10 +97,13 @@ class GraphicsCardOptionTests(unittest.TestCase):
 
 
 class FailedExportDetailsTests(unittest.TestCase):
+
     def failed_job(self):
         job = Job(Path("C:/videos/holiday.mp4"), ClipSettings())
         job.state = JobState.FAILED
-        job.error = "[h264_nvenc @ 0123] Cannot load nvcuda.dll\nError while opening encoder\nConversion failed!"
+        job.error = (
+            "[h264_nvenc @ 0123] Cannot load nvcuda.dll\nError while opening "
+            "encoder\nConversion failed!")
         return job
 
     def test_a_failed_row_has_a_details_button_and_others_do_not(self):
@@ -159,16 +166,21 @@ class FailedExportDetailsTests(unittest.TestCase):
     def test_a_fallback_to_the_cpu_is_mentioned_in_the_status(self):
         from video_converter.ui.queue_panel import status_text
         job = Job(Path("clip.mp4"), ClipSettings())
-        job.state, job.output, job.note = JobState.DONE, Path("clip (phone).mp4"), gpu.CPU_FALLBACK_NOTE
-        self.assertEqual(status_text(job), "Saved as clip (phone).mp4 · Exported on the CPU because the graphics card failed")
+        job.state, job.output, job.note = JobState.DONE, Path(
+            "clip (phone).mp4"), gpu.CPU_FALLBACK_NOTE
+        self.assertEqual(
+            status_text(job),
+            "Saved as clip (phone).mp4 · Exported on the CPU because the graphics card failed")
         job.note = ""
         self.assertEqual(status_text(job), "Saved as clip (phone).mp4")
-        job.state, job.note, job.started_at = JobState.RUNNING, gpu.CPU_FALLBACK_NOTE, time.monotonic()
+        job.state, job.note, job.started_at = (
+            JobState.RUNNING, gpu.CPU_FALLBACK_NOTE, time.monotonic())
         self.assertIn("trying the CPU", status_text(job))
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class WindowTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -181,13 +193,15 @@ class WindowTests(unittest.TestCase):
     def new_window(self, encoders=(), name=None):
         from video_converter.ui.main_window import MainWindow
         ini = self.tmp / f"{self.id().split('.')[-1]}.ini"
+        # the stand-in card, not a real one
         with mock.patch.object(gpu, "detect_encoders", return_value=encoders), \
                 mock.patch.object(gpu, "gpu_name", return_value=name), \
-                mock.patch.dict(os.environ, {"VIDEO_EDITOR_NO_GPU_SEARCH": "0"}):       # the stand-in card, not a real one
+                mock.patch.dict(os.environ, {"VIDEO_EDITOR_NO_GPU_SEARCH": "0"}):
             window = MainWindow(FFMPEG, QSettings(str(ini), QSettings.Format.IniFormat))
             window.resize(1000, 700)
             window.show()
-            self.assertIsNone(window.gpu_encoders, "the search starts later, not when the window opens")
+            self.assertIsNone(
+                window.gpu_encoders, "the search starts later, not when the window opens")
             window.start_gpu_search()
             pump(5, lambda: window.gpu_encoders is not None)
         self.addCleanup(self.close, window)
@@ -200,8 +214,8 @@ class WindowTests(unittest.TestCase):
         QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def test_the_window_shows_the_card_it_found(self):
-        window = self.new_window(("h264_nvenc",), name="NVIDIA GeForce RTX 4060 Laptop GPU")
-        self.assertEqual(window.gpu_encoders, ("h264_nvenc",))
+        window = self.new_window(("h264_nvenc", ), name="NVIDIA GeForce RTX 4060 Laptop GPU")
+        self.assertEqual(window.gpu_encoders, ("h264_nvenc", ))
         self.assertEqual(window.inspector.gpu_label.text(), "NVIDIA GeForce RTX 4060 Laptop GPU")
         self.assertTrue(window.inspector.gpu_box.isEnabled())
 
@@ -213,21 +227,27 @@ class WindowTests(unittest.TestCase):
 
     def test_the_help_menu_has_its_entries(self):
         window = self.new_window()
-        menus = {action.text().replace("&", ""): action.menu() for action in window.menuBar().actions()}
+        menus = {
+            action.text().replace("&", ""): action.menu()
+            for action in window.menuBar().actions()
+        }
         self.assertIn("Help", menus)
         entries = [a.text() for a in menus["Help"].actions() if a.text()]
-        self.assertEqual(entries, ["Open the log folder", "Report a problem…", "Check for updates",
-                                   f"About {APP_NAME}"])
+        self.assertEqual(
+            entries,
+            ["Open the log folder", "Report a problem…", "Check for updates", f"About {APP_NAME}"])
 
     def test_report_a_problem_opens_the_prefilled_issue_after_the_user_agrees(self):
-        window = self.new_window(("h264_nvenc",), name="NVIDIA")
+        window = self.new_window(("h264_nvenc", ), name="NVIDIA")
         with tempfile.TemporaryDirectory() as folder:
             try:
                 diagnostics.setup_logging(Path(folder))
                 import logging
                 logging.getLogger("video_converter").info("Export 3 started: holiday.mp4")
-                with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes), \
-                        mock.patch("video_converter.ui.main_window.QDesktopServices.openUrl") as opened:
+                with mock.patch.object(QMessageBox, "question",
+                                       return_value=QMessageBox.StandardButton.Yes), \
+                        mock.patch("video_converter.ui.main_window.help.QDesktopServices."
+                                   "openUrl") as opened:
                     window.report_problem()
                 opened.assert_called_once()
                 url = opened.call_args.args[0].toString()
@@ -238,14 +258,18 @@ class WindowTests(unittest.TestCase):
         from urllib.parse import parse_qs, urlparse
         body = parse_qs(urlparse(url).query)["body"][0]
         self.assertIn(__version__, body)
-        self.assertIn(diagnostics.windows_version(), body)      # "Windows 11 (build ...)", or the platform's name
+        self.assertIn(
+            diagnostics.windows_version(),
+            body)  # "Windows 11 (build ...)", or the platform's name
         self.assertIn("h264_nvenc", body)
         self.assertIn("Export 3 started: holiday.mp4", body)
 
     def test_saying_no_sends_the_user_nowhere(self):
         window = self.new_window()
-        with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as asked, \
-                mock.patch("video_converter.ui.main_window.QDesktopServices.openUrl") as opened:
+        with mock.patch.object(QMessageBox, "question",
+                               return_value=QMessageBox.StandardButton.No) as asked, \
+                mock.patch("video_converter.ui.main_window.help.QDesktopServices."
+                           "openUrl") as opened:
             window.report_problem()
         asked.assert_called_once()
         self.assertIn("Nothing is sent until you press Submit", asked.call_args.args[2])
@@ -256,7 +280,8 @@ class WindowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             try:
                 diagnostics.setup_logging(Path(folder) / "logs")
-                with mock.patch("video_converter.ui.main_window.QDesktopServices.openUrl") as opened:
+                with mock.patch(
+                        "video_converter.ui.main_window.help.QDesktopServices.openUrl") as opened:
                     window.open_log_folder()
             finally:
                 diagnostics.shutdown_logging()
@@ -274,6 +299,7 @@ class WindowTests(unittest.TestCase):
 
 
 class CrashBoxTests(unittest.TestCase):
+
     def test_the_box_is_friendly_and_points_at_the_log_and_the_report(self):
         from video_converter.ui.app import crash_box
         box = crash_box("ValueError: bad thing")
@@ -295,7 +321,9 @@ class CrashBoxTests(unittest.TestCase):
         from video_converter.ui.app import CrashReporter
         reporter = CrashReporter()
         threads = []
-        with mock.patch.object(QMessageBox, "exec", side_effect=lambda: threads.append(threading.current_thread()) or 0):
+        with mock.patch.object(
+                QMessageBox, "exec",
+                side_effect=lambda: threads.append(threading.current_thread()) or 0):
             worker = threading.Thread(target=lambda: reporter.report("from a worker"))
             worker.start()
             worker.join()

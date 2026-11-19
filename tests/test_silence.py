@@ -1,6 +1,6 @@
-"""Remove silences (2.6.0): the range math, reading silencedetect, a real export, the window and the command line."""
+"""Remove silences (2.6.0): the range math, reading silencedetect, a real export, the window and
+the command line."""
 
-import copy
 import io
 import os
 import re
@@ -14,7 +14,9 @@ from pathlib import Path
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("VIDEO_EDITOR_NO_GPU_SEARCH", "1")      # a window never searches for graphics cards (see tests/__init__.py)
+os.environ.setdefault(
+    "VIDEO_EDITOR_NO_GPU_SEARCH",
+    "1")  # a window never searches for graphics cards (see tests/__init__.py)
 os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
@@ -23,14 +25,16 @@ try:
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from video_converter import __main__ as cli
-from video_converter.core import ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media
-from video_converter.project import ClipSettings
-from video_converter.silence import (
+from video_converter.cli import run as cli  # noqa: E402
+from video_converter.core import (  # noqa: E402
+    ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media,
+)
+from video_converter.project import ClipSettings  # noqa: E402
+from video_converter.silence import (  # noqa: E402
     detect_silences, parse_silences, plan_silence_removal, silence_cuts, summary,
 )
-from video_converter.timing import kept_segments, segments_length
-from video_converter.video import VideoEdit
+from video_converter.timing import kept_segments, segments_length  # noqa: E402
+from video_converter.video import VideoEdit  # noqa: E402
 
 FFMPEG = find_ffmpeg()
 TIMEOUT = 30
@@ -62,8 +66,12 @@ def pump(seconds, until=lambda: False):
 
 
 def make_talk(path, tone=2, quiet=2, video=True):
-    """tone, silence, tone, silence, tone: 3 tones of `tone` seconds with `quiet` seconds between."""
-    pieces = [f"sine=frequency=440:duration={tone}:sample_rate=44100", f"anullsrc=channel_layout=mono:sample_rate=44100:duration={quiet}"]
+    """tone, silence, tone, silence, tone: 3 tones of `tone` seconds with `quiet` seconds
+    between."""
+    pieces = [
+        f"sine=frequency=440:duration={tone}:sample_rate=44100",
+        f"anullsrc=channel_layout=mono:sample_rate=44100:duration={quiet}"
+    ]
     order = [0, 1, 0, 1, 0]
     graph = ";".join(f"{pieces[kind]}[a{n}]" for n, kind in enumerate(order))
     graph += ";" + "".join(f"[a{n}]" for n in range(5)) + "concat=n=5:v=0:a=1[out]"
@@ -93,6 +101,7 @@ def length(keep, start=None, end=None, duration=10.0):
 
 
 class ReadingSilencedetectTests(unittest.TestCase):
+
     def test_starts_and_ends_are_paired(self):
         found = parse_silences(SAMPLE, 10.0)
         self.assertEqual(found[1], (4.2, 5.25))
@@ -109,22 +118,29 @@ class ReadingSilencedetectTests(unittest.TestCase):
         self.assertEqual(parse_silences(SAMPLE)[-1][1], float("inf"))
 
     def test_a_silence_that_ends_at_the_end_is_read_normally(self):
-        text = "[silencedetect @ 0x1] silence_start: 8.5\n[silencedetect @ 0x1] silence_end: 10 | silence_duration: 1.5\n"
+        text = (
+            "[silencedetect @ 0x1] silence_start: 8.5\n[silencedetect @ 0x1] silence_end: "
+            "10 | silence_duration: 1.5\n")
         self.assertEqual(parse_silences(text, 10.0), [(8.5, 10.0)])
 
     def test_output_with_no_silences_gives_nothing(self):
-        self.assertEqual(parse_silences("Duration: 00:00:10.00\nsize=N/A time=00:00:10.00\n", 10.0), [])
+        self.assertEqual(
+            parse_silences("Duration: 00:00:10.00\nsize=N/A time=00:00:10.00\n", 10.0), [])
         self.assertEqual(parse_silences(""), [])
 
     def test_other_lines_that_mention_numbers_are_ignored(self):
-        text = "silence_start: 3\n[silencedetect @ 0x1] silence_start: 5\n[silencedetect @ 0x1] silence_end: 6\n"
+        text = (
+            "silence_start: 3\n[silencedetect @ 0x1] silence_start: 5\n[silencedetect @ "
+            "0x1] silence_end: 6\n")
         self.assertEqual(parse_silences(text, 10.0), [(5.0, 6.0)])
 
 
 class RangeMathTests(unittest.TestCase):
+
     def test_each_silence_is_cut_with_padding_left_on_both_sides(self):
         cuts = silence_cuts([(2.0, 4.0), (6.0, 8.0)], None, None, 10.0, 0.15)
-        self.assertEqual([(round(a, 2), round(b, 2)) for a, b in cuts], [(2.15, 3.85), (6.15, 7.85)])
+        self.assertEqual(
+            [(round(a, 2), round(b, 2)) for a, b in cuts], [(2.15, 3.85), (6.15, 7.85)])
 
     def test_no_padding_cuts_the_whole_silence(self):
         self.assertEqual(silence_cuts([(2.0, 4.0)], None, None, 10.0, 0.0), [(2.0, 4.0)])
@@ -138,7 +154,8 @@ class RangeMathTests(unittest.TestCase):
         self.assertEqual([(round(a, 2), b) for a, b in cuts], [(9.15, 10.0)])
 
     def test_a_silence_barely_longer_than_the_padding_is_left_alone(self):
-        self.assertEqual(silence_cuts([(2.0, 2.35)], None, None, 10.0, 0.15), [])      # 0.05 s would be left to cut
+        self.assertEqual(
+            silence_cuts([(2.0, 2.35)], None, None, 10.0, 0.15), [])  # 0.05 s would be left to cut
         self.assertEqual(silence_cuts([(2.0, 2.3)], None, None, 10.0, 0.15), [])
 
     def test_a_short_blip_of_speech_between_two_pauses_is_cut_with_them(self):
@@ -182,19 +199,21 @@ class RangeMathTests(unittest.TestCase):
         plan = plan_silence_removal([], silences, 3.0, 9.0, 10.0, 0.0)
         self.assertAlmostEqual(plan.before, 6.0)
         self.assertAlmostEqual(plan.after, 4.0)
-        # Outside the trim nothing is touched, so clearing the trim later shows the video as it was there.
+        # Outside the trim nothing is touched, so clearing the trim later shows the video as it was
+        # there.
         self.assertEqual(plan.keep[0][0], 0.0)
         self.assertEqual(plan.keep[-1][1], 10.0)
         self.assertEqual(plan.keep, [(0.0, 3.0), (4.0, 8.0), (9.0, 10.0)])
 
     def test_a_silence_that_straddles_the_trim_only_counts_inside_it(self):
-        self.assertEqual(silence_cuts([(1.0, 6.0)], 3.0, 8.0, 10.0, 0.15), [(3.0, round(6.0 - 0.15, 2))])
+        self.assertEqual(
+            silence_cuts([(1.0, 6.0)], 3.0, 8.0, 10.0, 0.15), [(3.0, round(6.0 - 0.15, 2))])
 
     def test_an_end_past_the_file_is_the_end_of_the_file(self):
         self.assertEqual(silence_cuts([(8.0, 10.0)], 2.0, 99.0, 10.0, 0.0), [(8.0, 10.0)])
 
     def test_the_users_own_cuts_stay(self):
-        keep = [(0.0, 3.0), (5.0, 10.0)]            # 3..5 was cut by hand
+        keep = [(0.0, 3.0), (5.0, 10.0)]  # 3..5 was cut by hand
         plan = plan_silence_removal(keep, [(2.0, 4.0), (6.0, 8.0)], None, None, 10.0, 0.0)
         self.assertEqual(plan.keep, [(0.0, 2.0), (5.0, 6.0), (8.0, 10.0)])
         self.assertEqual(len(plan.cuts), 2)
@@ -202,7 +221,7 @@ class RangeMathTests(unittest.TestCase):
         self.assertAlmostEqual(plan.after, 5.0)
 
     def test_the_users_splits_stay_and_a_silence_cuts_across_them(self):
-        keep = [(0.0, 5.0), (5.0, 10.0)]            # one split at 5
+        keep = [(0.0, 5.0), (5.0, 10.0)]  # one split at 5
         plan = plan_silence_removal(keep, [(4.0, 6.0)], None, None, 10.0, 0.0)
         self.assertEqual(plan.keep, [(0.0, 4.0), (6.0, 10.0)])
         untouched = plan_silence_removal(keep, [(1.0, 2.0)], None, None, 10.0, 0.0)
@@ -233,25 +252,32 @@ class RangeMathTests(unittest.TestCase):
         self.assertAlmostEqual(loose.removed, 1.0)
 
     def test_the_summary_says_what_it_found(self):
-        plan = plan_silence_removal([], [(5 + 9 * n, 5 + 9 * n + 38 / 14) for n in range(14)], None, None, 130.0, 0.0)
-        self.assertEqual(summary(plan), "Found 14 pauses, 38 s in total. The video goes from 2:10 to 1:32.")
+        plan = plan_silence_removal(
+            [], [(5 + 9 * n, 5 + 9 * n + 38 / 14) for n in range(14)], None, None, 130.0, 0.0)
+        self.assertEqual(
+            summary(plan), "Found 14 pauses, 38 s in total. The video goes from 2:10 to 1:32.")
         one = plan_silence_removal([], [(2.0, 4.0)], None, None, 10.0, 0.0)
         self.assertTrue(summary(one).startswith("Found 1 pause, 2.0 s in total."))
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class RealAudioTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.tmp = Path(cls._tmp.name)
         cls.talk = cls.tmp / "talk.mp4"
-        make_talk(cls.talk)                                    # 10 s: tone, 2 s quiet, tone, 2 s quiet, tone
+        make_talk(cls.talk)  # 10 s: tone, 2 s quiet, tone, 2 s quiet, tone
         cls.talk_info = probe_media(FFMPEG, cls.talk)
         cls.silent = cls.tmp / "silent.mp4"
-        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-                        "testsrc2=duration=2:size=160x90:rate=10", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                        str(cls.silent)], check=True)
+        subprocess.run(
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                "testsrc2=duration=2:size=160x90:rate=10", "-c:v", "libx264", "-pix_fmt",
+                "yuv420p",
+                str(cls.silent)
+            ], check=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -270,7 +296,8 @@ class RealAudioTests(unittest.TestCase):
 
     def test_a_tone_is_not_silence_but_a_higher_threshold_makes_everything_silent(self):
         self.assertEqual(len(detect_silences(FFMPEG, self.talk, -60.0, 0.6, 10.0)), 2)
-        self.assertEqual(len(detect_silences(FFMPEG, self.talk, 0.0, 0.6, 10.0)), 1)      # 0 dB: all of it
+        self.assertEqual(
+            len(detect_silences(FFMPEG, self.talk, 0.0, 0.6, 10.0)), 1)  # 0 dB: all of it
 
     def test_a_file_without_sound_says_so(self):
         with self.assertRaises(ConversionError) as caught:
@@ -291,47 +318,65 @@ class RealAudioTests(unittest.TestCase):
         result = probe_media(FFMPEG, out / "talk.mp3")
         # 10 s less two pauses of 2 s, each leaving 0.15 s on both sides: 10 - 2 * 1.7
         self.assertAlmostEqual(result.duration, 6.6, delta=0.35)
-        self.assertEqual(self.pauses(out / "talk.mp3"), [], "what's left should hold no pause longer than 0.5 s")
-        levels = subprocess.run([FFMPEG, "-hide_banner", "-i", str(out / "talk.mp3"), "-af", "volumedetect", "-f", "null",
-                                 "-"], capture_output=True, text=True).stderr
+        self.assertEqual(
+            self.pauses(out / "talk.mp3"), [],
+            "what's left should hold no pause longer than 0.5 s")
+        levels = subprocess.run(
+            [
+                FFMPEG, "-hide_banner", "-i",
+                str(out / "talk.mp3"), "-af", "volumedetect", "-f", "null", "-"
+            ], capture_output=True, text=True).stderr
         mean = float(re.search(r"mean_volume: (-?[\d.]+) dB", levels).group(1))
         self.assertGreater(mean, -22.0, "the remaining sound should be the tones, not silence")
 
     def test_a_video_export_is_shorter_by_the_pauses_too(self):
         out = self.tmp / "video-out"
         out.mkdir(exist_ok=True)
-        code, _, err = run(self.talk, "-o", out, "--video", "original", "--remove-silences", "--silence-pad", "0",
-                           "--silence-min", "1", "--overwrite")
+        code, _, err = run(
+            self.talk, "-o", out, "--video", "original", "--remove-silences", "--silence-pad", "0",
+            "--silence-min", "1", "--overwrite")
         self.assertEqual(code, 0, err)
-        (result,) = out.glob("*.mp4")
+        (result, ) = out.glob("*.mp4")
         info = probe_media(FFMPEG, result)
-        self.assertAlmostEqual(info.duration, 6.0, delta=0.4)         # with no padding both pauses go entirely
+        self.assertAlmostEqual(
+            info.duration, 6.0, delta=0.4)  # with no padding both pauses go entirely
         self.assertEqual(self.pauses(result), [])
         self.assertTrue(info.has_video and info.has_audio)
 
     def test_music_and_a_volume_change_fit_the_shortened_mp3(self):
         music = self.tmp / "song.mp3"
-        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-                        "sine=frequency=220:duration=20", str(music)], check=True)
+        subprocess.run(
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                "sine=frequency=220:duration=20",
+                str(music)
+            ], check=True)
         out = self.tmp / "music-out"
         out.mkdir(exist_ok=True)
-        code, _, err = run(self.talk, "-o", out, "--remove-silences", "--volume", "-6", "--normalize",
-                           "--music", music, "--overwrite")
+        code, _, err = run(
+            self.talk, "-o", out, "--remove-silences", "--volume", "-6", "--normalize", "--music",
+            music, "--overwrite")
         self.assertEqual(code, 0, err)
         result = probe_media(FFMPEG, out / "talk.mp3")
-        # the music is longer than the talk, so it is cut to the shortened length (about 6.6 s), not 10 or 20
+        # the music is longer than the talk, so it is cut to the shortened length (about 6.6 s),
+        # not 10 or 20
         self.assertAlmostEqual(result.duration, 6.6, delta=0.4)
 
     def test_music_is_cut_to_the_shortened_video(self):
         music = self.tmp / "song2.mp3"
-        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-                        "sine=frequency=220:duration=20", str(music)], check=True)
+        subprocess.run(
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                "sine=frequency=220:duration=20",
+                str(music)
+            ], check=True)
         out = self.tmp / "music-video-out"
         out.mkdir(exist_ok=True)
-        code, _, err = run(self.talk, "-o", out, "--video", "original", "--remove-silences", "--silence-pad", "0",
-                           "--silence-min", "1", "--music", music, "--duck", "--overwrite")
+        code, _, err = run(
+            self.talk, "-o", out, "--video", "original", "--remove-silences", "--silence-pad", "0",
+            "--silence-min", "1", "--music", music, "--duck", "--overwrite")
         self.assertEqual(code, 0, err)
-        (result,) = out.glob("*.mp4")
+        (result, ) = out.glob("*.mp4")
         info = probe_media(FFMPEG, result)
         self.assertAlmostEqual(info.duration, 6.0, delta=0.4)
         self.assertTrue(info.has_video and info.has_audio)
@@ -340,8 +385,9 @@ class RealAudioTests(unittest.TestCase):
         out = self.tmp / "trim-out"
         out.mkdir(exist_ok=True)
         # Trim to 1..9 and cut 4.5..5.5 by hand; the pauses are 2..4 and 6..8.
-        code, _, err = run(self.talk, "-o", out, "--start", "1", "--end", "9", "--cut", "4.5-5.5",
-                           "--remove-silences", "--silence-pad", "0", "--overwrite")
+        code, _, err = run(
+            self.talk, "-o", out, "--start", "1", "--end", "9", "--cut", "4.5-5.5",
+            "--remove-silences", "--silence-pad", "0", "--overwrite")
         self.assertEqual(code, 0, err)
         # What's left of 1..9: 1..2, 4..4.5, 5.5..6 and 8..9
         self.assertAlmostEqual(probe_media(FFMPEG, out / "talk.mp3").duration, 3.0, delta=0.4)
@@ -356,7 +402,8 @@ class CommandLineTests(unittest.TestCase):
     INFO = MediaInfo(duration=10.0, width=160, height=90, has_audio=True, fps=10.0)
 
     def run_with(self, *args, info=INFO, silences=((2.0, 4.0), (6.0, 8.0))):
-        """Run the CLI on clip.mp4 with listening, probing and exporting faked: (code, err, listen calls, job)."""
+        """Run the CLI on clip.mp4 with listening, probing and exporting faked: (code, err, listen
+        calls, job)."""
         jobs, listened = [], []
 
         def fake_convert(ffmpeg, job, on_progress=None, **kwargs):
@@ -373,7 +420,8 @@ class CommandLineTests(unittest.TestCase):
 
         with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
                 mock.patch.object(cli, "probe_media", return_value=info), \
-                mock.patch.object(cli, "detect_silences", side_effect=fake_detect), \
+                mock.patch("video_converter.cli.editing."
+                           "detect_silences", side_effect=fake_detect), \
                 mock.patch.object(cli, "convert", side_effect=fake_convert), \
                 mock.patch.object(cli, "convert_video", side_effect=fake_video), \
                 mock.patch.object(cli, "choose_encoder", return_value=None), \
@@ -385,18 +433,22 @@ class CommandLineTests(unittest.TestCase):
         code, err, listened, jobs = self.run_with("--remove-silences")
         self.assertEqual(code, 0, err)
         self.assertEqual(listened, [(-35.0, 0.6)])
-        (job,) = jobs
-        self.assertEqual([(round(a, 2), round(b, 2)) for a, b in job.keep], [(0.0, 2.15), (3.85, 6.15), (7.85, 10.0)])
+        (job, ) = jobs
+        self.assertEqual(
+            [(round(a, 2), round(b, 2)) for a, b in job.keep],
+            [(0.0, 2.15), (3.85, 6.15), (7.85, 10.0)])
 
     def test_the_options_change_what_is_listened_for_and_kept(self):
-        code, err, listened, jobs = self.run_with("--remove-silences", "--silence-db", "-40", "--silence-min", "1.5",
-                                                  "--silence-pad", "0")
+        code, err, listened, jobs = self.run_with(
+            "--remove-silences", "--silence-db", "-40", "--silence-min", "1.5", "--silence-pad",
+            "0")
         self.assertEqual(code, 0, err)
         self.assertEqual(listened, [(-40.0, 1.5)])
         self.assertEqual(jobs[0].keep, [(0.0, 2.0), (4.0, 6.0), (8.0, 10.0)])
 
     def test_video_exports_get_the_cuts_too(self):
-        code, err, _, jobs = self.run_with("--video", "original", "--remove-silences", "--silence-pad", "0")
+        code, err, _, jobs = self.run_with(
+            "--video", "original", "--remove-silences", "--silence-pad", "0")
         self.assertEqual(code, 0, err)
         self.assertEqual(jobs[0].edit.keep, [(0.0, 2.0), (4.0, 6.0), (8.0, 10.0)])
 
@@ -405,7 +457,8 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(jobs[0].keep, [(0.0, 2.0), (5.0, 6.0), (8.0, 10.0)])
 
     def test_the_trim_is_respected(self):
-        _, _, _, jobs = self.run_with("--remove-silences", "--silence-pad", "0", "--start", "3", "--end", "9")
+        _, _, _, jobs = self.run_with(
+            "--remove-silences", "--silence-pad", "0", "--start", "3", "--end", "9")
         self.assertEqual(jobs[0].keep, [(0.0, 3.0), (4.0, 6.0), (8.0, 10.0)])
 
     def test_without_the_flag_nothing_is_listened_to(self):
@@ -418,8 +471,10 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("need --remove-silences", err)
 
     def test_values_out_of_range_are_refused(self):
-        for args, message in ((("--silence-db", "-10"), "--silence-db must be between -60 and -20"),
-                              (("--silence-min", "0.1"), "--silence-min must be between 0.3 and 3"),
+        for args, message in ((("--silence-db", "-10"),
+                               "--silence-db must be between -60 and -20"),
+                              (("--silence-min", "0.1"),
+                               "--silence-min must be between 0.3 and 3"),
                               (("--silence-pad", "1"), "--silence-pad must be between 0 and 0.5")):
             with self.subTest(args=args):
                 code, _, err = run("clip.mp4", "--remove-silences", *args)
@@ -428,7 +483,8 @@ class CommandLineTests(unittest.TestCase):
 
     def test_a_file_without_sound_is_reported_not_exported(self):
         info = MediaInfo(duration=10.0, width=160, height=90, has_audio=False, fps=10.0)
-        code, err, listened, jobs = self.run_with("--video", "original", "--remove-silences", info=info)
+        code, err, listened, jobs = self.run_with(
+            "--video", "original", "--remove-silences", info=info)
         self.assertEqual((code, listened, jobs), (1, [], []))
         self.assertIn("no sound", err)
 
@@ -436,34 +492,51 @@ class CommandLineTests(unittest.TestCase):
         jobs = []
         with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
                 mock.patch.object(cli, "probe_media", return_value=self.INFO), \
-                mock.patch.object(cli, "detect_silences", return_value=[(2.0, 4.0)]), \
-                mock.patch.object(cli, "join_clips", side_effect=lambda ffmpeg, job, **kw: jobs.append(job) or Path("j.mp3")), \
+                mock.patch("video_converter.cli.editing."
+                           "detect_silences", return_value=[(2.0, 4.0)]), \
+                mock.patch.object(
+                    cli, "join_clips",
+                    side_effect=lambda ffmpeg, job, **kw: jobs.append(job) or Path("j.mp3")), \
                 mock.patch.object(cli, "choose_encoder", return_value=None), \
                 mock.patch.object(Path, "is_file", return_value=True):
-            code, _, err = run("a.mp4", "b.mp4", "--join", "--remove-silences", "--silence-pad", "0")
+            code, _, err = run(
+                "a.mp4", "b.mp4", "--join", "--remove-silences", "--silence-pad", "0")
         self.assertEqual(code, 0, err)
         self.assertEqual([p.edit.keep for p in jobs[0].parts], [[(0.0, 2.0), (4.0, 10.0)]] * 2)
 
     def test_the_sound_options_reach_an_mp3_export_that_also_loses_its_pauses(self):
-        code, err, _, jobs = self.run_with("--remove-silences", "--silence-pad", "0", "--volume", "3", "--normalize",
-                                           "--denoise-audio", "light", "--music", "song.mp3", "--duck")
+        code, err, _, jobs = self.run_with(
+            "--remove-silences", "--silence-pad", "0", "--volume", "3", "--normalize",
+            "--denoise-audio", "light", "--music", "song.mp3", "--duck")
         self.assertEqual(code, 0, err)
         job = jobs[0]
         self.assertEqual(job.keep, [(0.0, 2.0), (4.0, 6.0), (8.0, 10.0)])
-        self.assertEqual((job.sound.volume, job.sound.normalize, job.sound.denoise, job.sound.duck),
-                         (3.0, True, "light", True))
+        self.assertEqual(
+            (job.sound.volume, job.sound.normalize, job.sound.denoise, job.sound.duck),
+            (3.0, True, "light", True))
         self.assertTrue(job.sound.music.endswith("song.mp3"))
 
     def test_the_sound_options_reach_a_video_export_and_a_join_that_lose_their_pauses(self):
-        code, err, _, jobs = self.run_with("--video", "original", "--remove-silences", "--silence-pad", "0",
-                                           "--volume", "-4", "--music", "song.mp3")
+        code, err, _, jobs = self.run_with(
+            "--video", "original", "--remove-silences", "--silence-pad", "0", "--volume", "-4",
+            "--music", "song.mp3")
         self.assertEqual(code, 0, err)
         self.assertEqual(jobs[0].edit.keep, [(0.0, 2.0), (4.0, 6.0), (8.0, 10.0)])
         self.assertEqual(jobs[0].edit.volume, -4.0)
         self.assertTrue(jobs[0].edit.music.endswith("song.mp3"))
         joined = []
-        with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"),                 mock.patch.object(cli, "probe_media", return_value=self.INFO),                 mock.patch.object(cli, "detect_silences", return_value=[(2.0, 4.0)]),                 mock.patch.object(cli, "join_clips", side_effect=lambda ffmpeg, job, **kw: joined.append(job) or Path("j.mp3")),                 mock.patch.object(cli, "choose_encoder", return_value=None),                 mock.patch.object(Path, "is_file", return_value=True):
-            code, _, err = run("a.mp4", "b.mp4", "--join", "--remove-silences", "--silence-pad", "0", "--normalize")
+        with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
+                mock.patch.object(cli, "probe_media", return_value=self.INFO), \
+                mock.patch("video_converter.cli.editing.detect_silences",
+                           return_value=[(2.0, 4.0)]), \
+                mock.patch.object(
+                    cli, "join_clips",
+                    side_effect=lambda ffmpeg, job, **kw: joined.append(job) or Path("j.mp3")), \
+                mock.patch.object(cli, "choose_encoder", return_value=None), \
+                mock.patch.object(Path, "is_file", return_value=True):
+            code, _, err = run(
+                "a.mp4", "b.mp4", "--join", "--remove-silences", "--silence-pad", "0",
+                "--normalize")
         self.assertEqual(code, 0, err)
         self.assertEqual([p.edit.keep for p in joined[0].parts], [[(0.0, 2.0), (4.0, 10.0)]] * 2)
         self.assertTrue(all(p.edit.normalize for p in joined[0].parts))
@@ -471,6 +544,7 @@ class CommandLineTests(unittest.TestCase):
 
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")
 class DialogTests(unittest.TestCase):
+
     def setUp(self):
         from video_converter.ui import silence_dialog
         self.module = silence_dialog
@@ -492,7 +566,8 @@ class DialogTests(unittest.TestCase):
     def open(self, keep=(), start=None, end=None, debounce=20):
         self.module.SilenceDialog.DEBOUNCE_MS = debounce
         self.addCleanup(setattr, self.module.SilenceDialog, "DEBOUNCE_MS", 400)
-        dialog = self.module.SilenceDialog("ffmpeg", Path("talk.mp4"), 10.0, list(keep), start, end)
+        dialog = self.module.SilenceDialog(
+            "ffmpeg", Path("talk.mp4"), 10.0, list(keep), start, end)
         self.addCleanup(dialog.deleteLater)
         self.addCleanup(dialog.reject)
         return dialog
@@ -514,8 +589,9 @@ class DialogTests(unittest.TestCase):
         self.assertFalse(dialog.apply_button.isEnabled())
         self.assertEqual(dialog.summary_label.text(), "Listening…")
         self.assertTrue(pump(TIMEOUT, lambda: dialog.plan is not None))
-        self.assertEqual(dialog.summary_label.text(),
-                         "Found 2 pauses, 3.4 s in total. The video goes from 0:10 to 0:07.")
+        self.assertEqual(
+            dialog.summary_label.text(),
+            "Found 2 pauses, 3.4 s in total. The video goes from 0:10 to 0:07.")
         self.assertTrue(dialog.apply_button.isEnabled())
 
     def test_moving_the_padding_updates_the_summary_without_listening_again(self):
@@ -542,7 +618,7 @@ class DialogTests(unittest.TestCase):
         dialog = self.open()
         pump(0.2)
         dialog.min_slider.setValue(15)
-        pump(0.2)                                  # the first listening is cancelled, the second is waiting
+        pump(0.2)  # the first listening is cancelled, the second is waiting
         self.gate.set()
         self.assertTrue(pump(TIMEOUT, lambda: dialog.plan is not None))
         self.assertEqual(self.calls[-1], (-35.0, 1.5))
@@ -553,8 +629,9 @@ class DialogTests(unittest.TestCase):
         self.assertTrue(pump(TIMEOUT, lambda: dialog.plan is not None))
         dialog.apply_button.click()
         self.assertEqual(dialog.result(), dialog.DialogCode.Accepted)
-        self.assertEqual([(round(a, 2), round(b, 2)) for a, b in dialog.keep],
-                         [(0.0, 2.15), (3.85, 5.0), (5.0, 6.15), (7.85, 10.0)])      # the split at 5 is still there
+        self.assertEqual(
+            [(round(a, 2), round(b, 2)) for a, b in dialog.keep],
+            [(0.0, 2.15), (3.85, 5.0), (5.0, 6.15), (7.85, 10.0)])  # the split at 5 is still there
         other = self.open()
         self.assertTrue(pump(TIMEOUT, lambda: other.plan is not None))
         other.buttons.button(other.buttons.StandardButton.Cancel).click()
@@ -571,7 +648,8 @@ class DialogTests(unittest.TestCase):
         self.assertNotEqual(dialog.result(), dialog.DialogCode.Accepted)
 
     def test_a_failure_is_shown_in_the_window(self):
-        with mock.patch.object(self.module, "detect_silences", side_effect=ConversionError("No sound here.")):
+        with mock.patch.object(self.module, "detect_silences",
+                               side_effect=ConversionError("No sound here.")):
             dialog = self.open()
             self.assertTrue(pump(TIMEOUT, lambda: dialog.summary_label.text() != "Listening…"))
         self.assertEqual(dialog.summary_label.text(), "No sound here.")
@@ -585,7 +663,7 @@ class DialogTests(unittest.TestCase):
         self.gate.set()
         dialog.reject()
         self.assertTrue(cancel.is_set())
-        dialog._thread.join(TIMEOUT)            # it ends in the background; the window did not wait for it
+        dialog._thread.join(TIMEOUT)  # it ends in the background; the window did not wait for it
         self.assertFalse(dialog._thread.is_alive())
 
     def test_closing_does_not_wait_for_ffmpeg_to_stop(self):
@@ -593,7 +671,7 @@ class DialogTests(unittest.TestCase):
 
         def stubborn(ffmpeg, source, db, length, duration, cancel=None):
             started.set()
-            finish.wait(TIMEOUT)               # ffmpeg takes its time to stop
+            finish.wait(TIMEOUT)  # ffmpeg takes its time to stop
             raise ConversionCancelled()
 
         with mock.patch.object(self.module, "detect_silences", side_effect=stubborn):
@@ -619,7 +697,7 @@ class DialogTests(unittest.TestCase):
             try:
                 while not (cancel.is_set() or release.is_set()):
                     time.sleep(0.005)
-                time.sleep(0.15)               # a killed ffmpeg takes a moment to be gone
+                time.sleep(0.15)  # a killed ffmpeg takes a moment to be gone
                 if cancel.is_set():
                     raise ConversionCancelled()
                 return [(2.0, 4.0)]
@@ -631,7 +709,7 @@ class DialogTests(unittest.TestCase):
             dialog = self.open()
             for value in (-30, -28, -26, -24, -22):
                 dialog.db_slider.setValue(value)
-                dialog._listen()               # as the debounce timer would, without waiting for it
+                dialog._listen()  # as the debounce timer would, without waiting for it
                 pump(0.02)
             release.set()
             self.assertTrue(pump(TIMEOUT, lambda: dialog.plan is not None))
@@ -642,12 +720,13 @@ class DialogTests(unittest.TestCase):
         dialog = self.open(keep=[(0.0, 3.0), (5.0, 10.0)], start=1.0, end=9.0)
         self.assertTrue(pump(TIMEOUT, lambda: dialog.plan is not None))
         self.assertEqual(len(dialog.plan.cuts), 2)
-        self.assertAlmostEqual(dialog.plan.before, 6.0)       # 1..3 and 5..9
+        self.assertAlmostEqual(dialog.plan.before, 6.0)  # 1..3 and 5..9
 
 
 @unittest.skipIf(QApplication is None, "PySide6 is not installed")
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class EditorTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -655,9 +734,13 @@ class EditorTests(unittest.TestCase):
         cls.talk = cls.tmp / "talk.mp4"
         make_talk(cls.talk)
         cls.mute = cls.tmp / "mute.mp4"
-        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-                        "testsrc2=duration=2:size=160x90:rate=10", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                        str(cls.mute)], check=True)
+        subprocess.run(
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                "testsrc2=duration=2:size=160x90:rate=10", "-c:v", "libx264", "-pix_fmt",
+                "yuv420p",
+                str(cls.mute)
+            ], check=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -682,15 +765,20 @@ class EditorTests(unittest.TestCase):
 
     def load(self, path):
         self.window.add_paths([path])
-        self.assertTrue(pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)), "file never loaded")
+        self.assertTrue(
+            pump(TIMEOUT, lambda: all(not i.loading for i in self.window.items)),
+            "file never loaded")
 
     def apply_dialog(self):
         """Stand in for exec(): wait for the real listening to finish, then click Apply."""
+
         def fake_exec(dialog):
-            self.assertTrue(pump(TIMEOUT, lambda: dialog.plan is not None), "listening never finished")
+            self.assertTrue(
+                pump(TIMEOUT, lambda: dialog.plan is not None), "listening never finished")
             self.dialog = dialog
             dialog.apply_button.click()
             return dialog.result()
+
         return mock.patch("video_converter.ui.silence_dialog.SilenceDialog.exec", fake_exec)
 
     def test_the_button_is_in_trim_and_cut_and_asks_the_window(self):
@@ -728,7 +816,8 @@ class EditorTests(unittest.TestCase):
         self.assertAlmostEqual(keep[0][1], 2.15, delta=0.2)
         self.assertEqual(self.window.undo_stack.count(), 1)
         self.assertEqual(self.window.undo_stack.undoText(), "Remove silences")
-        self.assertEqual(self.window.timeline.keep, keep)           # the same cuts a person would make by hand
+        self.assertEqual(
+            self.window.timeline.keep, keep)  # the same cuts a person would make by hand
         self.assertEqual(self.window.player.segments, keep)
         self.assertTrue(self.window.inspector.restore_button.isEnabled())
         self.assertIn("Cut out", self.window.inspector.cut_info.text())
@@ -755,11 +844,13 @@ class EditorTests(unittest.TestCase):
     def test_the_users_own_cut_is_kept_when_silences_are_removed(self):
         self.load(self.talk)
         item = self.window.current
-        self.window.push_settings(ClipSettings(edit=VideoEdit(keep=[(0.0, 4.5), (5.0, 10.0)])), "Cut")      # 4.5..5 gone
+        self.window.push_settings(
+            ClipSettings(edit=VideoEdit(keep=[(0.0, 4.5), (5.0, 10.0)])), "Cut")  # 4.5..5 gone
         with self.apply_dialog():
             self.window.remove_silences()
         keep = item.settings.edit.keep
-        self.assertTrue(all(not (a < 4.7 < b) for a, b in keep), "the cut the user made should still be there")
+        self.assertTrue(
+            all(not (a < 4.7 < b) for a, b in keep), "the cut the user made should still be there")
         self.assertEqual(len(keep), 4)
         self.assertEqual(self.window.undo_stack.count(), 2)
         self.window.undo_stack.undo()

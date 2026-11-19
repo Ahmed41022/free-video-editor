@@ -15,8 +15,8 @@ from .output import GIF_FPS_RANGE, GIF_WIDTH_RANGE, OUTPUT_FORMATS, TARGET_RANGE
 from .sound import AUDIO_DENOISE, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, VOLUME_MAX, VOLUME_MIN
 from .timing import FADE_MAX, SPEED_MAX, SPEED_MIN, normalize_keep, removed_parts
 from .video import (
-    ADJUSTMENTS, FIT_MODES, FRAME_RATES, LOOKS, RESOLUTIONS, STABILIZE, UP_TO_1080, VIDEO_QUALITY, VideoEdit,
-    output_tag,
+    ADJUSTMENTS, FIT_MODES, FRAME_RATES, LOOKS, RESOLUTIONS, STABILIZE, UP_TO_1080, VIDEO_QUALITY,
+    VideoEdit, output_tag,
 )
 
 OUTPUT_VIDEO = "video"
@@ -26,9 +26,9 @@ OUTPUT_AUDIO = "audio"
 @dataclass
 class ClipSettings:
     """Everything the user can change for one file."""
-    output: str = OUTPUT_VIDEO                 # OUTPUT_VIDEO (MP4) or OUTPUT_AUDIO (MP3)
+    output: str = OUTPUT_VIDEO  # OUTPUT_VIDEO (MP4) or OUTPUT_AUDIO (MP3)
     edit: VideoEdit = field(default_factory=VideoEdit)
-    audio_quality: str = DEFAULT_QUALITY       # a QUALITY_PRESETS key, used for MP3 output
+    audio_quality: str = DEFAULT_QUALITY  # a QUALITY_PRESETS key, used for MP3 output
 
     def copy(self) -> "ClipSettings":
         return copy.deepcopy(self)
@@ -71,7 +71,8 @@ class ClipSettings:
                 continue
             if name == "rotate" and (isinstance(value, bool) or value not in (0, 90, 180, 270)):
                 continue
-            if name == "resolution" and (isinstance(value, bool) or value not in RESOLUTIONS.values()):
+            if name == "resolution" and (isinstance(value, bool)
+                                         or value not in RESOLUTIONS.values()):
                 continue
             if name == "frame_rate":
                 if not isinstance(value, bool) and value in FRAME_RATES.values():
@@ -111,13 +112,16 @@ class ClipSettings:
                 continue
             if name == "volume" and not (_number(value) and VOLUME_MIN <= value <= VOLUME_MAX):
                 continue
-            if name == "music_volume" and not (_number(value) and MUSIC_VOLUME_MIN <= value <= MUSIC_VOLUME_MAX):
+            if name == "music_volume" and not (_number(value)
+                                               and MUSIC_VOLUME_MIN <= value <= MUSIC_VOLUME_MAX):
                 continue
             if name == "music" and not (_is_str(value) and len(value) <= MAX_PATH_LENGTH):
                 continue
             if name == "video_format" and not (_is_str(value) and value in OUTPUT_FORMATS):
                 continue
-            if name == "target_mb" and not (_number(value) and (value == 0 or TARGET_RANGE[0] <= value <= TARGET_RANGE[1])):
+            if name == "target_mb" and not (_number(value) and
+                                            (value == 0
+                                             or TARGET_RANGE[0] <= value <= TARGET_RANGE[1])):
                 continue
             if name == "gif_fps" and not (isinstance(value, int) and not isinstance(value, bool)
                                           and GIF_FPS_RANGE[0] <= value <= GIF_FPS_RANGE[1]):
@@ -147,7 +151,9 @@ def _number(value: Any) -> bool:
 
 def _time_value(value: Any) -> bool:
     """A finite, non-negative number of seconds (not a bool)."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+    return isinstance(
+        value,
+        (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
 
 
 def _load_keep(value: Any) -> Optional[list[tuple[float, float]]]:
@@ -156,8 +162,8 @@ def _load_keep(value: Any) -> Optional[list[tuple[float, float]]]:
         return None
     ranges = []
     for item in value:
-        if not (isinstance(item, (list, tuple)) and len(item) == 2 and all(_time_value(v) for v in item)
-                and item[0] < item[1]):
+        if not (isinstance(item, (list, tuple)) and len(item) == 2
+                and all(_time_value(v) for v in item) and item[0] < item[1]):
             return None
         ranges.append((float(item[0]), float(item[1])))
     return normalize_keep(ranges)
@@ -166,7 +172,7 @@ def _load_keep(value: Any) -> Optional[list[tuple[float, float]]]:
 def _compatible(default: Any, value: Any) -> bool:
     """Whether a loaded `value` has the right type for a field whose default is `default`."""
     number = isinstance(value, (int, float)) and not isinstance(value, bool)
-    if default is None:            # optional numbers: start, end, resolution
+    if default is None:  # optional numbers: start, end, resolution
         return value is None or number
     if isinstance(default, bool):
         return isinstance(value, bool)
@@ -182,12 +188,14 @@ def _compatible(default: Any, value: Any) -> bool:
 FRAMING_FIELDS = ("pos_x", "pos_y", "zoom", "start", "end", "keep")
 
 
-def apply_to(target: ClipSettings, source: ClipSettings, include_framing: bool = False) -> ClipSettings:
+def apply_to(
+        target: ClipSettings, source: ClipSettings, include_framing: bool = False) -> ClipSettings:
     """Return a copy of `target` with `source`'s settings, keeping target's own
     crop position, zoom and trim unless `include_framing` is set.
 
-    The texts and the subtitle file stay the target's own too: what one video says is not what another
-    one says, and a subtitle file was made for one video. The logo and the subtitle style are copied."""
+    The texts and the subtitle file stay the target's own too: what one video says is not what
+    another one says, and a subtitle file was made for one video. The logo and the subtitle style
+    are copied."""
     result = source.copy()
     if not include_framing:
         for name in FRAMING_FIELDS:
@@ -198,28 +206,65 @@ def apply_to(target: ClipSettings, source: ClipSettings, include_framing: bool =
 
 # Preset name -> settings it changes. Presets only touch these fields.
 PRESETS: dict[str, dict[str, Any]] = {
-    # For a video that won't play on a phone: the whole picture, no bigger than 1080p, at a steady 60 fps.
-    # H.264 in an MP4 is the one thing every phone plays, so this preset says so whatever format was chosen.
+    # For a video that won't play on a phone: the whole picture, no bigger than 1080p, at a steady
+    # 60 fps. H.264 in an MP4 is the one thing every phone plays, so this preset says so whatever
+    # format was chosen.
     N_("Play on phone (keeps the whole picture)"): {
-        "output": OUTPUT_VIDEO, "aspect": None, "resolution": UP_TO_1080, "frame_rate": 60,
-        "crf": VIDEO_QUALITY["High"], "mute": False, "video_format": "mp4", "target_mb": 0.0},
-    N_("TikTok, Reels, Shorts"): {"output": OUTPUT_VIDEO, "aspect": (9, 16), "fit": "crop", "resolution": 1080,
-                              "crf": VIDEO_QUALITY["High"]},
-    N_("Instagram post (4:5)"): {"output": OUTPUT_VIDEO, "aspect": (4, 5), "fit": "crop", "resolution": 1080,
-                             "crf": VIDEO_QUALITY["High"]},
-    N_("Square post (1:1)"): {"output": OUTPUT_VIDEO, "aspect": (1, 1), "fit": "crop", "resolution": 1080,
-                          "crf": VIDEO_QUALITY["High"]},
-    N_("YouTube (16:9)"): {"output": OUTPUT_VIDEO, "aspect": (16, 9), "fit": "blur", "resolution": 1080,
-                       "crf": VIDEO_QUALITY["High"]},
-    N_("WhatsApp status"): {"output": OUTPUT_VIDEO, "aspect": (9, 16), "fit": "blur", "resolution": 720,
-                        "crf": VIDEO_QUALITY["Smaller file"]},
-    N_("MP3 audio"): {"output": OUTPUT_AUDIO},
+        "output": OUTPUT_VIDEO,
+        "aspect": None,
+        "resolution": UP_TO_1080,
+        "frame_rate": 60,
+        "crf": VIDEO_QUALITY["High"],
+        "mute": False,
+        "video_format": "mp4",
+        "target_mb": 0.0
+    },
+    N_("TikTok, Reels, Shorts"): {
+        "output": OUTPUT_VIDEO,
+        "aspect": (9, 16),
+        "fit": "crop",
+        "resolution": 1080,
+        "crf": VIDEO_QUALITY["High"]
+    },
+    N_("Instagram post (4:5)"): {
+        "output": OUTPUT_VIDEO,
+        "aspect": (4, 5),
+        "fit": "crop",
+        "resolution": 1080,
+        "crf": VIDEO_QUALITY["High"]
+    },
+    N_("Square post (1:1)"): {
+        "output": OUTPUT_VIDEO,
+        "aspect": (1, 1),
+        "fit": "crop",
+        "resolution": 1080,
+        "crf": VIDEO_QUALITY["High"]
+    },
+    N_("YouTube (16:9)"): {
+        "output": OUTPUT_VIDEO,
+        "aspect": (16, 9),
+        "fit": "blur",
+        "resolution": 1080,
+        "crf": VIDEO_QUALITY["High"]
+    },
+    N_("WhatsApp status"): {
+        "output": OUTPUT_VIDEO,
+        "aspect": (9, 16),
+        "fit": "blur",
+        "resolution": 720,
+        "crf": VIDEO_QUALITY["Smaller file"]
+    },
+    N_("MP3 audio"): {
+        "output": OUTPUT_AUDIO
+    },
 }
 
 
-def apply_preset(settings: ClipSettings, values: dict[str, Any], has_picture: bool = True) -> ClipSettings:
-    """Return a copy of `settings` with a preset's values applied. A file with no picture (`has_picture` False)
-    stays an MP3 export: there is no video to make from it, whatever the preset says."""
+def apply_preset(
+        settings: ClipSettings, values: dict[str, Any], has_picture: bool = True) -> ClipSettings:
+    """Return a copy of `settings` with a preset's values applied. A file with no picture
+    (`has_picture` False) stays an MP3 export: there is no video to make from it, whatever the
+    preset says."""
     result = settings.copy()
     for key, value in values.items():
         if key == "output":
@@ -235,21 +280,25 @@ def apply_preset(settings: ClipSettings, values: dict[str, Any], has_picture: bo
     return result
 
 
-def output_file_for(source: Path, settings: ClipSettings, output_dir: Optional[Path] = None,
-                    joined: bool = False, avoid: Iterable[Path] = ()) -> Path:
-    """Where an export of `source` with `settings` should go (never an existing file, nor `source` or
-    any of the other files in `avoid`, such as the rest of a joined export's clips).
-    A `joined` export, named after its first clip, is "name (joined).mp4" or ".mp3". The extension
-    follows the video format: .mp4, .webm, .mov or .gif."""
+def output_file_for(
+        source: Path, settings: ClipSettings, output_dir: Optional[Path] = None,
+        joined: bool = False, avoid: Iterable[Path] = (),
+) -> Path:
+    """Where an export of `source` with `settings` should go (never an existing file, nor `source`
+    or any of the other files in `avoid`, such as the rest of a joined export's clips). A `joined`
+    export, named after its first clip, is "name (joined).mp4" or ".mp3". The extension follows the
+    video format: .mp4, .webm, .mov or .gif."""
     audio = settings.output == OUTPUT_AUDIO
     extension = settings.edit.output_format.extension
     if joined:
-        return output_path_for(source, output_dir, suffix=".mp3" if audio else extension, name_tag=" (joined)",
-                               avoid=avoid)
+        return output_path_for(
+            source, output_dir, suffix=".mp3" if audio else extension, name_tag=" (joined)",
+            avoid=avoid)
     if audio:
         return output_path_for(source, output_dir, avoid=avoid)
-    return output_path_for(source, output_dir, suffix=extension, name_tag=f" ({output_tag(settings.edit)})",
-                           avoid=avoid)
+    return output_path_for(
+        source, output_dir, suffix=extension, name_tag=f" ({output_tag(settings.edit)})",
+        avoid=avoid)
 
 
 def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
@@ -261,12 +310,19 @@ def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
         parts = ["MP3", tr(settings.audio_quality)]
     else:
         edit = settings.edit
-        parts = [edit.output_format.short,
-                 f"{edit.aspect[0]}:{edit.aspect[1]}" if edit.aspect else tr("original shape")]
+        parts = [
+            edit.output_format.short,
+            f"{edit.aspect[0]}:{edit.aspect[1]}" if edit.aspect else tr("original shape")
+        ]
         if edit.target_mb > 0 and edit.output_format.codec != "gif":
             parts.append(tr("fits {size:g} MB", size=edit.target_mb))
         if edit.aspect:
-            parts.append({"crop": tr("crop"), "blur": tr("blurred fit"), "bars": tr("black bars")}[edit.fit])
+            parts.append(
+                {
+                    "crop": tr("crop"),
+                    "blur": tr("blurred fit"),
+                    "bars": tr("black bars")
+                }[edit.fit])
         if edit.frame_rate:
             parts.append(tr("steady {rate} fps", rate=edit.frame_rate))
         if edit.rotate:
@@ -288,14 +344,18 @@ def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
     edit = settings.edit
     if edit.start is not None or edit.end is not None:
         start = format_time(edit.start or 0)
-        parts.append(f"{start}–{format_time(edit.end)}" if edit.end is not None else tr("from {time}", time=start))
+        parts.append(
+            f"{start}–{format_time(edit.end)}" if edit.
+            end is not None else tr("from {time}", time=start))
     low, high = edit.start or 0.0, edit.end if edit.end is not None else duration
-    cuts = sum(1 for a, b in removed_parts(edit.keep, duration) if b > low and (high is None or a < high))
+    cuts = sum(
+        1 for a, b in removed_parts(edit.keep, duration) if b > low and (high is None or a < high))
     if cuts:
         parts.append(ntr(cuts, "{n} cut", "{n} cuts"))
     if edit.speed != 1.0:
         parts.append(tr("{speed:g}× speed", speed=edit.speed))
-    if not (settings.output == OUTPUT_VIDEO and edit.mute):      # with the sound removed, none of this is heard
+    if not (settings.output == OUTPUT_VIDEO
+            and edit.mute):  # with the sound removed, none of this is heard
         parts += sound_words(edit)
     if edit.reverse:
         parts.append(tr("reversed"))
@@ -306,7 +366,8 @@ def describe(settings: ClipSettings, duration: Optional[float] = None) -> str:
 
 
 def sound_words(edit: VideoEdit) -> list[str]:
-    """What is done to the sound, for the summary: "+3 dB", "even loudness", "less noise", "music"."""
+    """What is done to the sound, for the summary: "+3 dB", "even loudness", "less noise",
+    "music"."""
     words = []
     if edit.volume:
         words.append(f"{edit.volume:+g} dB")
@@ -325,5 +386,8 @@ def describe_join(settings: ClipSettings, count: int) -> str:
         parts = ["MP3", tr(settings.audio_quality)]
     else:
         aspect = settings.edit.aspect
-        parts = [settings.edit.output_format.short, f"{aspect[0]}:{aspect[1]}" if aspect else tr("original shape")]
+        parts = [
+            settings.edit.output_format.short,
+            f"{aspect[0]}:{aspect[1]}" if aspect else tr("original shape")
+        ]
     return join_parts(parts + [ntr(count, "{n} clip joined", "{n} clips joined")])

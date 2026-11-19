@@ -1,6 +1,7 @@
-"""Measures the settings panel (Inspector) on the real Windows platform, where fonts and the style give the true
-widths, and prints the result as JSON. Run by tests/test_i18n.py in a separate process, because the rest of the
-test suite runs on Qt's "offscreen" platform, which has no fonts and so cannot say what fits.
+"""Measures the settings panel (Inspector) on the real Windows platform, where fonts and the style
+give the true widths, and prints the result as JSON. Run by tests/test_i18n.py in a separate
+process, because the rest of the test suite runs on Qt's "offscreen" platform, which has no fonts
+and so cannot say what fits.
 
 Nothing is shown on the screen: the panel is created with Qt.WA_DontShowOnScreen."""
 
@@ -34,14 +35,21 @@ def states():
     fit = VideoEdit(target_mb=7.5)
     subs = VideoEdit()
     subs.subtitles.file = "gone.srt"
-    text = VideoEdit(texts=[TextItem(text="Hello world", box=True, bold=True, fade_in=1.5, fade_out=1.5)])
-    everything = VideoEdit(texts=[TextItem(text="Hello", box=True), TextItem(text="مرحبا", box=True, bold=True)],
-                           target_mb=7.5)
+    text = VideoEdit(
+        texts=[TextItem(text="Hello world", box=True, bold=True, fade_in=1.5, fade_out=1.5)])
+    everything = VideoEdit(
+        texts=[TextItem(text="Hello", box=True),
+               TextItem(text="مرحبا", box=True, bold=True)], target_mb=7.5)
     everything.logo.file = "gone.png"
     everything.subtitles.file = "gone.srt"
-    return {"default": ClipSettings(), "gif": ClipSettings(edit=gif), "fit a size": ClipSettings(edit=fit),
-            "subtitles": ClipSettings(edit=subs), "a text selected": ClipSettings(edit=text),
-            "text, logo and subtitles": ClipSettings(edit=everything)}
+    return {
+        "default": ClipSettings(),
+        "gif": ClipSettings(edit=gif),
+        "fit a size": ClipSettings(edit=fit),
+        "subtitles": ClipSettings(edit=subs),
+        "a text selected": ClipSettings(edit=text),
+        "text, logo and subtitles": ClipSettings(edit=everything)
+    }
 
 
 def measure(code: str, window, name: str, settings: ClipSettings) -> dict:
@@ -57,15 +65,28 @@ def measure(code: str, window, name: str, settings: ClipSettings) -> dict:
             left = widget.mapTo(content, widget.rect().topLeft()).x()
             right = widget.mapTo(content, widget.rect().topRight()).x()
             if left < 0 or right > viewport:
-                outside.append(f"{type(widget).__name__} {getattr(widget, 'text', lambda: '')()!r}"[:60])
-    wide = [(section.header.text(), section.minimumSizeHint().width()) for section in panel.sections]
-    # What the viewport is when the panel is as narrow as it can be made (a 1024x700 window): the minimum width
-    # less the frame and the scroll bar, which shows whenever the sections are taller than the window.
-    narrowest = panel.minimumWidth() - 2 * panel.frameWidth() - panel.verticalScrollBar().sizeHint().width()
-    return {"language": code, "state": name, "window": window.width(), "panel": panel.width(), "viewport": viewport,
-            "narrowest": narrowest,
-            "needs": content.minimumSizeHint().width(), "content": content.width(),
-            "widest": max(wide, key=lambda pair: pair[1]), "outside": outside}
+                outside.append(
+                    f"{type(widget).__name__} {getattr(widget, 'text', lambda: '')()!r}"[:60])
+    wide = [
+        (section.header.text(), section.minimumSizeHint().width()) for section in panel.sections
+    ]
+    # What the viewport is when the panel is as narrow as it can be made (a 1024x700 window): the
+    # minimum width less the frame and the scroll bar, which shows whenever the sections are taller
+    # than the window.
+    narrowest = panel.minimumWidth() - 2 * panel.frameWidth() - panel.verticalScrollBar().sizeHint(
+    ).width()
+    return {
+        "language": code,
+        "state": name,
+        "window": window.width(),
+        "panel": panel.width(),
+        "viewport": viewport,
+        "narrowest": narrowest,
+        "needs": content.minimumSizeHint().width(),
+        "content": content.width(),
+        "widest": max(wide, key=lambda pair: pair[1]),
+        "outside": outside
+    }
 
 
 def run(code: str) -> list:
@@ -74,11 +95,15 @@ def run(code: str) -> list:
 
     i18n.set_language(code)
     language.apply_to_app(app)
-    with tempfile.TemporaryDirectory() as folder,             mock.patch("video_converter.gpu.detect_encoders", return_value=("h264_nvenc",)),             mock.patch("video_converter.gpu.gpu_name", return_value=None):
-        window = MainWindow(find_ffmpeg(), QSettings(str(Path(folder) / "probe.ini"), QSettings.Format.IniFormat))
+    with tempfile.TemporaryDirectory() as folder, mock.patch(
+            "video_converter.gpu.detect_encoders",
+            return_value=("h264_nvenc", )), mock.patch("video_converter.gpu.gpu_name",
+                                                       return_value=None):
+        window = MainWindow(
+            find_ffmpeg(), QSettings(str(Path(folder) / "probe.ini"), QSettings.Format.IniFormat))
         window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
         window.show()
-        window.resize(1320, 840)           # the default size
+        window.resize(1320, 840)  # the default size
         for _ in range(10):
             app.processEvents()
         results = [measure(code, window, name, settings) for name, settings in states().items()]
@@ -90,18 +115,21 @@ def run(code: str) -> list:
 
 
 if __name__ == "__main__":
-    # One language per process: a second window in the same process can hang inside Qt's Windows multimedia.
+    # One language per process: a second window in the same process can hang inside Qt's Windows
+    # multimedia.
     theme.apply_theme(app, "light")
     code = sys.argv[1]
     results = run(code)
     text = json.dumps({"platform": app.platformName(), "results": results}, ensure_ascii=True)
-    if len(sys.argv) > 2:               # a file, not a pipe: a helper process the window may leave behind would
-        Path(sys.argv[2]).write_text(text, encoding="utf-8")      # keep a pipe open and the reader waiting
+    if len(sys.argv) > 2:  # a file, not a pipe: a helper process the window may leave behind would
+        Path(sys.argv[2]).write_text(
+            text, encoding="utf-8")  # keep a pipe open and the reader waiting
     else:
         sys.stdout.write(text + chr(10))
         sys.stdout.flush()
     sys.stdout.flush()
-    # Leave at once: closing Qt's Windows multimedia down the usual way can hang this process for good.
+    # Leave at once: closing Qt's Windows multimedia down the usual way can hang this process for
+    # good.
     import ctypes
 
     ctypes.windll.kernel32.TerminateProcess(ctypes.windll.kernel32.GetCurrentProcess(), 0)

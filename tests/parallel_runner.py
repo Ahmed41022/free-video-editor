@@ -1,21 +1,22 @@
-"""Run the test suite on several processes at once: `python -m tests` (tests/__main__.py calls main() here).
+"""Run the test suite on several processes at once: `python -m tests` (tests/__main__.py calls
+main() here).
 
-It finds exactly the tests `python -m unittest discover -s tests` finds, and runs each test class as a whole in
-one worker process, so a class's setUpClass fixture still runs once. Every worker is its own process, so it has
-its own QApplication, its own temporary folder (TMP/TEMP/TMPDIR) and its own user name, which the app's single
-instance socket and lock file are named after. The output is like unittest's: the failures with their
-tracebacks, a line "Ran N tests in S", then OK or FAILED; the exit code is 1 for any failure, error or worker
-that died.
+It finds exactly the tests `python -m unittest discover -s tests` finds, and runs each test class
+as a whole in one worker process, so a class's setUpClass fixture still runs once. Every worker is
+its own process, so it has its own QApplication, its own temporary folder (TMP/TEMP/TMPDIR) and its
+own user name, which the app's single instance socket and lock file are named after. The output is
+like unittest's: the failures with their tracebacks, a line "Ran N tests in S", then OK or FAILED;
+the exit code is 1 for any failure, error or worker that died.
 
-    python -m tests                          every test, on as many workers as there are CPUs (at most 8)
-    python -m tests -j 4 -v                  four workers, one line per test
-    python -m tests test_phone test_video.VideoExportTests    only these modules, classes or tests
-    python -m tests --list                   the ids of the tests it would run, one per line
-    python -m tests --durations 15           and the slowest classes and tests, measured
+    python -m tests                          every test, on as many workers as there are CPUs (at
+    most 8) python -m tests -j 4 -v                  four workers, one line per test python -m
+    tests test_phone test_video.VideoExportTests    only these modules, classes or tests python -m
+    tests --list                   the ids of the tests it would run, one per line python -m tests
+    --durations 15           and the slowest classes and tests, measured
 
-A test that runs longer than --timeout seconds (900 by default) gets every thread's stack written to the
-error output and its worker ended, which fails the run: a hung test cannot stall it for ever. Only the
-standard library is used.
+A test that runs longer than --timeout seconds (900 by default) gets every thread's stack written
+to the error output and its worker ended, which fails the run: a hung test cannot stall it for
+ever. Only the standard library is used.
 """
 import argparse
 import faulthandler
@@ -32,7 +33,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-TIMES_FILE = HERE / "class_times.json"       # seconds each class took last time: the slowest are started first
+# seconds each class took last time: the slowest are started first
+TIMES_FILE = HERE / "class_times.json"
 MAX_WORKERS = 8
 DEFAULT_TIMEOUT = 900
 
@@ -43,7 +45,8 @@ def class_key(test) -> str:
 
 
 def discover() -> unittest.TestSuite:
-    """The suite `unittest discover -s tests` builds (the tests folder is also the top level directory)."""
+    """The suite `unittest discover -s tests` builds (the tests folder is also the top level
+    directory)."""
     if str(HERE) not in sys.path:
         sys.path.insert(0, str(HERE))
     return unittest.TestLoader().discover(str(HERE))
@@ -66,8 +69,8 @@ def selected(tests, targets):
 
 
 def plan(tests):
-    """{class key: [test ids]} in the order discover runs them. Tests that failed to import are left out
-    (they are run in the main process, where they simply report their error)."""
+    """{class key: [test ids]} in the order discover runs them. Tests that failed to import are
+    left out (they are run in the main process, where they simply report their error)."""
     groups: dict[str, list[str]] = {}
     broken = []
     for test in tests:
@@ -78,7 +81,8 @@ def plan(tests):
     return groups, broken
 
 
-# ----- a worker ---------------------------------------------------------------------------------------
+# ----- a worker ----------------------------------------------------------------------------------
+
 
 class Recorder(unittest.TestResult):
     """A result that keeps what happened, as plain data the main process can print."""
@@ -86,7 +90,7 @@ class Recorder(unittest.TestResult):
     def __init__(self, timeout):
         super().__init__()
         self.timeout = timeout
-        self.rows = []              # (test id, description, status, seconds)
+        self.rows = []  # (test id, description, status, seconds)
         self._started = 0.0
         self._rowed = False
         self._subtest_status = None
@@ -100,7 +104,7 @@ class Recorder(unittest.TestResult):
 
     def stopTest(self, test):
         faulthandler.cancel_dump_traceback_later()
-        if not self._rowed:         # a test whose only news was from its sub-tests
+        if not self._rowed:  # a test whose only news was from its sub-tests
             self._row(test, self._subtest_status or "ok")
         super().stopTest(test)
 
@@ -110,7 +114,8 @@ class Recorder(unittest.TestResult):
             self._subtest_status = "FAIL" if issubclass(err[0], test.failureException) else "ERROR"
 
     def _row(self, test, status):
-        if type(test).__name__ == "_ErrorHolder":       # setUpClass and the like: not a test of the suite
+        if type(test
+                ).__name__ == "_ErrorHolder":  # setUpClass and the like: not a test of the suite
             return
         self._rowed = True
         self.rows.append((test.id(), str(test), status, time.perf_counter() - self._started))
@@ -144,7 +149,7 @@ def run_group(ids, timeout):
     """Run the tests `ids` (those of one class) and return what happened."""
     began = time.perf_counter()
     result = Recorder(timeout)
-    faulthandler.dump_traceback_later(timeout, exit=True)       # a hang in setUpClass counts too
+    faulthandler.dump_traceback_later(timeout, exit=True)  # a hang in setUpClass counts too
     try:
         suite = unittest.TestLoader().loadTestsFromNames(ids)
         suite.run(result)
@@ -183,12 +188,13 @@ def worker(number, tasks, results, timeout, base):
         results.put(("start", number, key))
         try:
             outcome = run_group(ids, timeout)
-        except BaseException as error:              # not a test failing: the runner could not run the class
+        except BaseException as error:  # not a test failing: the runner could not run the class
             outcome = {"crash": f"{type(error).__name__}: {error}"}
         results.put(("done", number, key, outcome))
 
 
-# ----- the main process -------------------------------------------------------------------------------
+# ----- the main process --------------------------------------------------------------------------
+
 
 def load_times():
     try:
@@ -200,7 +206,8 @@ def load_times():
 def run_all(groups, workers, timeout, verbose, quiet, out, in_order=False):
     """Run the groups on `workers` processes. Returns ({key: outcome}, [crash messages])."""
     times = load_times()
-    # Slowest first; classes never seen before are treated as slow, so none of them ends the run alone.
+    # Slowest first; classes never seen before are treated as slow, so none of them ends the run
+    # alone.
     order = list(groups) if in_order else sorted(groups, key=lambda k: -times.get(k, 1e9))
     context = multiprocessing.get_context("spawn")
     tasks, results = context.Queue(), context.Queue()
@@ -213,15 +220,17 @@ def run_all(groups, workers, timeout, verbose, quiet, out, in_order=False):
     procs = {}
 
     def start(number):
-        proc = context.Process(target=worker, args=(number, tasks, results, timeout, base), daemon=True)
+        proc = context.Process(
+            target=worker, args=(number, tasks, results, timeout, base), daemon=True)
         proc.start()
         procs[number] = proc
 
     for number in range(count):
         start(number)
-    running = {}                       # worker number -> class key it is on
+    running = {}  # worker number -> class key it is on
     outcomes, crashes = {}, []
     try:
+
         def handle(message):
             if message[0] == "start":
                 running[message[1]] = message[2]
@@ -235,8 +244,8 @@ def run_all(groups, workers, timeout, verbose, quiet, out, in_order=False):
                 show(outcome, verbose, out)
 
         while len(outcomes) < len(order):
-            # Look at who has ended first, then read every message: whatever a worker sent before it ended is
-            # already in the queue by then.
+            # Look at who has ended first, then read every message: whatever a worker sent before
+            # it ended is already in the queue by then.
             ended = [n for n, p in procs.items() if not p.is_alive()]
             try:
                 handle(results.get(timeout=2))
@@ -246,10 +255,14 @@ def run_all(groups, workers, timeout, verbose, quiet, out, in_order=False):
                 pass
             for number in ended:
                 proc = procs.pop(number)
-                if number in running:      # it died in the middle of a class: that class has not finished
+                # it died in the middle of a class: that class has not finished
+                if number in running:
                     key = running.pop(number)
-                    crashes.append(f"{key}: the worker process ended with exit code {proc.exitcode} before the "
-                                   f"class finished (a hang the guard ended, or a crash; see the stack above)")
+                    crashes.append(
+                        f"{key}: the worker process ended with exit code {proc.exitcode} "
+                        "before the "
+                        f"class finished (a hang the guard ended, or a crash; see the stack above)"
+                    )
                     outcomes[key] = {"crash": "worker died"}
                     if len(outcomes) + len(running) < len(order) and not tasks.empty():
                         start(number)
@@ -275,8 +288,14 @@ def show(outcome, verbose, out):
         for _, description, status, _seconds in outcome["rows"]:
             print(f"{description} ... {status}", file=out)
     else:
-        marks = {"ok": ".", "FAIL": "F", "ERROR": "E", "skipped": "s", "expected failure": "x",
-                 "unexpected success": "u"}
+        marks = {
+            "ok": ".",
+            "FAIL": "F",
+            "ERROR": "E",
+            "skipped": "s",
+            "expected failure": "x",
+            "unexpected success": "u"
+        }
         print("".join(marks[row[2]] for row in outcome["rows"]), end="", file=out)
     out.flush()
 
@@ -302,13 +321,14 @@ def report(outcomes, crashes, started, expected_ids, durations, out):
     for crash in crashes:
         lines.append(f"{'=' * 70}\nERROR: {crash}")
     errors += len(crashes)
-    # The runner's own check: the tests that ran are exactly the ones discovered (setUpClass errors add rows
-    # that are not tests, so only the missing and the unknown ones are compared).
+    # The runner's own check: the tests that ran are exactly the ones discovered (setUpClass errors
+    # add rows that are not tests, so only the missing and the unknown ones are compared).
     missing = sorted(set(expected_ids) - set(ids_run)) if not crashes else []
     extra = sorted(set(ids_run) - set(expected_ids))
     if missing or extra:
-        lines.append(f"{'=' * 70}\nERROR: the tests that ran are not the tests that were found\n"
-                     f"  not run: {missing[:20]}\n  not found: {extra[:20]}")
+        lines.append(
+            f"{'=' * 70}\nERROR: the tests that ran are not the tests that were found\n"
+            f"  not run: {missing[:20]}\n  not found: {extra[:20]}")
         errors += 1
     elapsed = time.perf_counter() - started
     print(file=out)
@@ -316,9 +336,13 @@ def report(outcomes, crashes, started, expected_ids, durations, out):
         print(line, file=out)
     print("-" * 70, file=out)
     print(f"Ran {ran} test{'s' if ran != 1 else ''} in {elapsed:.3f}s\n", file=out)
-    unexpected = any(outcome.get("unexpected") for outcome in outcomes.values() if "rows" in outcome)
+    unexpected = any(
+        outcome.get("unexpected") for outcome in outcomes.values() if "rows" in outcome)
     ok = not (failures or errors or unexpected)
-    extras = [f"{name}={n}" for name, n in (("failures", failures), ("errors", errors), ("skipped", skipped)) if n]
+    extras = [
+        f"{name}={n}"
+        for name, n in (("failures", failures), ("errors", errors), ("skipped", skipped)) if n
+    ]
     if ok:
         print("OK" + (f" (skipped={skipped})" if skipped else ""), file=out)
     else:
@@ -330,11 +354,15 @@ def report(outcomes, crashes, started, expected_ids, durations, out):
 
 def show_durations(outcomes, count, out):
     done = {k: o for k, o in outcomes.items() if "rows" in o}
-    print(f"\nThe {count} slowest classes (all their tests, with setUpClass and the like):", file=out)
+    print(
+        f"\nThe {count} slowest classes (all their tests, with setUpClass and the like):",
+        file=out)
     for key, outcome in sorted(done.items(), key=lambda kv: -kv[1]["seconds"])[:count]:
         tests = sum(row[3] for row in outcome["rows"])
-        print(f"  {outcome['seconds']:8.1f}s  (tests {tests:7.1f}s, fixtures {outcome['seconds'] - tests:6.1f}s, "
-              f"{outcome['ran']:3d} tests)  {key}", file=out)
+        print(
+            f"  {outcome['seconds']:8.1f}s  (tests {tests:7.1f}s, fixtures "
+            f"{outcome['seconds'] - tests:6.1f}s, "
+            f"{outcome['ran']:3d} tests)  {key}", file=out)
     rows = sorted((row for o in done.values() for row in o["rows"]), key=lambda r: -r[3])[:count]
     print(f"\nThe {count} slowest tests:", file=out)
     for test_id, _, _, seconds in rows:
@@ -342,20 +370,29 @@ def show_durations(outcomes, count, out):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="python -m tests", description="Run the test suite in parallel.")
-    parser.add_argument("targets", nargs="*", help="modules, classes or tests to run (default: all)")
-    parser.add_argument("-j", "--workers", type=int, default=min(os.cpu_count() or 1, MAX_WORKERS),
-                        help="how many worker processes (default: the number of CPUs, at most %d)" % MAX_WORKERS)
+    parser = argparse.ArgumentParser(
+        prog="python -m tests", description="Run the test suite in parallel.")
+    parser.add_argument(
+        "targets", nargs="*", help="modules, classes or tests to run (default: all)")
+    parser.add_argument(
+        "-j", "--workers", type=int, default=min(os.cpu_count() or 1, MAX_WORKERS),
+        help="how many worker processes (default: the number of CPUs, at most %d)" % MAX_WORKERS)
     parser.add_argument("-v", "--verbose", action="store_true", help="one line per test")
-    parser.add_argument("-q", "--quiet", action="store_true", help="print only the failures and the summary")
-    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT,
-                        help="seconds a test may take before its worker is ended (default: %d)" % DEFAULT_TIMEOUT)
+    parser.add_argument(
+        "-q", "--quiet", action="store_true", help="print only the failures and the summary")
+    parser.add_argument(
+        "--timeout", type=float, default=DEFAULT_TIMEOUT,
+        help="seconds a test may take before its worker is ended (default: %d)" % DEFAULT_TIMEOUT)
     parser.add_argument("--list", action="store_true", help="print the ids of the tests and stop")
-    parser.add_argument("--durations", type=int, metavar="N", help="also print the N slowest classes and tests")
-    parser.add_argument("--in-order", action="store_true",
-                        help="start the classes in the order discover runs them, not the slowest first")
-    parser.add_argument("--save-times", action="store_true",
-                        help="write how long each class took to tests/class_times.json (the order of the next runs)")
+    parser.add_argument(
+        "--durations", type=int, metavar="N", help="also print the N slowest classes and tests")
+    parser.add_argument(
+        "--in-order", action="store_true",
+        help="start the classes in the order discover runs them, not the slowest first")
+    parser.add_argument(
+        "--save-times", action="store_true",
+        help="write how long each class took to tests/class_times.json (the order of the next "
+        "runs)")
     args = parser.parse_args(argv)
     started = time.perf_counter()
     tests = selected(list(flatten(discover())), args.targets)
@@ -366,18 +403,29 @@ def main(argv=None):
         print("No test matches " + ", ".join(args.targets), file=sys.stderr)
         return 1
     groups, broken = plan(tests)
-    out = sys.stderr            # like unittest, which writes to the error output
-    outcomes, crashes = run_all(groups, args.workers, args.timeout, args.verbose, args.quiet, out, args.in_order)
-    for test in broken:         # an import that failed: run it here, it reports its error
+    out = sys.stderr  # like unittest, which writes to the error output
+    outcomes, crashes = run_all(
+        groups, args.workers, args.timeout, args.verbose, args.quiet, out, args.in_order)
+    for test in broken:  # an import that failed: run it here, it reports its error
         result = unittest.TestResult()
         test.run(result)
         outcomes[f"broken.{test.id()}"] = {
-            "seconds": 0.0, "ran": result.testsRun, "rows": [(test.id(), str(test), "ERROR", 0.0)],
-            "failures": [], "errors": [(str(t), x) for t, x in result.errors], "skipped": [], "unexpected": [],
+            "seconds": 0.0,
+            "ran": result.testsRun,
+            "rows": [(test.id(), str(test), "ERROR", 0.0)],
+            "failures": [],
+            "errors": [(str(t), x) for t, x in result.errors],
+            "skipped": [],
+            "unexpected": [],
         }
-    ok = report(outcomes, crashes, started, [t.id() for t in tests if t not in broken] + [t.id() for t in broken],
-                args.durations, out)
+    ok = report(
+        outcomes, crashes, started,
+        [t.id() for t in tests if t not in broken] + [t.id() for t in broken], args.durations, out)
     if args.save_times and not crashes:
-        times = {k: round(o["seconds"], 1) for k, o in outcomes.items() if "rows" in o and not k.startswith("broken.")}
-        TIMES_FILE.write_text(json.dumps(dict(sorted(times.items())), indent=1) + "\n", encoding="utf-8")
+        times = {
+            k: round(o["seconds"], 1)
+            for k, o in outcomes.items() if "rows" in o and not k.startswith("broken.")
+        }
+        TIMES_FILE.write_text(
+            json.dumps(dict(sorted(times.items())), indent=1) + "\n", encoding="utf-8")
     return 0 if ok else 1

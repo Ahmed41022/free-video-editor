@@ -12,20 +12,8 @@ from unittest import mock
 from video_converter import video
 from video_converter.core import ConversionCancelled, MediaInfo, find_ffmpeg, probe_media
 from video_converter.video import (
-    ADJUSTMENTS,
-    DETECT_SHARE,
-    LOOKS,
-    STABILIZE,
-    JoinJob,
-    JoinPart,
-    VideoEdit,
-    VideoJob,
-    convert_video,
-    detect_command,
-    join_clips,
-    picture_filters,
-    render_frame,
-    video_command,
+    ADJUSTMENTS, DETECT_SHARE, LOOKS, STABILIZE, JoinJob, JoinPart, VideoEdit, VideoJob,
+    convert_video, detect_command, join_clips, picture_filters, render_frame, video_command,
 )
 
 FFMPEG = find_ffmpeg()
@@ -42,21 +30,28 @@ def has_vidstab() -> bool:
 
 def make_shaky_video(path, seconds=3):
     """A moving test pattern seen through a jittering crop, with sound."""
-    subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
-                    "-f", "lavfi", "-i", f"testsrc2=duration={seconds}:size=400x240:rate=15",
-                    "-f", "lavfi", "-i", f"sine=duration={seconds}",
-                    "-vf", "crop=360:216:20+12*sin(n*1.7):12+10*cos(n*2.3)", "-c:a", "aac",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest", str(path)], check=True)
+    subprocess.run(
+        [
+            FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+            f"testsrc2=duration={seconds}:size=400x240:rate=15", "-f", "lavfi", "-i",
+            f"sine=duration={seconds}", "-vf", "crop=360:216:20+12*sin(n*1.7):12+10*cos(n*2.3)",
+            "-c:a", "aac", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest",
+            str(path)
+        ], check=True)
 
 
 def picture_stats(path, at=1.0):
     """Average saturation and brightness (luma) of one frame, from ffmpeg's signalstats."""
     seek = ["-ss", str(at)] if at is not None else []
     result = subprocess.run(
-        [FFMPEG, "-hide_banner", "-loglevel", "error", *seek, "-i", str(path), "-frames:v", "1",
-         "-vf", "signalstats,metadata=print:file=-", "-f", "null", "-"],
-        capture_output=True, text=True, check=True)
-    stats = dict(line.split("=", 1) for line in result.stdout.splitlines() if line.startswith("lavfi.signalstats."))
+        [
+            FFMPEG, "-hide_banner", "-loglevel", "error", *seek, "-i",
+            str(path), "-frames:v", "1", "-vf", "signalstats,metadata=print:file=-", "-f", "null",
+            "-"
+        ], capture_output=True, text=True, check=True)
+    stats = dict(
+        line.split("=", 1) for line in result.stdout.splitlines()
+        if line.startswith("lavfi.signalstats."))
     return float(stats["lavfi.signalstats.SATAVG"]), float(stats["lavfi.signalstats.YAVG"])
 
 
@@ -65,10 +60,14 @@ def graph_of(cmd):
 
 
 class PictureFilterTests(unittest.TestCase):
+
     def test_neutral_settings_add_no_filters(self):
         self.assertEqual(picture_filters(VideoEdit()), [])
-        self.assertNotIn("eq=", graph_of(video_command("ffmpeg", VideoJob(Path("a.mp4"), Path("b.mp4"),
-                                                                          VideoEdit()), SOURCE)))
+        self.assertNotIn(
+            "eq=",
+            graph_of(
+                video_command(
+                    "ffmpeg", VideoJob(Path("a.mp4"), Path("b.mp4"), VideoEdit()), SOURCE)))
 
     def test_filters_come_in_a_fixed_order(self):
         edit = VideoEdit(denoise=4, brightness=0.1, contrast=1.2, look="warm", sharpen=0.8)
@@ -92,7 +91,7 @@ class PictureFilterTests(unittest.TestCase):
             with self.subTest(look=key):
                 self.assertEqual(picture_filters(VideoEdit(look=key)), filters)
                 self.assertTrue(label)
-        self.assertEqual(picture_filters(VideoEdit(look="sepia")), [])     # unknown: no look
+        self.assertEqual(picture_filters(VideoEdit(look="sepia")), [])  # unknown: no look
 
     def test_ranges_hold_their_neutral_values(self):
         for name, (low, high, neutral) in ADJUSTMENTS.items():
@@ -102,18 +101,22 @@ class PictureFilterTests(unittest.TestCase):
 
     def test_adjustments_come_after_reframing_and_before_reverse_and_fades(self):
         edit = VideoEdit(look="bw", reverse=True, fade_in=1.0)
-        graph = graph_of(video_command("ffmpeg", VideoJob(Path("a.mp4"), Path("b.mp4"), edit), SOURCE))
+        graph = graph_of(
+            video_command("ffmpeg", VideoJob(Path("a.mp4"), Path("b.mp4"), edit), SOURCE))
         self.assertLess(graph.index("scale="), graph.index("hue=s=0"))
         self.assertLess(graph.index("hue=s=0"), graph.index("reverse"))
         self.assertLess(graph.index("reverse"), graph.index("fade=t=in"))
 
 
 class StabilizeCommandTests(unittest.TestCase):
+
     def command(self, edit, transforms="shake0.trf"):
-        return video_command("ffmpeg", VideoJob(Path("a.mp4"), Path("b.mp4"), edit), SOURCE, transforms)
+        return video_command(
+            "ffmpeg", VideoJob(Path("a.mp4"), Path("b.mp4"), edit), SOURCE, transforms)
 
     def test_the_transform_comes_right_after_the_cuts_and_before_the_speed(self):
-        graph = graph_of(self.command(VideoEdit(stabilize="strong", speed=2, keep=[(0, 2), (3, 6)])))
+        graph = graph_of(
+            self.command(VideoEdit(stabilize="strong", speed=2, keep=[(0, 2), (3, 6)])))
         self.assertIn("vidstabtransform=input=shake0.trf:smoothing=30", graph)
         self.assertLess(graph.index("concat="), graph.index("vidstabtransform"))
         self.assertLess(graph.index("vidstabtransform"), graph.index("setpts=PTS/2"))
@@ -128,11 +131,13 @@ class StabilizeCommandTests(unittest.TestCase):
         segments = edit.segments(SOURCE.duration)
         detect = detect_command("ffmpeg", Path("a.mp4"), edit, segments, "shake0.trf")
         export = self.command(edit)
-        self.assertEqual(detect[:detect.index("-i") + 2], export[:export.index("-i") + 2])   # same seek and input
+        self.assertEqual(
+            detect[:detect.index("-i") + 2],
+            export[:export.index("-i") + 2])  # same seek and input
         self.assertIn("trim=start=0:end=1", graph_of(detect))
         self.assertIn(f"vidstabdetect=shakiness={STABILIZE['light'][0]}", graph_of(detect))
         self.assertIn("result=shake0.trf", graph_of(detect))
-        self.assertEqual(detect[detect.index("-f") + 1], "null")         # measures only, writes no video
+        self.assertEqual(detect[detect.index("-f") + 1], "null")  # measures only, writes no video
 
     def test_strong_is_stronger_than_light(self):
         self.assertIsNone(STABILIZE["off"])
@@ -142,6 +147,7 @@ class StabilizeCommandTests(unittest.TestCase):
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class PictureExportTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -154,7 +160,8 @@ class PictureExportTests(unittest.TestCase):
         cls._tmp.cleanup()
 
     def export(self, name, **edit):
-        return convert_video(FFMPEG, VideoJob(self.source, self.tmp / name, VideoEdit(aspect=None, **edit)))
+        return convert_video(
+            FFMPEG, VideoJob(self.source, self.tmp / name, VideoEdit(aspect=None, **edit)))
 
     def test_black_and_white_has_no_color_left(self):
         source_saturation, _ = picture_stats(self.source)
@@ -172,30 +179,39 @@ class PictureExportTests(unittest.TestCase):
     def test_every_look_and_the_detail_filters_export(self):
         for look in LOOKS:
             with self.subTest(look=look):
-                info = probe_media(FFMPEG, self.export(f"look-{look}.mp4", look=look, sharpen=0.5, denoise=2))
+                info = probe_media(
+                    FFMPEG, self.export(f"look-{look}.mp4", look=look, sharpen=0.5, denoise=2))
                 self.assertAlmostEqual(info.duration, 3.0, delta=0.2)
 
     def test_the_preview_shows_the_adjustments_like_the_export(self):
         info = probe_media(FFMPEG, self.source)
         edit = VideoEdit(aspect=None, look="bw", brightness=0.2)
-        png = render_frame(FFMPEG, self.source, self.tmp / "preview.png", 1.0, (360, 360), edit, info)
+        png = render_frame(
+            FFMPEG, self.source, self.tmp / "preview.png", 1.0, (360, 360), edit, info)
         exported = self.export("preview-match.mp4", look="bw", brightness=0.2)
         # Compare the same frame of the export, saved as a PNG the same way the preview is.
         export_png = self.tmp / "export-frame.png"
-        subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-ss", "1.0", "-i", str(exported),
-                        "-frames:v", "1", "-update", "1", str(export_png)], check=True)
+        subprocess.run(
+            [
+                FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-ss", "1.0", "-i",
+                str(exported), "-frames:v", "1", "-update", "1",
+                str(export_png)
+            ], check=True)
         preview_saturation, preview_luma = picture_stats(png, None)
         export_saturation, export_luma = picture_stats(export_png, None)
-        _, plain_luma = picture_stats(render_frame(FFMPEG, self.source, self.tmp / "plain.png", 1.0, (360, 360),
-                                                   VideoEdit(aspect=None), info), None)
+        _, plain_luma = picture_stats(
+            render_frame(
+                FFMPEG, self.source, self.tmp / "plain.png", 1.0, (360, 360),
+                VideoEdit(aspect=None), info), None)
         self.assertLess(preview_saturation, 1.0)
         self.assertLess(export_saturation, 1.0)
         self.assertAlmostEqual(preview_luma, export_luma, delta=4)
-        self.assertGreater(preview_luma, plain_luma + 20)               # the brightness change shows
+        self.assertGreater(preview_luma, plain_luma + 20)  # the brightness change shows
 
 
 @unittest.skipUnless(has_vidstab(), "this ffmpeg has no libvidstab")
 class StabilizeExportTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -209,20 +225,22 @@ class StabilizeExportTests(unittest.TestCase):
 
     def recorded_run(self, action):
         """Run `action()` while recording every ffmpeg run: (command, working folder, output)."""
-        calls, real = [], video.run_ffmpeg
+        calls, real = [], video.export.run_ffmpeg
 
         def record(cmd, output, duration, on_progress=None, cancel_event=None, cwd=None):
             calls.append((cmd, cwd, output))
             return real(cmd, output, duration, on_progress, cancel_event, cwd)
 
-        with mock.patch.object(video, "run_ffmpeg", record):
+        with mock.patch.object(video.export, "run_ffmpeg", record):
             result = action()
         return result, calls
 
     def test_both_passes_run_in_one_temporary_folder_that_is_removed(self):
         progress = []
-        job = VideoJob(self.source, self.tmp / "steady.mp4", VideoEdit(aspect=None, stabilize="strong"))
-        output, calls = self.recorded_run(lambda: convert_video(FFMPEG, job, on_progress=progress.append))
+        job = VideoJob(
+            self.source, self.tmp / "steady.mp4", VideoEdit(aspect=None, stabilize="strong"))
+        output, calls = self.recorded_run(
+            lambda: convert_video(FFMPEG, job, on_progress=progress.append))
         self.assertEqual(len(calls), 2)
         (detect, detect_cwd, _), (export, export_cwd, _) = calls
         self.assertIn("vidstabdetect", graph_of(detect))
@@ -230,8 +248,9 @@ class StabilizeExportTests(unittest.TestCase):
         self.assertEqual(detect_cwd, export_cwd)
         self.assertFalse(detect_cwd.exists())
         self.assertAlmostEqual(probe_media(FFMPEG, output).duration, 3.0, delta=0.2)
-        self.assertEqual(progress, sorted(progress))                    # never goes backwards
-        self.assertTrue(any(0 < p < DETECT_SHARE for p in progress))    # the detect pass reports progress
+        self.assertEqual(progress, sorted(progress))  # never goes backwards
+        self.assertTrue(
+            any(0 < p < DETECT_SHARE for p in progress))  # the detect pass reports progress
         self.assertTrue(any(DETECT_SHARE < p < 1 for p in progress))
         self.assertEqual(progress[-1], 1.0)
 
@@ -245,8 +264,9 @@ class StabilizeExportTests(unittest.TestCase):
             on_progress(1.0)
             return output
 
-        job = VideoJob(self.source, self.tmp / "unused.mp4", VideoEdit(aspect=None, stabilize="light"))
-        with mock.patch.object(video, "run_ffmpeg", fake):
+        job = VideoJob(
+            self.source, self.tmp / "unused.mp4", VideoEdit(aspect=None, stabilize="light"))
+        with mock.patch.object(video.export, "run_ffmpeg", fake):
             convert_video(FFMPEG, job, on_progress=progress.append)
         self.assertEqual(len(progress), 4)
         for got, expected in zip(progress, (0.1, 0.2, 0.6, 1.0)):
@@ -257,7 +277,9 @@ class StabilizeExportTests(unittest.TestCase):
         out_dir = self.tmp / "relative"
         out_dir.mkdir()
         (out_dir / "shaky.mp4").write_bytes(self.source.read_bytes())
-        job = VideoJob(Path("shaky.mp4"), Path("steady-relative.mp4"), VideoEdit(aspect=None, stabilize="light"))
+        job = VideoJob(
+            Path("shaky.mp4"), Path("steady-relative.mp4"),
+            VideoEdit(aspect=None, stabilize="light"))
         original = Path.cwd()
         os.chdir(out_dir)
         try:
@@ -277,22 +299,26 @@ class StabilizeExportTests(unittest.TestCase):
         def action():
             with self.assertRaises(ConversionCancelled):
                 convert_video(FFMPEG, job, on_progress=progress, cancel_event=cancel)
+
         _, calls = self.recorded_run(action)
         self.assertFalse((self.tmp / name).exists())
-        self.assertFalse(calls[0][1].exists())          # the transforms folder is gone too
+        self.assertFalse(calls[0][1].exists())  # the transforms folder is gone too
         return calls
 
     def test_cancelling_during_the_detect_pass(self):
         calls = self.cancel_when(lambda f: f > 0, "cancel-detect.mp4")
-        self.assertEqual(len(calls), 1)                  # the export pass never started
+        self.assertEqual(len(calls), 1)  # the export pass never started
 
     def test_cancelling_during_the_export_pass(self):
         calls = self.cancel_when(lambda f: f > DETECT_SHARE, "cancel-export.mp4")
         self.assertEqual(len(calls), 2)
 
     def test_joining_stabilizes_only_the_clips_that_ask(self):
-        job = JoinJob([JoinPart(self.source, VideoEdit()), JoinPart(self.source, VideoEdit(stabilize="light"))],
-                      self.tmp / "joined.mp4")
+        job = JoinJob(
+            [
+                JoinPart(self.source, VideoEdit()),
+                JoinPart(self.source, VideoEdit(stabilize="light"))
+            ], self.tmp / "joined.mp4")
         output, calls = self.recorded_run(lambda: join_clips(FFMPEG, job))
         self.assertEqual(len(calls), 2)
         self.assertIn("result=shake1.trf", graph_of(calls[0][0]))
@@ -304,23 +330,28 @@ class StabilizeExportTests(unittest.TestCase):
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class PictureCommandLineTests(unittest.TestCase):
+
     def run_cli(self, *args):
-        return subprocess.run([sys.executable, "-m", "video_converter", *map(str, args)],
-                              cwd=ROOT, capture_output=True, text=True)
+        return subprocess.run(
+            [sys.executable, "-m", "video_converter", *map(str, args)], cwd=ROOT,
+            capture_output=True, text=True)
 
     def test_look_and_adjustments(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             make_shaky_video(tmp / "clip.mp4", seconds=2)
-            result = self.run_cli(tmp / "clip.mp4", "--video", "original", "--look", "bw", "--contrast", "1.2",
-                                  "-o", tmp / "out")
+            result = self.run_cli(
+                tmp / "clip.mp4", "--video", "original", "--look", "bw", "--contrast", "1.2", "-o",
+                tmp / "out")
             self.assertEqual(result.returncode, 0, result.stderr)
             saturation, _ = picture_stats(tmp / "out" / "clip (edited).mp4")
             self.assertLess(saturation, 1.0)
 
     def test_bad_picture_options_are_refused(self):
-        for args in (["--look", "bw"], ["--video", "phone", "--contrast", "5"], ["--video", "phone", "--look", "sepia"],
-                     ["--video", "phone", "--stabilize", "max"]):
+        for args in (["--look", "bw"], ["--video", "phone", "--contrast",
+                                        "5"], ["--video", "phone", "--look",
+                                               "sepia"], ["--video", "phone", "--stabilize",
+                                                          "max"]):
             with self.subTest(args=args):
                 result = self.run_cli("missing.mp4", *args)
                 self.assertEqual(result.returncode, 2, result.stderr)

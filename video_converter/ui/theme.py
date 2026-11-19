@@ -7,22 +7,41 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
 DARK = {
-    "window": "#1e1f22", "panel": "#25262a", "base": "#18191c", "raised": "#2d2e33",
-    "border": "#3a3b41", "text": "#e9e9ec", "muted": "#9c9da4", "accent": "#4f8cff",
-    "accent_text": "#ffffff", "danger": "#ff6b6b", "success": "#4cc38a",
-    "video_bg": "#0f1012", "track": "#2a2b30", "selection": "#34507f",
+    "window": "#1e1f22",
+    "panel": "#25262a",
+    "base": "#18191c",
+    "raised": "#2d2e33",
+    "border": "#3a3b41",
+    "text": "#e9e9ec",
+    "muted": "#9c9da4",
+    "accent": "#4f8cff",
+    "accent_text": "#ffffff",
+    "danger": "#ff6b6b",
+    "success": "#4cc38a",
+    "video_bg": "#0f1012",
+    "track": "#2a2b30",
+    "selection": "#34507f",
 }
 LIGHT = {
-    "window": "#f2f2f5", "panel": "#fbfbfc", "base": "#ffffff", "raised": "#ffffff",
-    "border": "#d5d5dc", "text": "#1c1c1f", "muted": "#696a72", "accent": "#2f6fed",
-    "accent_text": "#ffffff", "danger": "#d43c3c", "success": "#1f9d5c",
-    "video_bg": "#16171a", "track": "#e6e6ec", "selection": "#cddcfb",
+    "window": "#f2f2f5",
+    "panel": "#fbfbfc",
+    "base": "#ffffff",
+    "raised": "#ffffff",
+    "border": "#d5d5dc",
+    "text": "#1c1c1f",
+    "muted": "#696a72",
+    "accent": "#2f6fed",
+    "accent_text": "#ffffff",
+    "danger": "#d43c3c",
+    "success": "#1f9d5c",
+    "video_bg": "#16171a",
+    "track": "#e6e6ec",
+    "selection": "#cddcfb",
 }
 
 _current = dict(DARK)
 
-
-_applied: dict[int, str] = {}       # the application (by id) the theme was last set on, and which one
+_applied: dict[int, str] = {}  # the application (by id) the theme was last set on, and which one
 
 
 def colors() -> dict[str, str]:
@@ -49,9 +68,10 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
     role = QPalette.ColorRole
     for r, key in ((role.Window, "window"), (role.Base, "base"), (role.AlternateBase, "panel"),
                    (role.Button, "raised"), (role.Text, "text"), (role.WindowText, "text"),
-                   (role.ButtonText, "text"), (role.ToolTipBase, "raised"), (role.ToolTipText, "text"),
-                   (role.Highlight, "accent"), (role.HighlightedText, "accent_text"),
-                   (role.PlaceholderText, "muted"), (role.Link, "accent")):
+                   (role.ButtonText, "text"), (role.ToolTipBase, "raised"),
+                   (role.ToolTipText, "text"), (role.Highlight, "accent"),
+                   (role.HighlightedText, "accent_text"), (role.PlaceholderText,
+                                                           "muted"), (role.Link, "accent")):
         palette.setColor(r, QColor(c[key]))
     disabled = QPalette.ColorGroup.Disabled
     for r in (role.Text, role.WindowText, role.ButtonText):
@@ -61,23 +81,25 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
         QMainWindow, QDialog {{ background: {c['window']}; }}
         QToolBar {{ background: {c['panel']}; border: none; border-bottom: 1px solid {c['border']};
                     padding: 4px; spacing: 4px; }}
-        QMenuBar {{ background: {c['panel']}; color: {c['text']}; border-bottom: 1px solid {c['border']}; }}
+        QMenuBar {{ background: {c['panel']}; color: {c['text']};
+                    border-bottom: 1px solid {c['border']}; }}
         QMenuBar::item {{ background: transparent; padding: 4px 10px; border-radius: 4px; }}
         QMenuBar::item:selected {{ background: {c['raised']}; }}
-        QToolButton {{ border: 1px solid transparent; border-radius: 6px; padding: 5px 8px; color: {c['text']}; }}
+        QToolButton {{ border: 1px solid transparent; border-radius: 6px; padding: 5px 8px;
+                       color: {c['text']}; }}
         QToolButton:hover {{ background: {c['raised']}; border-color: {c['border']}; }}
         QToolButton:checked {{ background: {c['selection']}; border-color: {c['accent']}; }}
         QToolButton:disabled {{ color: {c['muted']}; }}
-        QPushButton {{ background: {c['raised']}; border: 1px solid {c['border']}; border-radius: 6px;
-                       padding: 5px 12px; color: {c['text']}; }}
+        QPushButton {{ background: {c['raised']}; border: 1px solid {c['border']};
+                       border-radius: 6px; padding: 5px 12px; color: {c['text']}; }}
         QPushButton:hover {{ border-color: {c['accent']}; }}
         QPushButton:checked {{ background: {c['selection']}; border-color: {c['accent']}; }}
         QPushButton:disabled {{ color: {c['muted']}; }}
-        QPushButton#primary {{ background: {c['accent']}; border-color: {c['accent']}; color: {c['accent_text']};
-                               font-weight: 600; padding: 6px 16px; }}
+        QPushButton#primary {{ background: {c['accent']}; border-color: {c['accent']};
+                               color: {c['accent_text']}; font-weight: 600; padding: 6px 16px; }}
         QPushButton#primary:hover {{ background: {QColor(c['accent']).lighter(112).name()}; }}
-        QLineEdit, QComboBox {{ background: {c['base']}; border: 1px solid {c['border']}; border-radius: 6px;
-                                padding: 4px 8px; color: {c['text']}; }}
+        QLineEdit, QComboBox {{ background: {c['base']}; border: 1px solid {c['border']};
+                                border-radius: 6px; padding: 4px 8px; color: {c['text']}; }}
         QLineEdit:focus, QComboBox:focus {{ border-color: {c['accent']}; }}
         QComboBox QAbstractItemView {{ background: {c['raised']}; border: 1px solid {c['border']};
                                         selection-background-color: {c['selection']}; }}
@@ -94,26 +116,30 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
         QProgressBar::chunk {{ background: {c['accent']}; border-radius: 3px; }}
         QSlider::groove:horizontal {{ height: 4px; background: {c['track']}; border-radius: 2px; }}
         QSlider::sub-page:horizontal {{ background: {c['accent']}; border-radius: 2px; }}
-        QSlider::handle:horizontal {{ background: {c['text']}; width: 14px; height: 14px; margin: -5px 0;
-                                      border-radius: 7px; }}
-        QStatusBar {{ background: {c['panel']}; border-top: 1px solid {c['border']}; color: {c['muted']}; }}
+        QSlider::handle:horizontal {{ background: {c['text']}; width: 14px; height: 14px;
+                                      margin: -5px 0; border-radius: 7px; }}
+        QStatusBar {{ background: {c['panel']}; border-top: 1px solid {c['border']};
+                      color: {c['muted']}; }}
         QLabel#muted {{ color: {c['muted']}; }}
         QLabel#heading {{ font-weight: 600; }}
         QLabel#error {{ color: {c['danger']}; }}
-        QFrame#section {{ background: {c['panel']}; border: 1px solid {c['border']}; border-radius: 8px; }}
+        QFrame#section {{ background: {c['panel']}; border: 1px solid {c['border']};
+                          border-radius: 8px; }}
         QFrame#panel {{ background: {c['panel']}; }}
-        QToolButton#sectionHeader {{ font-weight: 600; border: none; padding: 6px 4px; text-align: left; }}
-        QToolButton#sectionHeader:hover, QToolButton#sectionHeader:checked {{ background: transparent;
-                                                                         border: none; }}
+        QToolButton#sectionHeader {{ font-weight: 600; border: none; padding: 6px 4px;
+                                     text-align: left; }}
+        QToolButton#sectionHeader:hover, QToolButton#sectionHeader:checked {{
+            background: transparent; border: none; }}
         QPushButton#chip {{ padding: 4px 6px; }}
         QCheckBox {{ spacing: 6px; }}
     """
-    # Measured in the test suite (Windows): setting these on the application for every new window took seconds
-    # per window once many widgets were alive, which fits Qt styling every live widget again (not checked in
-    # Qt's own code). So with the same theme already in place (a second window, or the same choice made again)
-    # nothing is set. What counts as "in place" is read back from the application, so a change made by anything
-    # else is put right as before.
-    if _applied.get(id(app)) == resolved and app.styleSheet() == sheet and app.palette() == palette:
+    # Measured in the test suite (Windows): setting these on the application for every new window
+    # took seconds per window once many widgets were alive, which fits Qt styling every live widget
+    # again (not checked in Qt's own code). So with the same theme already in place (a second
+    # window, or the same choice made again) nothing is set. What counts as "in place" is read back
+    # from the application, so a change made by anything else is put right as before.
+    if _applied.get(
+            id(app)) == resolved and app.styleSheet() == sheet and app.palette() == palette:
         return resolved
     app.setStyle("Fusion")
     app.setPalette(palette)

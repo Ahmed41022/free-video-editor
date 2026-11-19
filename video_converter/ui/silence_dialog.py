@@ -1,4 +1,5 @@
-"""The "Remove silences" window: pick how quiet and how long a pause is, see what it would cut, apply."""
+"""The "Remove silences" window: pick how quiet and how long a pause is, see what it would cut,
+apply."""
 
 from __future__ import annotations
 
@@ -14,8 +15,8 @@ from PySide6.QtWidgets import (
 from ..core import ConversionCancelled
 from ..i18n import tr
 from ..silence import (
-    DB_RANGE, DEFAULT_DB, DEFAULT_MIN, DEFAULT_PAD, MIN_RANGE, PAD_RANGE, SilencePlan, detect_silences,
-    plan_silence_removal, summary,
+    DB_RANGE, DEFAULT_DB, DEFAULT_MIN, DEFAULT_PAD, MIN_RANGE, PAD_RANGE, SilencePlan,
+    detect_silences, plan_silence_removal, summary,
 )
 from ..timing import Range
 
@@ -28,11 +29,13 @@ class SilenceDialog(QDialog):
 
     After `accept()`, `keep` holds the new kept ranges (one change for the whole job)."""
 
-    analysed = Signal(int, object, str)      # which run it was, the silences found (or None), what went wrong
-    DEBOUNCE_MS = 400                        # wait this long after a slider moves before listening again
+    analysed = Signal(
+        int, object, str)  # which run it was, the silences found (or None), what went wrong
+    DEBOUNCE_MS = 400  # wait this long after a slider moves before listening again
 
-    def __init__(self, ffmpeg: str, source: Path, duration: float, keep: list[Range], start: Optional[float],
-                 end: Optional[float], parent: Optional[QWidget] = None):
+    def __init__(
+            self, ffmpeg: str, source: Path, duration: float, keep: list[Range],
+            start: Optional[float], end: Optional[float], parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle(tr("Remove silences"))
         self.setModal(True)
@@ -41,15 +44,17 @@ class SilenceDialog(QDialog):
         self.original_keep, self.start, self.end = list(keep), start, end
         self.keep: list[Range] = list(keep)
         self.plan: Optional[SilencePlan] = None
-        self.silences: Optional[list[Range]] = None      # what the last finished listening found
+        self.silences: Optional[list[Range]] = None  # what the last finished listening found
         self._run = 0
         self._cancel: Optional[threading.Event] = None
         self._thread: Optional[threading.Thread] = None
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
-        intro = QLabel(tr("Cuts out the quiet stretches, like pauses between sentences. "
-                          "You can still adjust the cuts on the timeline afterwards."))
+        intro = QLabel(
+            tr(
+                "Cuts out the quiet stretches, like pauses between sentences. "
+                "You can still adjust the cuts on the timeline afterwards."))
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -57,16 +62,20 @@ class SilenceDialog(QDialog):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(10)
         grid.setColumnStretch(1, 1)
-        self.db_slider, self.db_label = self._slider(grid, 0, tr("Quieter than"), DB_RANGE[0], DB_RANGE[1], 1.0,
-                                                     DEFAULT_DB)
-        self.db_slider.setToolTip(tr("Sound below this level counts as silence. Raise it if background noise "
-                                     "keeps pauses from being found."))
-        self.min_slider, self.min_label = self._slider(grid, 1, tr("Longer than"), MIN_RANGE[0], MIN_RANGE[1],
-                                                       MIN_STEP, DEFAULT_MIN)
+        self.db_slider, self.db_label = self._slider(
+            grid, 0, tr("Quieter than"), DB_RANGE[0], DB_RANGE[1], 1.0, DEFAULT_DB)
+        self.db_slider.setToolTip(
+            tr(
+                "Sound below this level counts as silence. Raise it if background noise "
+                "keeps pauses from being found."))
+        self.min_slider, self.min_label = self._slider(
+            grid, 1, tr("Longer than"), MIN_RANGE[0], MIN_RANGE[1], MIN_STEP, DEFAULT_MIN)
         self.min_slider.setToolTip(tr("Only pauses at least this long are cut"))
-        self.pad_slider, self.pad_label = self._slider(grid, 2, tr("Keep a little silence"), PAD_RANGE[0],
-                                                       PAD_RANGE[1], PAD_STEP, DEFAULT_PAD)
-        self.pad_slider.setToolTip(tr("Silence left on each side of the speech, so words aren't clipped"))
+        self.pad_slider, self.pad_label = self._slider(
+            grid, 2, tr("Keep a little silence"), PAD_RANGE[0], PAD_RANGE[1], PAD_STEP,
+            DEFAULT_PAD)
+        self.pad_slider.setToolTip(
+            tr("Silence left on each side of the speech, so words aren't clipped"))
         layout.addLayout(grid)
 
         self.summary_label = QLabel(tr("Listening…"))
@@ -74,7 +83,8 @@ class SilenceDialog(QDialog):
         self.summary_label.setMinimumHeight(40)
         layout.addWidget(self.summary_label)
 
-        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Cancel)
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Cancel)
         self.apply_button = self.buttons.button(QDialogButtonBox.StandardButton.Apply)
         self.apply_button.setText(tr("Apply"))
         self.apply_button.setEnabled(False)
@@ -93,7 +103,9 @@ class SilenceDialog(QDialog):
         self._show_values()
         self._listen()
 
-    def _slider(self, grid: QGridLayout, row: int, name: str, low: float, high: float, step: float, value: float):
+    def _slider(
+            self, grid: QGridLayout, row: int, name: str, low: float, high: float, step: float,
+            value: float):
         text = QLabel(name)
         text.setObjectName("muted")
         slider = QSlider(Qt.Orientation.Horizontal)
@@ -132,7 +144,8 @@ class SilenceDialog(QDialog):
     # ----- listening ----------------------------------------------------------
 
     def _level_changed(self) -> None:
-        """The level or length changed: what was heard no longer applies, so listen again shortly."""
+        """The level or length changed: what was heard no longer applies, so listen again
+        shortly."""
         self._show_values()
         self._stop_listening()
         self.silences = None
@@ -151,24 +164,27 @@ class SilenceDialog(QDialog):
         run, cancel = self._run, threading.Event()
         self._cancel = cancel
         level, length = self.noise_db, self.min_length
-        previous = self._thread       # its ffmpeg is being stopped; this run starts only once that has finished
+        # its ffmpeg is being stopped; this run starts only once that has finished
+        previous = self._thread
 
         def work() -> None:
             found, problem = None, ""
             if previous is not None and previous is not threading.current_thread():
-                previous.join()       # on this thread, never the window's: at most one ffmpeg listens at a time
+                previous.join(
+                )  # on this thread, never the window's: at most one ffmpeg listens at a time
             if cancel.is_set():
                 return
             try:
-                found = detect_silences(self.ffmpeg, self.source, level, length, self.duration, cancel)
+                found = detect_silences(
+                    self.ffmpeg, self.source, level, length, self.duration, cancel)
             except ConversionCancelled:
                 return
-            except Exception as exc:     # a message in the window beats a thread dying quietly
+            except Exception as exc:  # a message in the window beats a thread dying quietly
                 problem = str(exc) or tr("Couldn't listen to this file.")
             if not cancel.is_set():
                 try:
                     self.analysed.emit(run, found, problem)
-                except RuntimeError:     # the window is already gone
+                except RuntimeError:  # the window is already gone
                     pass
 
         self._thread = threading.Thread(target=work, name="silence-detect", daemon=True)
@@ -192,8 +208,8 @@ class SilenceDialog(QDialog):
     def _refresh(self) -> None:
         if self.silences is None:
             return
-        self.plan = plan_silence_removal(self.original_keep, self.silences, self.start, self.end, self.duration,
-                                         self.padding)
+        self.plan = plan_silence_removal(
+            self.original_keep, self.silences, self.start, self.end, self.duration, self.padding)
         self._say(summary(self.plan))
         self.apply_button.setEnabled(bool(self.plan.cuts))
 
@@ -218,8 +234,9 @@ class SilenceDialog(QDialog):
         super().accept()
 
     def done(self, result: int) -> None:
-        """Stop ffmpeg however the window closes. The listening thread ends the run in the background; its result is
-        ignored (nobody is waiting for it), so the window closes at once."""
+        """Stop ffmpeg however the window closes. The listening thread ends the run in the
+        background; its result is ignored (nobody is waiting for it), so the window closes at
+        once."""
         self._stop_listening()
         self._run += 1
         super().done(result)

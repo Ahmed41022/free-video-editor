@@ -1,8 +1,8 @@
-"""A lock between processes, for work that two copies of the app must not do at once (such as downloading the
-same speech model into the same folder).
+"""A lock between processes, for work that two copies of the app must not do at once (such as
+downloading the same speech model into the same folder).
 
-The lock is held by the operating system on an open file, so it is released when the program ends, even when
-it crashes: there is never a stale lock to clean up."""
+The lock is held by the operating system on an open file, so it is released when the program ends,
+even when it crashes: there is never a stale lock to clean up."""
 
 from __future__ import annotations
 
@@ -23,12 +23,13 @@ class LockTimeout(Exception):
 
 
 class FileLock:
-    """`with FileLock(folder / "download.lock", timeout=600): ...` runs the block only while no other process (or
-    other FileLock on the same file) is inside its own block. While waiting, `cancel` (a threading.Event) can
-    end the wait early by raising `LockTimeout`."""
+    """`with FileLock(folder / "download.lock", timeout=600): ...` runs the block only while no
+    other process (or other FileLock on the same file) is inside its own block. While waiting,
+    `cancel` (a threading.Event) can end the wait early by raising `LockTimeout`."""
 
-    def __init__(self, path: Path, timeout: Optional[float] = None, cancel: Optional[threading.Event] = None,
-                 poll: float = 0.2):
+    def __init__(
+            self, path: Path, timeout: Optional[float] = None,
+            cancel: Optional[threading.Event] = None, poll: float = 0.2):
         self.path, self.timeout, self.cancel, self.poll = Path(path), timeout, cancel, poll
         self._file = None
 
@@ -48,8 +49,9 @@ class FileLock:
         self._file = open(self.path, "a+b")
         deadline = None if self.timeout is None else time.monotonic() + self.timeout
         while not self._try():
-            if (deadline is not None and time.monotonic() >= deadline) or (self.cancel is not None
-                                                                            and self.cancel.is_set()):
+            if (deadline is not None
+                    and time.monotonic() >= deadline) or (self.cancel is not None
+                                                          and self.cancel.is_set()):
                 self._file.close()
                 self._file = None
                 raise LockTimeout(str(self.path))

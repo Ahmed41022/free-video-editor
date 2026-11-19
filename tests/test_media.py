@@ -6,11 +6,7 @@ from pathlib import Path
 
 from video_converter.core import find_ffmpeg, probe_media
 from video_converter.media import (
-    THUMBNAILS_PER_RUN,
-    extract_thumbnails,
-    extract_waveform,
-    peaks,
-    thumbnail_times,
+    THUMBNAILS_PER_RUN, extract_thumbnails, extract_waveform, peaks, thumbnail_times,
     waveform_sample_rate,
 )
 
@@ -19,8 +15,10 @@ FFMPEG = find_ffmpeg()
 
 def make_clip(ffmpeg, path, seconds=3, audio="sine", size="320x180"):
     """A short video; `audio` is "sine", "silence" or None (no audio track)."""
-    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-           "-f", "lavfi", "-i", f"testsrc2=duration={seconds}:size={size}:rate=10"]
+    cmd = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+        f"testsrc2=duration={seconds}:size={size}:rate=10"
+    ]
     if audio == "sine":
         cmd += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", "-c:a", "aac"]
     elif audio == "silence":
@@ -30,6 +28,7 @@ def make_clip(ffmpeg, path, seconds=3, audio="sine", size="320x180"):
 
 
 class ThumbnailTimesTests(unittest.TestCase):
+
     def test_count_and_spacing(self):
         times = thumbnail_times(12.0, 4)
         self.assertEqual(len(times), 4)
@@ -56,11 +55,12 @@ class ThumbnailTimesTests(unittest.TestCase):
 
 
 class WaveformSampleRateTests(unittest.TestCase):
+
     def test_clamped_to_range(self):
-        self.assertEqual(waveform_sample_rate(100000.0, 600), 100)      # long video: floor
-        self.assertEqual(waveform_sample_rate(0.1, 600), 8000)          # short video: ceiling
-        self.assertEqual(waveform_sample_rate(10.0, 600), 8000)         # 12000 -> 8000
-        self.assertEqual(waveform_sample_rate(600.0, 600), 200)         # exactly in range
+        self.assertEqual(waveform_sample_rate(100000.0, 600), 100)  # long video: floor
+        self.assertEqual(waveform_sample_rate(0.1, 600), 8000)  # short video: ceiling
+        self.assertEqual(waveform_sample_rate(10.0, 600), 8000)  # 12000 -> 8000
+        self.assertEqual(waveform_sample_rate(600.0, 600), 200)  # exactly in range
 
     def test_missing_or_bad_duration_uses_the_maximum(self):
         for duration in (None, 0, 0.0, -5.0):
@@ -81,6 +81,7 @@ class WaveformSampleRateTests(unittest.TestCase):
 
 
 class PeaksTests(unittest.TestCase):
+
     def test_number_of_buckets_and_range(self):
         samples = array("h", [(i * 7919) % 65536 - 32768 for i in range(10_000)])
         for buckets in (1, 3, 600, 9_999, 10_000):
@@ -138,11 +139,13 @@ class PeaksTests(unittest.TestCase):
         self.assertEqual(peaks([1, 2, 3], -4), [])
 
     def test_accepts_lists_and_arrays(self):
-        self.assertEqual(peaks([100, 200, 300, 400], 2), peaks(array("h", [100, 200, 300, 400]), 2))
+        self.assertEqual(
+            peaks([100, 200, 300, 400], 2), peaks(array("h", [100, 200, 300, 400]), 2))
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class FfmpegMediaTests(unittest.TestCase):
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -170,7 +173,8 @@ class FfmpegMediaTests(unittest.TestCase):
                 for path in paths:
                     self.assertTrue(path.is_file())
                     self.assertEqual(path.suffix, ".jpg")
-                    self.assertEqual(path.read_bytes()[:2], b"\xff\xd8")     # JPEG start-of-image marker
+                    self.assertEqual(
+                        path.read_bytes()[:2], b"\xff\xd8")  # JPEG start-of-image marker
                     info = probe_media(FFMPEG, path)
                     self.assertEqual(info.height, height)
                     self.assertEqual(info.width, round(height * 320 / 180 / 2) * 2)
@@ -211,7 +215,8 @@ class FfmpegMediaTests(unittest.TestCase):
         self.assertEqual(extract_thumbnails(FFMPEG, self.tone, out, 3.0, count=0), [])
 
     def test_missing_source_gives_no_thumbnails(self):
-        self.assertEqual(extract_thumbnails(FFMPEG, self.tmp / "nope.mp4", self.tmp / "none", 3.0, count=3), [])
+        self.assertEqual(
+            extract_thumbnails(FFMPEG, self.tmp / "nope.mp4", self.tmp / "none", 3.0, count=3), [])
 
     # ----- waveform -------------------------------------------------------------
 
