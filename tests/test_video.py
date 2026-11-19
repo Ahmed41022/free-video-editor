@@ -65,7 +65,7 @@ class MediaInfoParsingTests(unittest.TestCase):
       Side data:
         displaymatrix: rotation of -90.00 degrees
   Stream #0:1[0x2](und): Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s
-"""
+"""  # noqa: E501
 
     def test_reads_rotated_phone_video_as_portrait(self):
         info = parse_media_info(self.SAMPLE)
@@ -939,7 +939,10 @@ class JoinExportTests(unittest.TestCase):
         # frame.
         first = raw_gray(output, 0.5)
         second = raw_gray(output, 3.0)
-        columns = lambda frame, x: [frame[y * 16 + x] for y in range(9)]
+
+        def columns(frame, x):
+            return [frame[y * 16 + x] for y in range(9)]
+
         self.assertLess(brightness(columns(second, 0)), 25)
         self.assertLess(brightness(columns(second, 15)), 25)
         self.assertGreater(brightness(columns(first, 0)) + brightness(columns(first, 15)), 40)

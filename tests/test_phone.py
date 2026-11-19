@@ -3,7 +3,6 @@ preset."""
 
 import io
 import json
-import re
 import subprocess
 import tempfile
 import unittest

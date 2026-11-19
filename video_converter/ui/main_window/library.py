@@ -181,7 +181,9 @@ class LibraryMixin:
             info = item.info
             size = f"{info.width}×{info.height}" if info.has_video else tr("audio only")
             meta = join_parts([format_time(info.duration or 0), size])
-        return f"{isolate(item.path.name)}\n{meta}\n{describe(item.settings, item.info.duration if item.info else None)}"
+        return (
+            f"{isolate(item.path.name)}\n{meta}\n"
+            f"{describe(item.settings, item.info.duration if item.info else None)}")
 
     def _show_item_text(self, item: MediaItem) -> None:
         # The summary line is often cut short in the list, so the tooltip repeats it in full.

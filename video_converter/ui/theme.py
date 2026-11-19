@@ -81,23 +81,25 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
         QMainWindow, QDialog {{ background: {c['window']}; }}
         QToolBar {{ background: {c['panel']}; border: none; border-bottom: 1px solid {c['border']};
                     padding: 4px; spacing: 4px; }}
-        QMenuBar {{ background: {c['panel']}; color: {c['text']}; border-bottom: 1px solid {c['border']}; }}
+        QMenuBar {{ background: {c['panel']}; color: {c['text']};
+                    border-bottom: 1px solid {c['border']}; }}
         QMenuBar::item {{ background: transparent; padding: 4px 10px; border-radius: 4px; }}
         QMenuBar::item:selected {{ background: {c['raised']}; }}
-        QToolButton {{ border: 1px solid transparent; border-radius: 6px; padding: 5px 8px; color: {c['text']}; }}
+        QToolButton {{ border: 1px solid transparent; border-radius: 6px; padding: 5px 8px;
+                       color: {c['text']}; }}
         QToolButton:hover {{ background: {c['raised']}; border-color: {c['border']}; }}
         QToolButton:checked {{ background: {c['selection']}; border-color: {c['accent']}; }}
         QToolButton:disabled {{ color: {c['muted']}; }}
-        QPushButton {{ background: {c['raised']}; border: 1px solid {c['border']}; border-radius: 6px;
-                       padding: 5px 12px; color: {c['text']}; }}
+        QPushButton {{ background: {c['raised']}; border: 1px solid {c['border']};
+                       border-radius: 6px; padding: 5px 12px; color: {c['text']}; }}
         QPushButton:hover {{ border-color: {c['accent']}; }}
         QPushButton:checked {{ background: {c['selection']}; border-color: {c['accent']}; }}
         QPushButton:disabled {{ color: {c['muted']}; }}
-        QPushButton#primary {{ background: {c['accent']}; border-color: {c['accent']}; color: {c['accent_text']};
-                               font-weight: 600; padding: 6px 16px; }}
+        QPushButton#primary {{ background: {c['accent']}; border-color: {c['accent']};
+                               color: {c['accent_text']}; font-weight: 600; padding: 6px 16px; }}
         QPushButton#primary:hover {{ background: {QColor(c['accent']).lighter(112).name()}; }}
-        QLineEdit, QComboBox {{ background: {c['base']}; border: 1px solid {c['border']}; border-radius: 6px;
-                                padding: 4px 8px; color: {c['text']}; }}
+        QLineEdit, QComboBox {{ background: {c['base']}; border: 1px solid {c['border']};
+                                border-radius: 6px; padding: 4px 8px; color: {c['text']}; }}
         QLineEdit:focus, QComboBox:focus {{ border-color: {c['accent']}; }}
         QComboBox QAbstractItemView {{ background: {c['raised']}; border: 1px solid {c['border']};
                                         selection-background-color: {c['selection']}; }}
@@ -114,17 +116,20 @@ def apply_theme(app: QApplication, mode: str = "system") -> str:
         QProgressBar::chunk {{ background: {c['accent']}; border-radius: 3px; }}
         QSlider::groove:horizontal {{ height: 4px; background: {c['track']}; border-radius: 2px; }}
         QSlider::sub-page:horizontal {{ background: {c['accent']}; border-radius: 2px; }}
-        QSlider::handle:horizontal {{ background: {c['text']}; width: 14px; height: 14px; margin: -5px 0;
-                                      border-radius: 7px; }}
-        QStatusBar {{ background: {c['panel']}; border-top: 1px solid {c['border']}; color: {c['muted']}; }}
+        QSlider::handle:horizontal {{ background: {c['text']}; width: 14px; height: 14px;
+                                      margin: -5px 0; border-radius: 7px; }}
+        QStatusBar {{ background: {c['panel']}; border-top: 1px solid {c['border']};
+                      color: {c['muted']}; }}
         QLabel#muted {{ color: {c['muted']}; }}
         QLabel#heading {{ font-weight: 600; }}
         QLabel#error {{ color: {c['danger']}; }}
-        QFrame#section {{ background: {c['panel']}; border: 1px solid {c['border']}; border-radius: 8px; }}
+        QFrame#section {{ background: {c['panel']}; border: 1px solid {c['border']};
+                          border-radius: 8px; }}
         QFrame#panel {{ background: {c['panel']}; }}
-        QToolButton#sectionHeader {{ font-weight: 600; border: none; padding: 6px 4px; text-align: left; }}
-        QToolButton#sectionHeader:hover, QToolButton#sectionHeader:checked {{ background: transparent;
-                                                                         border: none; }}
+        QToolButton#sectionHeader {{ font-weight: 600; border: none; padding: 6px 4px;
+                                     text-align: left; }}
+        QToolButton#sectionHeader:hover, QToolButton#sectionHeader:checked {{
+            background: transparent; border: none; }}
         QPushButton#chip {{ padding: 4px 6px; }}
         QCheckBox {{ spacing: 6px; }}
     """

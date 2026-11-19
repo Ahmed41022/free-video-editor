@@ -20,14 +20,14 @@ try:
     from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
     from PySide6.QtGui import QWheelEvent
     from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication, QCheckBox, QInputDialog, QMenu, QMessageBox
+    from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from video_converter.core import find_ffmpeg
-from video_converter.project import OUTPUT_AUDIO, OUTPUT_VIDEO
+from video_converter.core import find_ffmpeg  # noqa: E402
+from video_converter.project import OUTPUT_AUDIO, OUTPUT_VIDEO  # noqa: E402
 
-from tests.test_ui import make_video, pump
+from tests.test_ui import make_video, pump  # noqa: E402
 
 FFMPEG = find_ffmpeg()
 TIMEOUT = 30

@@ -30,10 +30,10 @@ try:
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from video_converter import decoding, media, tempclean
-from video_converter.core import ConversionCancelled, MediaInfo, find_ffmpeg
-from video_converter.locks import FileLock, LockTimeout
-from video_converter.procs import DaemonPool, ProcessRegistry, run_tracked
+from video_converter import decoding, media, tempclean  # noqa: E402
+from video_converter.core import ConversionCancelled, MediaInfo, find_ffmpeg  # noqa: E402
+from video_converter.locks import FileLock, LockTimeout  # noqa: E402
+from video_converter.procs import DaemonPool, ProcessRegistry, run_tracked  # noqa: E402
 
 FFMPEG = find_ffmpeg()
 TIMEOUT = 30

@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QGridLayout, QLabel, QProgressBar,
     QVBoxLayout, QWidget,
@@ -100,8 +100,8 @@ class AutoCaptionsDialog(QDialog):
             tr(
                 "Write the captions in English, whatever language is spoken. The Balanced and "
                 "Accurate levels translate much better than Fast."))
-        for n, (label, widget) in enumerate(
-            ((tr("Language"), self.language_box), (tr("Accuracy"), self.model_box))):
+        choices = ((tr("Language"), self.language_box), (tr("Accuracy"), self.model_box))
+        for n, (label, widget) in enumerate(choices):
             text = QLabel(label)
             text.setObjectName("muted")
             grid.addWidget(text, n, 0)

@@ -200,8 +200,8 @@ def master_filters(
     if current and sound.normalize and (measure or loudness is not None):
         # The measuring pass is thrown away; the real one ends with the limiter (see LIMITER).
         steps.append(
-            f"{current}{loudnorm(None if measure else loudness)}{'' if measure else ',' + LIMITER}{out}"
-        )
+            f"{current}{loudnorm(None if measure else loudness)}"
+            f"{'' if measure else ',' + LIMITER}{out}")
     elif current and current != out:
         steps.append(f"{current}{LIMITER if music is not None else 'anull'}{out}")
     return steps

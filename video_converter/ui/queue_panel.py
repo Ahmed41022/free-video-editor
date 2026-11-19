@@ -81,7 +81,9 @@ class JobRow(QFrame):
         if i18n.is_rtl():
             # A title that starts with Latin letters and a status in Arabic must line up on the
             # same edge.
-            side = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignAbsolute | Qt.AlignmentFlag.AlignVCenter
+            side = (
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignAbsolute
+                | Qt.AlignmentFlag.AlignVCenter)
             self.title.setAlignment(side)
             self.status.setAlignment(side)
         text.addWidget(self.title)

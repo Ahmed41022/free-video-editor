@@ -281,8 +281,9 @@ def apply_preset(
 
 
 def output_file_for(
-    source: Path, settings: ClipSettings, output_dir: Optional[Path] = None, joined: bool = False,
-    avoid: Iterable[Path] = ()) -> Path:
+        source: Path, settings: ClipSettings, output_dir: Optional[Path] = None,
+        joined: bool = False, avoid: Iterable[Path] = (),
+) -> Path:
     """Where an export of `source` with `settings` should go (never an existing file, nor `source`
     or any of the other files in `avoid`, such as the rest of a joined export's clips). A `joined`
     export, named after its first clip, is "name (joined).mp4" or ".mp3". The extension follows the

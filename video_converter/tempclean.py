@@ -89,8 +89,9 @@ def _last_touched(folder: Path) -> float:
 
 
 def sweep_stale(
-    root: Optional[Path] = None, max_age: float = MAX_AGE, now: Optional[float] = None,
-    keep: Iterable[Path] = ()) -> list[Path]:
+        root: Optional[Path] = None, max_age: float = MAX_AGE, now: Optional[float] = None,
+        keep: Iterable[Path] = (),
+) -> list[Path]:
     """Delete the editor's leftover folders in `root` (the temp folder) that are older than
     `max_age` seconds and that no running copy uses. Best effort: whatever can't be deleted is
     left. Returns the folders removed."""

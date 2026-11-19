@@ -69,9 +69,10 @@ CLAUSE_END = ",;:،؛、，；："
 SAMPLE_RATE = 16000
 
 # Phases reported while working.
-PREPARING, DOWNLOADING, LOADING, LISTENING, WAITING = "prepare", "download", "load", "listen", "wait"
-Progress = Callable[[str, float, str],
-                    None]  # (phase, how far through that phase 0..1, a few words)
+PREPARING, DOWNLOADING, LOADING, LISTENING, WAITING = (
+    "prepare", "download", "load", "listen", "wait")
+# (phase, how far through that phase 0..1, a few words)
+Progress = Callable[[str, float, str], None]
 
 
 @dataclass

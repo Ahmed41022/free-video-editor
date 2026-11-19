@@ -124,7 +124,7 @@ class RequestTests(NoNetworkTestCase):
     def test_the_address_is_this_projects_repository(self):
         self.assertEqual(
             updates.API_URL,
-            f"https://api.github.com/repos/Ahmed41022/free-video-editor/releases/latest")
+            "https://api.github.com/repos/Ahmed41022/free-video-editor/releases/latest")
         self.assertTrue(REPO_URL.endswith("Ahmed41022/free-video-editor"))
 
     def test_an_answer_that_is_not_json_or_not_a_release_is_an_error(self):
@@ -204,8 +204,10 @@ class CheckTests(NoNetworkTestCase):
     def test_it_asks_at_most_once_a_day(self):
         self.assertIsNotNone(self.check())
         self.assertEqual(self.store.get(updates.LAST_CHECK_KEY, None), self.NOW)
-        later = lambda seconds: updates.check_for_update(
-            self.store, self.fetch(), now=self.NOW + seconds)
+
+        def later(seconds):
+            return updates.check_for_update(self.store, self.fetch(), now=self.NOW + seconds)
+
         self.assertIsNone(later(60))
         self.assertIsNone(later(23 * 3600))
         self.assertEqual(self.calls, 1)  # neither of those asked

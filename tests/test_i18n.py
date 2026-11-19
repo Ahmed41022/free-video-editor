@@ -38,9 +38,9 @@ try:
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from video_converter import APP_NAME, diagnostics, i18n
-from video_converter.core import find_ffmpeg
-from video_converter.i18n import N_, ntr, plural_category, tr
+from video_converter import APP_NAME, diagnostics, i18n  # noqa: E402
+from video_converter.core import find_ffmpeg  # noqa: E402
+from video_converter.i18n import N_, ntr, plural_category, tr  # noqa: E402
 
 FFMPEG = find_ffmpeg()
 PACKAGE = Path(__file__).resolve().parent.parent / "video_converter"
@@ -490,7 +490,7 @@ class MessageTests(unittest.TestCase):
         self.addCleanup(i18n.set_language, "en")
 
     def messages(self):
-        from video_converter import core, gpu, output, silence, timing, video
+        from video_converter import core, gpu, output, silence, video
         from video_converter.core import MediaInfo
         from video_converter.jobs import Job, JobState
         from video_converter.project import ClipSettings, describe, describe_join
@@ -503,7 +503,7 @@ class MessageTests(unittest.TestCase):
         edit.logo.file = "logo.png"
         edit.subtitles.file = "a.srt"
         info = MediaInfo(duration=10.0, width=1920, height=1080, fps=120.0)
-        job = Job(Path("clip.mp4"), ClipSettings(edit=edit), None, info)
+        Job(Path("clip.mp4"), ClipSettings(edit=edit), None, info)
         plan = silence.SilencePlan([(0, 2)], [(2, 3), (4, 5)], 10.0, 8.0)
 
         def raised(function, *args):
@@ -1063,7 +1063,10 @@ class RightToLeftTests(WindowCase):
     def test_the_panels_are_mirrored(self):
         window = self.new_window("ar")
         pump(0.5)
-        center = lambda w: w.mapTo(window, w.rect().center()).x()
+
+        def center(w):
+            return w.mapTo(window, w.rect().center()).x()
+
         # the file list is on the right and the settings are on the left
         self.assertGreater(center(window.media_list), center(window.inspector))
         # inside a section the label is at the right of its control
@@ -1081,7 +1084,10 @@ class RightToLeftTests(WindowCase):
     def test_english_keeps_the_usual_order(self):
         window = self.new_window("en")
         pump(0.5)
-        center = lambda w: w.mapTo(window, w.rect().center()).x()
+
+        def center(w):
+            return w.mapTo(window, w.rect().center()).x()
+
         self.assertLess(center(window.media_list), center(window.inspector))
         section = window.inspector.frame_section
         label, control = section.grid.itemAtPosition(2, 0).widget(), section.grid.itemAtPosition(

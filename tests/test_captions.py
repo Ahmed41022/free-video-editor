@@ -1543,7 +1543,7 @@ class CommandLineTests(unittest.TestCase):
     def test_options_that_make_no_sense_together_are_refused(self):
         logo = self.tmp / "red.png"
         srt = self.tmp / "s.srt"
-        for args in (
+        cases = (
             ("--text", "x"),  # no --video
             ("--video", "original", "--text-end", "3"),  # no --text
             ("--video", "original", "--text", "x", "--text-start", "3", "--text-end", "2"),
@@ -1554,7 +1554,8 @@ class CommandLineTests(unittest.TestCase):
             ("--video", "original", "--logo", str(logo), "--logo-pos", "middle"),
             ("--video", "original", "--logo", str(logo), "--logo-size", "9"),
             ("--video", "original", "--subtitle-size", "0.1"),
-            ("--subtitles", str(srt))):
+            ("--subtitles", str(srt)))
+        for args in cases:
             with self.subTest(args=args):
                 code, err = self.run_cli(*args)
                 self.assertEqual(code, 2)
@@ -2247,7 +2248,7 @@ class SpanMapperTests(unittest.TestCase):
         rng = random.Random(7)
         for case in range(60):
             cuts = sorted(rng.uniform(0, 100) for _ in range(rng.randint(0, 12)))
-            segments, at = [], 0.0
+            segments = []
             for i in range(0, len(cuts) - 1, 2):
                 segments.append((cuts[i], cuts[i + 1]))
             if case % 3 == 0:

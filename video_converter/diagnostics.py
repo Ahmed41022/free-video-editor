@@ -226,7 +226,9 @@ def issue_url(system: list[str], log_lines: list[str], limit: int = URL_LIMIT) -
     lines are left out as needed to keep the link under `limit` characters."""
 
     def build(lines: list[str], details: list[str]) -> str:
-        return f"{ISSUES_URL}?title={quote(REPORT_TITLE, safe='')}&body={quote(report_body(details, lines), safe='')}"
+        return (
+            f"{ISSUES_URL}?title={quote(REPORT_TITLE, safe='')}"
+            f"&body={quote(report_body(details, lines), safe='')}")
 
     lines, details = list(log_lines), list(system)
     url = build(lines, details)

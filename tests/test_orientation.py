@@ -14,7 +14,7 @@ def stream_text(rotation_line: str, size: str = "1920x1080") -> str:
   Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p, {size} [SAR 1:1 DAR 16:9], 30 fps
 {rotation_line}
   Stream #0:1[0x2](und): Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s
-"""
+"""  # noqa: E501
 
 
 class RotationParsingTests(unittest.TestCase):
@@ -89,7 +89,7 @@ class RotationParsingTests(unittest.TestCase):
   Stream #0:2[0x3](und): Video: mjpeg, yuvj420p, 600x600, 90k tbr
       Side data:
         displaymatrix: rotation of -90.00 degrees
-"""
+"""  # noqa: E501
         info = parse_media_info(text)
         self.assertEqual(info.display_rotation, 0)
         self.assertEqual((info.width, info.height), (1920, 1080))

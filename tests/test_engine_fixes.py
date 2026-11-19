@@ -4,8 +4,6 @@ files, stopping ffmpeg, the limiter, noise reduction, cuts, trims and the rest. 
 before its fix."""
 
 import io
-import math
-import os
 import re
 import subprocess
 import sys
@@ -28,10 +26,10 @@ from video_converter.core import (
 )
 from video_converter.sound import Sound
 from video_converter.stills import save_frame
-from video_converter.timing import audio_filters, snap_segments
+from video_converter.timing import audio_filters
 from video_converter.video import (
     UP_TO_1080, JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, join_clips, join_command,
-    reverse_memory, steady_rate, video_command,
+    reverse_memory, video_command,
 )
 
 FFMPEG = find_ffmpeg()
@@ -433,7 +431,6 @@ class LongGraphTests(unittest.TestCase):
         long_graph = [FFMPEG, "-i", "in.mp4", "-filter_complex", "null;" * 1000, "out.mp4"]
         self.assertTrue(core.has_long_graph(long_graph))
         with core.graph_files(long_graph) as run_cmd:
-            flag = run_cmd.index(run_cmd[3])
             self.assertIn(run_cmd[3], ("-/filter_complex", "-filter_complex_script"))
             self.assertEqual(Path(run_cmd[4]).read_text(encoding="utf-8"), "null;" * 1000)
             self.assertLess(len(subprocess.list2cmdline(run_cmd)), 500)

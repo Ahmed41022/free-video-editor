@@ -24,10 +24,10 @@ try:
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from video_converter.captions import Logo, Subtitles, TextItem
-from video_converter.core import find_ffmpeg
-from video_converter.project import OUTPUT_AUDIO, ClipSettings
-from video_converter.video import VideoEdit
+from video_converter.captions import Logo, Subtitles, TextItem  # noqa: E402
+from video_converter.core import find_ffmpeg  # noqa: E402
+from video_converter.project import OUTPUT_AUDIO, ClipSettings  # noqa: E402
+from video_converter.video import VideoEdit  # noqa: E402
 
 FFMPEG = find_ffmpeg()
 TIMEOUT = 30

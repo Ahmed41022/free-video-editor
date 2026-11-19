@@ -2,14 +2,12 @@
 frame."""
 
 import io
-import os
 import re
 import subprocess
 import tempfile
 import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from fractions import Fraction
 from pathlib import Path
 from unittest import mock
 
@@ -19,7 +17,7 @@ from video_converter.core import (
     ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, probe_media,
 )
 from video_converter.core.probe import _ffmpeg_info_text
-from video_converter.jobs import Job, JobState, run_job
+from video_converter.jobs import Job, run_job
 from video_converter.output import MB, OUTPUT_FORMATS, SizeFit
 from video_converter.project import (
     OUTPUT_AUDIO, PRESETS, ClipSettings, apply_preset, describe, output_file_for,
@@ -27,7 +25,7 @@ from video_converter.project import (
 from video_converter.stills import save_frame
 from video_converter.video import (
     JoinJob, JoinPart, VideoEdit, VideoJob, convert_video, edit_fit, fit_summary, format_warning,
-    join_clips, output_tag, plan_geometry, render_frame, video_command, video_codec_args,
+    join_clips, output_tag, plan_geometry, render_frame, video_command,
 )
 
 FFMPEG = find_ffmpeg()
@@ -1373,9 +1371,11 @@ class CommandLineSettingsTests(unittest.TestCase):
         jobs = []
         info = MediaInfo(duration=20.0, width=1280, height=720, has_audio=True, fps=30.0)
         with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
-                mock.patch.object(cli, "choose_encoder", return_value=None) as choose, \
+                mock.patch.object(cli, "choose_encoder", return_value=None), \
                 mock.patch.object(cli, "probe_media", return_value=info), \
-                mock.patch.object(cli, "convert_video", side_effect=lambda ffmpeg, job, **k: jobs.append(job) or job.output):
+                mock.patch.object(
+                    cli, "convert_video",
+                    side_effect=lambda ffmpeg, job, **k: jobs.append(job) or job.output):
             code, out, err = run(self.clip, *args)
         return code, jobs, err
 
@@ -1438,7 +1438,9 @@ class CommandLineSettingsTests(unittest.TestCase):
         with mock.patch.object(cli, "find_ffmpeg", return_value="ffmpeg"), \
                 mock.patch.object(cli, "choose_encoder", return_value=None), \
                 mock.patch.object(cli, "probe_media", return_value=info), \
-                mock.patch.object(cli, "join_clips", side_effect=lambda ffmpeg, job, **k: jobs.append(job) or job.output):
+                mock.patch.object(
+                    cli, "join_clips",
+                    side_effect=lambda ffmpeg, job, **k: jobs.append(job) or job.output):
             code, out, err = run(
                 self.clip, other, "--join", "--video", "original", "--format", "webm")
         self.assertEqual(code, 0, err)

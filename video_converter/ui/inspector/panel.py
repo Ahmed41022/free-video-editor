@@ -90,8 +90,8 @@ class Inspector(ShowingMixin, EditingMixin, QScrollArea):
         self.output_section = Section(tr("Output"))
         out_row = QHBoxLayout()
         self.output_group = QButtonGroup(self)
-        for i, (text, value) in enumerate(
-            ((N_("Video"), OUTPUT_VIDEO), (N_("Audio (MP3)"), OUTPUT_AUDIO))):
+        outputs = ((N_("Video"), OUTPUT_VIDEO), (N_("Audio (MP3)"), OUTPUT_AUDIO))
+        for i, (text, value) in enumerate(outputs):
             button = QPushButton(tr(text))
             button.setCheckable(True)
             button.setProperty("value", value)

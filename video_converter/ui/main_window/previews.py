@@ -85,7 +85,8 @@ class PreviewsMixin:
             pass
 
     def _on_still_ready(self, item: MediaItem, image: QImage) -> None:
-        if self.closed or item is not self.current or self.player.source is not None or self.view.raw is not None:
+        if (self.closed or item is not self.current or self.player.source is not None
+                or self.view.raw is not None):
             return
         self.view.set_frame(image, True)  # ffmpeg turned it upright already
 

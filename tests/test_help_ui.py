@@ -21,10 +21,10 @@ try:
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from video_converter import APP_NAME, REPO_URL, __version__, diagnostics, gpu
-from video_converter.core import find_ffmpeg
-from video_converter.jobs import Job, JobState
-from video_converter.project import ClipSettings
+from video_converter import APP_NAME, REPO_URL, __version__, diagnostics, gpu  # noqa: E402
+from video_converter.core import find_ffmpeg  # noqa: E402
+from video_converter.jobs import Job, JobState  # noqa: E402
+from video_converter.project import ClipSettings  # noqa: E402
 
 FFMPEG = find_ffmpeg()
 
@@ -173,8 +173,8 @@ class FailedExportDetailsTests(unittest.TestCase):
             "Saved as clip (phone).mp4 · Exported on the CPU because the graphics card failed")
         job.note = ""
         self.assertEqual(status_text(job), "Saved as clip (phone).mp4")
-        job.state, job.note, job.started_at = JobState.RUNNING, gpu.CPU_FALLBACK_NOTE, time.monotonic(
-        )
+        job.state, job.note, job.started_at = (
+            JobState.RUNNING, gpu.CPU_FALLBACK_NOTE, time.monotonic())
         self.assertIn("trying the CPU", status_text(job))
 
 

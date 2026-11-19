@@ -19,16 +19,16 @@ os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia*=false")
 
 try:
     import shiboken6
-    from PySide6.QtCore import QEvent, QSettings, Qt
+    from PySide6.QtCore import QEvent, QSettings
     from PySide6.QtWidgets import QApplication, QDialog
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from tests.test_speech_models import FILES, tiny_model
-from video_converter import autocaptions as ac
-from video_converter import speech_models as sm
-from video_converter.captions import Cue, format_srt, parse_cues, read_text
-from video_converter.core import ConversionError, find_ffmpeg
+from tests.test_speech_models import FILES, tiny_model  # noqa: E402
+from video_converter import autocaptions as ac  # noqa: E402
+from video_converter import speech_models as sm  # noqa: E402
+from video_converter.captions import Cue, format_srt, parse_cues, read_text  # noqa: E402
+from video_converter.core import ConversionError, find_ffmpeg  # noqa: E402
 
 FFMPEG = find_ffmpeg()
 TIMEOUT = 30

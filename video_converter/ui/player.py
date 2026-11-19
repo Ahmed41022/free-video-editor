@@ -381,7 +381,8 @@ class VideoView(QWidget):
     def set_orientation(self, display_rotation: int, user_rotate: int, mirror: bool) -> None:
         if (display_rotation, user_rotate, mirror) != (self.display_rotation, self.user_rotate,
                                                        self.mirror):
-            self.display_rotation, self.user_rotate, self.mirror = display_rotation, user_rotate, mirror
+            self.display_rotation, self.user_rotate, self.mirror = (
+                display_rotation, user_rotate, mirror)
             self._image = None
             self.update()
 

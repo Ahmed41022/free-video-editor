@@ -24,11 +24,11 @@ try:
 except ImportError:  # pragma: no cover - depends on the environment
     QApplication = None
 
-from video_converter import proxy
-from video_converter.core import (
+from video_converter import proxy  # noqa: E402
+from video_converter.core import (  # noqa: E402
     ConversionCancelled, ConversionError, MediaInfo, find_ffmpeg, parse_media_info, probe_media,
 )
-from video_converter.proxy import ProxyMaker, needs_proxy, proxy_command, proxy_size
+from video_converter.proxy import ProxyMaker, needs_proxy, proxy_command, proxy_size  # noqa: E402
 
 FFMPEG = find_ffmpeg()
 TIMEOUT = 30
