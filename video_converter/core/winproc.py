@@ -16,7 +16,10 @@ if sys.platform == "win32":
     _KILL_ON_JOB_CLOSE = 0x2000
     _BASIC_ACCOUNTING = 1  # JobObjectBasicAccountingInformation
     _EXTENDED_LIMITS = 9  # JobObjectExtendedLimitInformation
+    _PID_LIST = 3  # JobObjectBasicProcessIdList
     _PROCESS_SET_QUOTA, _PROCESS_TERMINATE = 0x0100, 0x0001
+    _PROCESS_SUSPEND_RESUME = 0x0800
+    _PID_SLOTS = 64  # more processes than an ffmpeg and its launchers will ever be
 
     class _BasicLimits(ctypes.Structure):
         _fields_ = [
@@ -50,7 +53,19 @@ if sys.platform == "win32":
             ("TotalTerminatedProcesses", wintypes.DWORD)
         ]
 
+    class _PidList(ctypes.Structure):
+        _fields_ = [
+            ("NumberOfAssignedProcesses", wintypes.DWORD),
+            ("NumberOfProcessIdsInList", wintypes.DWORD),
+            ("ProcessIdList", ctypes.c_size_t * _PID_SLOTS)
+        ]
+
     _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _ntdll = ctypes.WinDLL("ntdll")
+    _ntdll.NtSuspendProcess.argtypes = [wintypes.HANDLE]
+    _ntdll.NtSuspendProcess.restype = ctypes.c_long
+    _ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+    _ntdll.NtResumeProcess.restype = ctypes.c_long
     _k32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
     _k32.CreateJobObjectW.restype = wintypes.HANDLE
     _k32.SetInformationJobObject.argtypes = [
@@ -71,6 +86,33 @@ if sys.platform == "win32":
     _k32.CloseHandle.restype = wintypes.BOOL
 
 
+def suspend_processes(pids: list[int]) -> list[int]:
+    """Freeze the processes with these ids. Returns the handles of the ones that are frozen, to
+    hand to `resume_processes` (a handle keeps its process from being replaced by another with the
+    same id). Empty where this isn't Windows."""
+    held: list[int] = []
+    if sys.platform != "win32":
+        return held
+    for pid in pids:
+        handle = _k32.OpenProcess(_PROCESS_SUSPEND_RESUME, False, pid)
+        if not handle:
+            continue
+        if _ntdll.NtSuspendProcess(handle) == 0:
+            held.append(handle)
+        else:
+            _k32.CloseHandle(handle)
+    return held
+
+
+def resume_processes(held: list[int]) -> None:
+    """Let the processes frozen by `suspend_processes` run again."""
+    if sys.platform != "win32":
+        return
+    for handle in held:
+        _ntdll.NtResumeProcess(handle)
+        _k32.CloseHandle(handle)
+
+
 class ProcessJob:
     """A Windows job object that holds an ffmpeg and everything it starts. Ending the job ends them
     all at once (no walking the tree with taskkill, which takes a second or two), and Windows ends
@@ -79,6 +121,7 @@ class ProcessJob:
 
     def __init__(self, handle: int):
         self._handle: Optional[int] = handle
+        self._frozen: list[int] = []
 
     @classmethod
     def create(cls) -> Optional["ProcessJob"]:
@@ -113,6 +156,31 @@ class ProcessJob:
         finally:
             _k32.CloseHandle(process)
 
+    def pids(self) -> list[int]:
+        """The ids of the processes in the job now: the ffmpeg, and a launcher in front of it."""
+        if self._handle is None:
+            return []
+        info = _PidList()
+        if not _k32.QueryInformationJobObject(self._handle, _PID_LIST, ctypes.byref(info),
+                                              ctypes.sizeof(info), None):
+            return []
+        return list(info.ProcessIdList[:info.NumberOfProcessIdsInList])
+
+    def suspend(self) -> bool:
+        """Freeze every process in the job (they stay in memory and use no processor time until
+        `resume`). False when nothing could be frozen."""
+        if self._handle is None:
+            return False
+        if self._frozen:
+            return True
+        self._frozen = suspend_processes(self.pids())
+        return bool(self._frozen)
+
+    def resume(self) -> None:
+        """Let the frozen processes run again."""
+        frozen, self._frozen = self._frozen, []
+        resume_processes(frozen)
+
     def terminate(self) -> bool:
         """End everything in the job. True when Windows did it."""
         return self._handle is not None and bool(_k32.TerminateJobObject(self._handle, 1))
@@ -136,6 +204,7 @@ class ProcessJob:
             time.sleep(0.01)
 
     def close(self) -> None:
+        self.resume()  # let go of the handles held for the frozen processes
         if self._handle is not None:
             _k32.CloseHandle(self._handle)
             self._handle = None

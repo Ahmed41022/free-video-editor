@@ -44,6 +44,7 @@ class Signals(QObject):
     gpuReady = Signal(object)  # the graphics card's name, or None if there is none
     proxyProgress = Signal(object, float)  # item, how much of its smooth preview is made
     proxyDone = Signal(object, object, str)  # item, the preview copy or None, why not
+    proxyDropped = Signal(object)  # item whose paused smooth preview was given up
     frameSaved = Signal(str, str)  # where the frame was saved ("" if it wasn't), why not
     updateChecked = Signal(
         object, object)  # when the check was made (None = not), the newer release or None
@@ -92,11 +93,12 @@ class MainWindow(LayoutMixin, PreferencesMixin, LibraryMixin, SelectionMixin, Ed
         self.signals.gpuReady.connect(self._on_gpu_ready)
         self.signals.proxyProgress.connect(self._on_proxy_progress)
         self.signals.proxyDone.connect(self._on_proxy_done)
+        self.signals.proxyDropped.connect(self._on_proxy_dropped)
         self.signals.frameSaved.connect(self._on_frame_saved)
         self.signals.updateChecked.connect(self._on_update_checked)
         self.proxies = ProxyMaker(
             ffmpeg, self.tmpdir / "preview", self.signals.proxyProgress.emit,
-            self.signals.proxyDone.emit)
+            self.signals.proxyDone.emit, self.signals.proxyDropped.emit)
         self._after_token = 0
         self._after_busy = False  # a before/after picture is being rendered: at most one at a time
         self._after_again = False  # ...and another was asked for meanwhile

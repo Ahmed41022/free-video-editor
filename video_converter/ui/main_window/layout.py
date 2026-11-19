@@ -192,6 +192,15 @@ class LayoutMixin:
                 "doesn't stutter. Exports always use the original."))
         self.smooth_action.setStatusTip(self.smooth_action.toolTip())
         self.smooth_action.toggled.connect(self.set_smooth_previews)
+        self.as_is_action = view.addAction(tr("Play the selected file as it is"))
+        self.as_is_action.setCheckable(True)
+        self.as_is_action.setEnabled(False)
+        self.as_is_action.setToolTip(
+            tr(
+                "Play the original of this file, not its smooth preview. The smooth preview "
+                "being made is paused, and carries on when you turn this off."))
+        self.as_is_action.setStatusTip(self.as_is_action.toolTip())
+        self.as_is_action.toggled.connect(self._on_as_is_toggled)
         self._build_language_menu(view)
         help_menu = self.menuBar().addMenu(tr("&Help"))
         help_menu.addAction(tr("Open the log folder"), self.open_log_folder)

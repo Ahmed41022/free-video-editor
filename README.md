@@ -46,6 +46,14 @@ and so is the app: see **Arabic interface** below.
 - Join several files into one video, in list order: drag files in the list to reorder them
 - Crop box right on the video: drag it to choose what to keep, drag a corner (or scroll) to zoom
 - Before / after view that renders exactly what the export will look like, adjustments and looks included
+- **Smooth previews**: 4K and other very large or very fast videos play from a small copy that is made in the
+  background (see *Smooth previews* under **View**; exports always use the original). The copy of the file you
+  select gets the work. If you pick another file meanwhile, the copy being made is paused where it is, not
+  thrown away, and carries on when you come back or when the other copy is done (at most 3 are kept paused,
+  and one nobody comes back to is dropped after 5 minutes). To play one file as it is, tick **Play this file
+  as it is** in its right-click menu (or **View → Play the selected file as it is**): its copy is paused, and
+  carries on from there when you untick it. While a big original is playing as it is, the other paused copies
+  stay paused, so that nothing adds to the load.
 - Undo and redo for every change, dark and light themes, and drag-and-drop of files and folders
 - **Arabic interface** (واجهة عربية) from version 3.0: every menu, label, tooltip, message and dialog is in Arabic and
   the window runs right to left. It follows Windows by default (Arabic if Windows is set to Arabic, otherwise
@@ -365,7 +373,7 @@ public name is re-exported from the package's `__init__.py`, so `from video_conv
 
 | Package | What is in it |
 | --- | --- |
-| `core/` | ffmpeg plumbing: finding ffmpeg, probing a file, running a command with progress and cancel, the part file an export is written to, converting to MP3 |
+| `core/` | ffmpeg plumbing: finding ffmpeg, probing a file, running a command with progress, cancel and pause, the part file an export is written to, converting to MP3 |
 | `video/` | video exports: `VideoEdit` and its choices, the picture's geometry and filter graph, the ffmpeg command lines, fitting a file size, exporting, joining, single frames |
 | `captions/` | text, logo and subtitles drawn into the picture: settings, filter escaping, reading subtitle files in any encoding, retiming |
 | `cli/` | the command line (`python -m video_converter file.mp4 ...`); `__main__.py` only starts it or the app |

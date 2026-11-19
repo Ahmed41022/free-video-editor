@@ -30,6 +30,7 @@ class MediaItem:
     proxy: Optional[Path] = None  # the smooth preview copy, once it is ready
     proxy_progress: Optional[float] = None  # how far along the copy is, while it is being made
     proxy_failed: bool = False
+    play_original: bool = False  # play the file as it is, not its smooth copy (this file only)
     serial: int = field(
         default_factory=lambda: next(_item_numbers))  # never reused, unlike id(): names its folder
     _resolved: Optional[Path] = field(default=None, repr=False)
