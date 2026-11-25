@@ -61,7 +61,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11"
           cache: pip
@@ -133,7 +133,7 @@ jobs:
 
       - name: Sign the exes with SignPath
         if: env.SIGNING_ENABLED == 'true'
-        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        uses: signpath/github-action-submit-signing-request@a2c5b60d9c75f073142b653c354b632eedce097b # v3.2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -165,7 +165,7 @@ jobs:
 
       - name: Sign the installer with SignPath
         if: env.SIGNING_ENABLED == 'true'
-        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        uses: signpath/github-action-submit-signing-request@a2c5b60d9c75f073142b653c354b632eedce097b # v3.2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
